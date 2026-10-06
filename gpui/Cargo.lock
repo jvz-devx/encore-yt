@@ -9160,8 +9160,11 @@ dependencies = [
  "fastframe-log",
  "gpui-kit",
  "gpui-pre-reqwest-client",
+ "image",
  "log",
+ "serde_json",
  "smol",
+ "wgpu",
  "ytfast",
 ]
 

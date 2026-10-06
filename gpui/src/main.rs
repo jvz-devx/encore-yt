@@ -12,6 +12,7 @@ mod nav;
 mod pages;
 mod playback;
 mod views;
+mod visuals;
 
 use std::sync::Arc;
 

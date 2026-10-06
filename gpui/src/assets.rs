@@ -41,7 +41,15 @@ gpui_kit::assets::icon_assets!(
         Copy,
         ChevronDown,
         ListX,
-        RotateCcwClock
+        RotateCcwClock,
+        Moon,
+        SlidersVertical,
+        PictureInPicture2,
+        Maximize2,
+        Minimize2,
+        Minus,
+        Plus,
+        Check
     ]
 );
 

@@ -227,12 +227,16 @@ fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Into
             .text_right(),
         )
         .child(
-            div().flex_1().child(
-                Slider::new(&player.seek)
-                    .disabled(!known)
-                    .bg(c.signal)
-                    .text_color(c.text),
-            ),
+            div()
+                .flex_1()
+                .relative()
+                .children(super::extras::ridge(app, c, cx))
+                .child(
+                    Slider::new(&player.seek)
+                        .disabled(!known)
+                        .bg(c.signal)
+                        .text_color(c.text),
+                ),
         )
         .child(time(if known {
             clock(duration)

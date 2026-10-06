@@ -34,6 +34,11 @@ pub fn card(
                 .opacity(0.)
                 .group_hover("card", |s| s.opacity(1.)),
         )
+        .children(crate::views::extras::audition::ring(
+            item.track.as_ref(),
+            if round { radius::FULL } else { radius::MD },
+            cx,
+        ))
         .when(playable, |cover| {
             let centre = (size::CARD - size::PLAY_BUTTON) / 2.;
             cover.child(
@@ -81,6 +86,7 @@ pub fn card(
         )
         .children(subtitle)
         .on_click(on_activate(ctx, shelf, i, cx))
+        .map(|el| crate::views::extras::audition::listen(el, item.track.as_ref(), cx))
         .into_any_element()
 }
 

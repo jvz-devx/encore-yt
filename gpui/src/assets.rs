@@ -35,7 +35,12 @@ gpui_kit::assets::icon_assets!(
         CircleAlert,
         RefreshCw,
         Disc3,
-        UserRound
+        UserRound,
+        Infinity,
+        X,
+        Copy,
+        ChevronDown,
+        ListX
     ]
 );
 

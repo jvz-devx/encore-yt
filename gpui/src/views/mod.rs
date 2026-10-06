@@ -1,21 +1,46 @@
-//! The window: sidebar, page area and player bar.
+//! The window's layout. Each slot is drawn by the module that owns it:
+//!
+//! - sidebar, top bar, page (M1: `sidebar`, `top_bar`, `page`)
+//! - player bar, Up next, Now Playing, error strip (M2: `player`, `queue`,
+//!   `now_playing`)
+//! - account chip and dialogs (M3: `account`)
+//! - overlays: Play anything, shortcuts, menus (M4: `overlays`)
+//! - Stage, equalizer, sleep timer (M6: `extras`)
+//!
+//! Shared helpers for text and colours live here and in `theme`.
 
+mod account;
+mod extras;
+mod now_playing;
+mod overlays;
 mod page;
 mod player;
+mod queue;
 mod sidebar;
+mod top_bar;
 
 use gpui_kit::component::{ActiveTheme, StyledExt, h_flex, v_flex};
 use gpui_kit::*;
-use ytfast::model::{Account, Run};
+use ytfast::model::Run;
 
 use crate::app::MusicApp;
 
 pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
-    let theme = cx.theme();
+    // Stage replaces the whole window while it's open.
+    if let Some(stage) = extras::stage(app, window, cx) {
+        return stage;
+    }
+    let (background, foreground) = (cx.theme().background, cx.theme().foreground);
+    let main = if app.player.now_playing {
+        now_playing::now_playing(app, window, cx)
+    } else {
+        page::page(app, window, cx)
+    };
     v_flex()
         .size_full()
-        .bg(theme.background)
-        .text_color(theme.foreground)
+        .relative()
+        .bg(background)
+        .text_color(foreground)
         // Decoded covers stay across frames while they're on screen.
         .image_cache(retain_all("covers"))
         .child(
@@ -29,41 +54,15 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
                         .flex_1()
                         .h_full()
                         .min_w_0()
-                        .child(top_bar(app, cx))
+                        .child(top_bar::top_bar(app, window, cx))
                         .children(error_strip(app, cx))
-                        .child(page::page(app, window, cx)),
-                ),
+                        .child(main),
+                )
+                .children(queue::panel(app, window, cx)),
         )
         .child(player::player_bar(app, cx))
+        .children(overlays::overlays(app, window, cx))
         .into_any_element()
-}
-
-fn top_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
-    let theme = cx.theme();
-    let account = match &app.account {
-        Account::Checking => "Checking your account…".to_string(),
-        Account::SignedIn { name, .. } => name.clone(),
-        Account::SignedOut { .. } => "Signed out of YouTube Music".to_string(),
-        Account::Unverified { .. } => "Offline".to_string(),
-    };
-    h_flex()
-        .px_4()
-        .py_3()
-        .gap_3()
-        .items_center()
-        .child(
-            div()
-                .flex_1()
-                .max_w(px(560.))
-                .child(gpui_kit::component::input::Input::new(&app.search).cleanable(true)),
-        )
-        .child(div().flex_1())
-        .child(
-            div()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child(account),
-        )
 }
 
 fn error_strip(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<impl IntoElement> {

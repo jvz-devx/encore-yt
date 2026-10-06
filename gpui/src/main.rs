@@ -1,8 +1,13 @@
 //! ytfast-gpui: a GPUI interface on ytfast's backend. See docs/gpui/PLAN.md.
 
+mod account;
 mod app;
 mod assets;
+mod desktop;
+mod extras;
 mod nav;
+mod pages;
+mod playback;
 mod views;
 
 use std::sync::Arc;

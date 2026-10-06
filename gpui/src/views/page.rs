@@ -15,8 +15,8 @@ const CARD: f32 = 168.;
 const ROW_THUMB: f32 = 44.;
 
 pub fn page(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
-    let key = app.view.target().key();
-    let Some(state) = app.pages.get(&key) else {
+    let key = app.pages.view.target().key();
+    let Some(state) = app.pages.states.get(&key) else {
         return centered(Spinner::new().into_any_element());
     };
     let Some(page) = &state.page else {
@@ -194,6 +194,7 @@ fn on_activate(
     cx.listener(move |this, _: &ClickEvent, _, cx| {
         let found = this
             .pages
+            .states
             .get(&key)
             .and_then(|s| s.page.as_ref())
             .and_then(|p| p.shelves.get(shelf))

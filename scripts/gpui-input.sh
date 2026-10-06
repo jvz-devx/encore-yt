@@ -4,6 +4,13 @@
 # and spectacle. Coordinates are screen pixels (spectacle -f captures).
 #
 #   scripts/gpui-input.sh setup             start ydotoold, flat pointer accel
+#   scripts/gpui-input.sh launch [BIN]      stop any running copy, start BIN
+#                                           (default gpui/target/debug/ytfast-gpui,
+#                                           log in artifacts/gpui/run.log) and
+#                                           place its window at 0,0 1280x1000
+#   scripts/gpui-input.sh stop              stop the app and the mpv it started
+#   scripts/gpui-input.sh locked CMD...     run CMD holding the desktop lock, so
+#                                           only one agent drives the screen
 #   scripts/gpui-input.sh move X Y          put the pointer at X,Y
 #   scripts/gpui-input.sh click X Y         left click at X,Y
 #   scripts/gpui-input.sh rclick X Y        right click at X,Y
@@ -56,6 +63,55 @@ setup() {
     kscreen-doctor --dpms on >/dev/null 2>&1 || true
 }
 
+LOCK="$XDG_RUNTIME_DIR/ytfast-gpui-desktop.lock"
+# The window's frame on screen after `launch`: x, y, width, height.
+GEOMETRY="0 0 1280 1000"
+
+place() {
+    local script
+    script="$(mktemp --suffix=.js)"
+    read -r x y w h <<<"$GEOMETRY"
+    cat >"$script" <<JS
+for (const w of workspace.windowList()) {
+    if (w.resourceClass === "ytfast-gpui") {
+        w.frameGeometry = { x: $x, y: $y, width: $w, height: $h };
+        workspace.activeWindow = w;
+    }
+}
+JS
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript ytfast-place >/dev/null 2>&1 || true
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$script" ytfast-place >/dev/null
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null
+    sleep 0.5
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript ytfast-place >/dev/null
+    rm -f "$script"
+}
+
+stop() {
+    pkill -x ytfast-gpui 2>/dev/null || true
+    for _ in $(seq 20); do pgrep -x ytfast-gpui >/dev/null || break; sleep 0.2; done
+    # The backend's mpv names itself "ytfast" to PulseAudio/PipeWire. Match
+    # only processes called mpv: `pkill -f` would also hit any shell whose
+    # command line happens to contain the pattern.
+    local pid
+    for pid in $(pgrep -x mpv); do
+        if tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'audio-client-name=ytfast'; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+}
+
+launch() {
+    local bin="${1:-gpui/target/debug/ytfast-gpui}"
+    stop
+    mkdir -p artifacts/gpui
+    setsid "$bin" >artifacts/gpui/run.log 2>&1 </dev/null &
+    # Wait for the window to map, then put it where checks expect it.
+    sleep 4
+    place
+    sleep 1
+}
+
 move() {
     ydotool mousemove -a -x 0 -y 0
     sleep 0.15
@@ -67,6 +123,10 @@ cmd="${1:-}"
 shift || true
 case "$cmd" in
     setup) setup ;;
+    launch) launch "$@" ;;
+    stop) stop ;;
+    place) place ;;
+    locked) exec flock "$LOCK" "$@" ;;
     move) move "$1" "$2" ;;
     click) move "$1" "$2"; ydotool click 0xC0 ;;
     rclick) move "$1" "$2"; ydotool click 0xC1 ;;
@@ -80,5 +140,5 @@ case "$cmd" in
         spectacle -b -n "$mode" -o "artifacts/gpui/$1.png"
         echo "artifacts/gpui/$1.png"
         ;;
-    *) sed -n '2,16p' "$0"; exit 2 ;;
+    *) sed -n '2,24p' "$0"; exit 2 ;;
 esac

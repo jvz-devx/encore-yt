@@ -12,7 +12,7 @@ use crate::app::MusicApp;
 use crate::nav::{LibraryTab, View};
 
 pub fn sidebar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
-    let library = matches!(app.view, View::Library(_));
+    let library = matches!(app.pages.view, View::Library(_));
     Sidebar::new("nav")
         .w(px(220.))
         .header(
@@ -25,25 +25,31 @@ pub fn sidebar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
                         Button::new("back")
                             .ghost()
                             .icon(Icon::ChevronLeft)
-                            .disabled(app.history.is_empty())
+                            .disabled(app.pages.history.is_empty())
                             .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
                     )
                     .child(
                         Button::new("forward")
                             .ghost()
                             .icon(Icon::ChevronRight)
-                            .disabled(app.forward.is_empty())
+                            .disabled(app.pages.forward.is_empty())
                             .on_click(cx.listener(|this, _, _, cx| this.go_forward(cx))),
                     ),
             ),
         )
         .child(
             SidebarGroup::new("Browse").child(SidebarMenu::new().children([
-                item("Home", Icon::House, app.view == View::Home, View::Home, cx),
+                item(
+                    "Home",
+                    Icon::House,
+                    app.pages.view == View::Home,
+                    View::Home,
+                    cx,
+                ),
                 item(
                     "Explore",
                     Icon::Compass,
-                    app.view == View::Explore,
+                    app.pages.view == View::Explore,
                     View::Explore,
                     cx,
                 ),

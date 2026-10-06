@@ -13,8 +13,8 @@ use crate::app::MusicApp;
 
 pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let theme = cx.theme();
-    let track = app.current().cloned();
-    let playback = &app.playback;
+    let track = app.player.current().cloned();
+    let playback = &app.player.playback;
     let cover = px(52.);
     let song = h_flex()
         .w(px(300.))
@@ -108,8 +108,8 @@ pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElemen
         .items_center()
         .text_xs()
         .text_color(theme.muted_foreground)
-        .child(div().w(px(44.)).child(clock(app.position())))
-        .child(div().flex_1().child(Slider::new(&app.seek)))
+        .child(div().w(px(44.)).child(clock(app.player.position())))
+        .child(div().flex_1().child(Slider::new(&app.player.seek)))
         .child(div().w(px(44.)).child(clock(playback.duration)));
 
     h_flex()
@@ -135,6 +135,6 @@ pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElemen
                 .gap_2()
                 .items_center()
                 .child(gpui_kit::component::Icon::new(Icon::Volume2).small())
-                .child(div().flex_1().child(Slider::new(&app.volume))),
+                .child(div().flex_1().child(Slider::new(&app.player.volume))),
         )
 }

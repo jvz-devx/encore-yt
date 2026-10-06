@@ -231,6 +231,32 @@ impl Client {
         self.call("account/account_menu", json!({})).await
     }
 
+    /// Asks YouTube Music whose session this is, before anything says
+    /// "signed in". `source` names where the session came from ("Google
+    /// Chrome (Default)", "Cookie file"). The caller drops the session when
+    /// this answers `SignedOut`; `Unverified` (offline) keeps it.
+    pub async fn verify(&self, source: &str) -> crate::model::Account {
+        use crate::model::Account;
+        match self.account().await {
+            Ok(value) => match crate::parse::account(&value) {
+                Some((name, photo)) => Account::SignedIn {
+                    name,
+                    photo,
+                    source: source.to_owned(),
+                },
+                None => Account::SignedOut {
+                    reason: format!("{source} isn't signed in to YouTube Music"),
+                },
+            },
+            Err(ApiError::Auth) => Account::SignedOut {
+                reason: format!("The YouTube session in {source} has expired"),
+            },
+            Err(error) => Account::Unverified {
+                reason: error.to_string(),
+            },
+        }
+    }
+
     /// The `WEB_REMIX` player response for a song: loudness data
     /// (`playerConfig.audioConfig`) and the play-tracking URL.
     pub async fn player(&self, video_id: &str) -> Result<Value> {

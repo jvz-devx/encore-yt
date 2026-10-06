@@ -82,18 +82,18 @@ Song-change notifications are off by default; turn them on in **Settings**. They
 
 ## How it signs in
 
-ytfast reads your YouTube sign-in from a browser you're already signed in to: Firefox or LibreWolf (including their Flatpaks), or a Chromium-family browser (Brave, Brave Origin, Google Chrome or Chromium). It reads the browser's cookie store without changing it. Chromium browsers encrypt it, so ytfast decrypts it with the key the browser keeps in your keyring; Firefox doesn't. You never paste headers or export files. In Firefox, sign in outside container tabs: ytfast reads only the default container.
+ytfast reads your YouTube sign-in from a browser you're already signed in to: Firefox or LibreWolf (including their Flatpaks), or a Chromium-family browser (Brave, Brave Origin, Google Chrome or Chromium). It reads the browser's cookie store without changing it. Chromium browsers encrypt it, so ytfast decrypts it with the key the browser keeps in your keyring (the Secret Service, or KWallet on KDE); Firefox doesn't. You never paste headers or export files. In Firefox, sign in outside container tabs: ytfast reads only the default container.
 
 By default it uses the browser profile you used most recently. If different browsers are signed in to different Google accounts, choose one in **Settings**; ytfast remembers it in `~/.config/ytfast/settings.json`.
 
-Cookies are never logged or written anywhere readable by other users. While it runs, the cookie file that `yt-dlp` needs lives in `$XDG_RUNTIME_DIR/ytfast` with permissions `0600`.
+Cookies are never logged or written anywhere readable by other users. To see what ytfast can read from each profile (counts only, no values), run `cargo run --example sign_in --no-default-features`. While it runs, the cookie file that `yt-dlp` needs lives in `$XDG_RUNTIME_DIR/ytfast` with permissions `0600`.
 
 ## Install
 
 You need:
 
 - to build: Rust 1.98 or newer, CMake and a C compiler
-- to run: `mpv`, `yt-dlp`, `deno` (yt-dlp uses it for YouTube's player challenges) and, for Chromium-family browsers, `secret-tool` (libsecret)
+- to run: `mpv`, `yt-dlp`, `deno` (yt-dlp uses it for YouTube's player challenges) and, for Chromium-family browsers, `secret-tool` (libsecret) or, on KDE, KWallet
 
 ```sh
 git clone https://github.com/MayberryDT/ytfast

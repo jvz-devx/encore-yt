@@ -54,7 +54,6 @@ impl MusicApp {
 
     /// Play anything's `eq <preset>`: a preset by the start of its name
     /// ("bass", "late"), or `on`/`off`. False when nothing matches.
-    #[allow(dead_code, reason = "Play anything (M4) calls it")]
     pub(crate) fn eq_command(&mut self, words: &str, cx: &mut Context<Self>) -> bool {
         let words = words.trim().to_lowercase();
         let eq = self.equalizer();
@@ -90,7 +89,6 @@ impl MusicApp {
 
     /// Play anything's `sleep 30`, `sleep end` or `sleep off`. False when
     /// the words aren't a timer.
-    #[allow(dead_code, reason = "Play anything (M4) calls it")]
     pub(crate) fn sleep_command(&mut self, words: &str, cx: &mut Context<Self>) -> bool {
         let words = words.trim().to_lowercase();
         let choice = match words.as_str() {

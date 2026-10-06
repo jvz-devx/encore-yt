@@ -49,6 +49,10 @@ gpui_kit::assets::icon_assets!(
         Minimize2,
         Minus,
         Plus,
+        ListStart,
+        ListEnd,
+        Link,
+        Command,
         Check
     ]
 );

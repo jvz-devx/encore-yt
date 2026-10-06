@@ -94,7 +94,7 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
             |el, t| el.opacity(t),
         );
     // Every area's shortcuts work in Stage too; Stage's own (Esc, F11,
-    // Space) are bound deeper, in its "Stage" context.
+    // F) are bound deeper, in its "Stage" context.
     let root = div().key_context("Music").size_full().child(inner);
     let root = crate::pages::on_actions(root, cx);
     let root = crate::playback::on_actions(root, cx);

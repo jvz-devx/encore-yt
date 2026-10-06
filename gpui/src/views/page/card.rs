@@ -11,7 +11,7 @@ use super::{Ctx, on_activate, on_play};
 use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::theme::{Colors, Type, elevation, radius, size, space};
-use crate::views::widgets;
+use crate::views::{menu, widgets};
 
 pub fn card(
     ctx: &Ctx,
@@ -39,6 +39,17 @@ pub fn card(
             if round { radius::FULL } else { radius::MD },
             cx,
         ))
+        .when(menu::has_menu(item), |cover| {
+            cover.child(
+                menu::cover_dots(ctx.id(format!("card-menu:{shelf}:{i}")), c)
+                    .absolute()
+                    .top(space::SM)
+                    .right(space::SM)
+                    .opacity(0.)
+                    .group_hover("card", |s| s.opacity(1.))
+                    .on_click(menu::on_item_dots(&ctx.key, shelf, i, cx)),
+            )
+        })
         .when(playable, |cover| {
             let centre = (size::CARD - size::PLAY_BUTTON) / 2.;
             cover.child(
@@ -85,6 +96,12 @@ pub fn card(
                 .child(item.title.clone()),
         )
         .children(subtitle)
+        .when(menu::has_menu(item), |card| {
+            card.on_mouse_down(
+                MouseButton::Right,
+                menu::on_item_right_click(&ctx.key, shelf, i, cx),
+            )
+        })
         .on_click(on_activate(ctx, shelf, i, cx))
         .map(|el| crate::views::extras::audition::listen(el, item.track.as_ref(), cx))
         .into_any_element()

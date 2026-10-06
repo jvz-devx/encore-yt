@@ -39,8 +39,7 @@ actions!(
         ToggleEqualizer,
         JumpToPeak,
         ToggleMini,
-        ClosePanel,
-        StagePause
+        ClosePanel
     ]
 );
 
@@ -202,7 +201,7 @@ impl MusicApp {
 /// Shortcuts for this area: in the "Music" key context (not while typing in
 /// a field), in Stage, and in the open panel.
 pub fn bind_keys(cx: &mut App) {
-    const MUSIC: &str = "Music && !Input";
+    const MUSIC: &str = "Music && !Input && !MusicMenu";
     cx.bind_keys([
         KeyBinding::new("f", ToggleStage, Some(MUSIC)),
         KeyBinding::new("e", ToggleEqualizer, Some(MUSIC)),
@@ -213,7 +212,6 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f", ToggleStage, Some("Stage")),
         KeyBinding::new("escape", ToggleStage, Some("Stage")),
         KeyBinding::new("f11", StageFullscreen, Some("Stage")),
-        KeyBinding::new("space", StagePause, Some("Stage")),
     ]);
 }
 
@@ -229,8 +227,5 @@ pub fn on_actions(root: Div, cx: &mut Context<MusicApp>) -> Div {
         .on_action(cx.listener(|this, _: &JumpToPeak, _, cx| this.jump_to_peak(cx)))
         .on_action(cx.listener(|this, _: &ToggleMini, _, cx| this.toggle_mini(cx)))
         .on_action(cx.listener(|this, _: &ClosePanel, window, cx| this.close_panels(window, cx)))
-        .on_action(cx.listener(|this, _: &StagePause, _, _| {
-            this.send(ytfast::backend::Command::TogglePause)
-        }))
         .map(|root| audition::listen_root(root, cx))
 }

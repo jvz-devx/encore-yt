@@ -15,8 +15,8 @@ use crate::theme::{self, Colors, Type, elevation, radius, size, space};
 
 /// The width of a dragged row's ghost.
 const GHOST: Pixels = px(320.);
-/// The length column, wide enough for "1:02:03".
-const LENGTH: Pixels = px(52.);
+/// The length column: room for ⋮ and Remove under the pointer.
+const LENGTH: Pixels = px(76.);
 
 /// A row being dragged: where it came from, and what the ghost shows.
 #[derive(Clone)]
@@ -125,6 +125,12 @@ pub fn row(
                     );
                 }
             }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    crate::views::menu::open_queued(this, i, event.position, window, cx);
+                }),
+            )
             .on_click(cx.listener(move |this, _, _, cx| {
                 if this.player.playback.index != Some(i) {
                     this.send(Command::JumpTo(i));
@@ -192,10 +198,21 @@ fn trailing(
                 .type_small()
                 .tabular()
                 .text_color(c.text_faint)
-                .when(!current, |s| {
-                    s.group_hover(group.clone(), |s| s.opacity(0.))
-                })
+                .group_hover(group.clone(), |s| s.opacity(0.))
                 .child(length),
+        )
+        // ⋮: the song's menu, beside Remove.
+        .child(
+            crate::views::menu::dots(SharedString::from(format!("menu-{}-{i}", place.name())), c)
+                .absolute()
+                .top_0()
+                .right(if current { px(0.) } else { size::ICON_BUTTON })
+                .opacity(0.)
+                .group_hover(group.clone(), |s| s.opacity(1.))
+                .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    crate::views::menu::open_queued(this, i, event.position(), window, cx);
+                })),
         );
     if current {
         return cell;

@@ -4,7 +4,7 @@
 //! - player bar, Up next, Now Playing, error strip (M2: `player`, `queue`,
 //!   `now_playing`)
 //! - account chip and dialogs (M3: `account`)
-//! - overlays: Play anything, shortcuts, menus (M4: `overlays`)
+//! - overlays: Play anything, shortcuts, menus (M4: `overlays`, `menu`)
 //! - Stage, equalizer, sleep timer (M6: `extras`)
 //!
 //! Shared recipes (icons, buttons, covers, skeletons) live in `widgets`;
@@ -12,6 +12,7 @@
 
 mod account;
 pub(crate) mod extras;
+mod menu;
 mod now_playing;
 mod overlays;
 mod page;

@@ -12,7 +12,7 @@ use super::{Ctx, on_activate};
 use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::theme::{Colors, Type, radius, size, space};
-use crate::views::{clock, widgets};
+use crate::views::{clock, menu, widgets};
 
 /// How a list numbers its rows.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,15 +95,32 @@ pub fn row(
                     cx,
                 ))),
         )
-        .children(duration.map(|d| {
-            div()
-                .flex_none()
-                .pl(space::SM)
-                .type_small()
-                .tabular()
-                .text_color(c.text_faint)
-                .child(d)
-        }))
+        .map(|r| {
+            if !menu::has_menu(item) {
+                return r.children(duration.map(|d| {
+                    div()
+                        .flex_none()
+                        .pl(space::SM)
+                        .type_small()
+                        .tabular()
+                        .text_color(c.text_faint)
+                        .child(d)
+                }));
+            }
+            // The length gives way to ⋮ under the pointer; right-click too.
+            let dots = menu::on_item_dots(&ctx.key, shelf, i, cx);
+            r.child(menu::row_trailing(
+                ctx.id(format!("row-menu:{shelf}:{i}")),
+                duration,
+                "row",
+                dots,
+                c,
+            ))
+            .on_mouse_down(
+                MouseButton::Right,
+                menu::on_item_right_click(&ctx.key, shelf, i, cx),
+            )
+        })
         .on_click(on_activate(ctx, shelf, i, cx))
         .into_any_element()
 }

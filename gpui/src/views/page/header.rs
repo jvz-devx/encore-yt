@@ -164,7 +164,9 @@ fn description(
                 .w_full()
                 .type_small()
                 .text_color(c.text_muted)
-                .when(!expanded, |d| d.line_clamp(DESCRIPTION_LINES).text_ellipsis())
+                .when(!expanded, |d| {
+                    d.line_clamp(DESCRIPTION_LINES).text_ellipsis()
+                })
                 .child(text),
         )
         .when(long, |col| {

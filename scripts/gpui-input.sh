@@ -87,9 +87,22 @@ JS
     rm -f "$script"
 }
 
+# PIDs of every running copy of the app, whatever its file name or path:
+# matched on the executable's own name (/proc/PID/exe), never on command
+# lines, so a shell that merely mentions the app is never hit.
+app_pids() {
+    local pid exe
+    for pid in /proc/[0-9]*; do
+        exe="$(readlink "$pid/exe" 2>/dev/null)" || continue
+        case "${exe##*/}" in ytfast-gpui*) echo "${pid#/proc/}" ;; esac
+    done
+}
+
 stop() {
-    pkill -x ytfast-gpui 2>/dev/null || true
-    for _ in $(seq 20); do pgrep -x ytfast-gpui >/dev/null || break; sleep 0.2; done
+    local pids
+    pids="$(app_pids)"
+    [ -n "$pids" ] && kill $pids 2>/dev/null || true
+    for _ in $(seq 20); do [ -z "$(app_pids)" ] && break; sleep 0.2; done
     # The backend's mpv names itself "ytfast" to PulseAudio/PipeWire. Match
     # only processes called mpv: `pkill -f` would also hit any shell whose
     # command line happens to contain the pattern.

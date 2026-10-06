@@ -36,8 +36,12 @@ gpui_kit::assets::icon_assets!(
         RefreshCw,
         Disc3,
         UserRound,
-        RotateCcwClock,
-        X
+        Infinity,
+        X,
+        Copy,
+        ChevronDown,
+        ListX,
+        RotateCcwClock
     ]
 );
 

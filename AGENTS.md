@@ -12,6 +12,8 @@ This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `up
 - Fixture-based parser tests (saved signed-out InnerTube responses) are allowed in this fork, as an exception to the "no unit tests" rule below.
 - Verify UI work visually: run the app on the Wayland session and capture it with `spectacle` (see PLAN.md). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`. Never push to `upstream`.
+- Fast loop: group edits, then `scripts/check.sh gpui|backend|egui|tests|shaders` (cargo check of just what you touched; `cargo check -p ytfast-gpui` from `gpui/`). Use `cargo check`, not `cargo build`, unless you need to run the binary. `scripts/gpui-check.sh` (clippy, tests, release build) runs once before finishing. Shader-only changes: `scripts/check.sh shaders` (naga) instead of rebuilding the app.
+- Caches: builds go through sccache (`rustc-wrapper` in `~/.cargo/config.toml`). Each worktree keeps its own `target/`; sccache shares compiled dependencies between them. Never `cargo clean` unless a build is genuinely corrupt.
 
 ## Start here
 

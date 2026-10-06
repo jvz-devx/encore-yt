@@ -36,7 +36,6 @@ pub fn chip(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
 
 /// M3: the like/dislike control for `track`, placed by the player bar and
 /// Now Playing (M2). `None` until M3 fills it in or while signed out.
-#[allow(dead_code, reason = "placed by M2's player bar")]
 pub fn like_button(
     _app: &MusicApp,
     _track: &ytfast::model::Track,

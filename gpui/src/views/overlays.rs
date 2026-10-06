@@ -1,14 +1,87 @@
-//! M4: layers over the window: Play anything (Ctrl+K), the shortcuts sheet,
-//! context menus.
+//! M4: layers over the window, bottom to top: a short note above the player
+//! bar ("Link copied"), the shortcuts sheet (`?`), Play anything (Ctrl+K)
+//! and a context menu. Drawn after the rest of the window.
 
+mod keycap;
+mod palette;
+mod shortcuts;
+
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
+use super::{menu, widgets};
 use crate::app::MusicApp;
+use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 
 pub fn overlays(
-    _app: &MusicApp,
-    _window: &mut Window,
-    _cx: &mut Context<MusicApp>,
+    app: &mut MusicApp,
+    window: &mut Window,
+    cx: &mut Context<MusicApp>,
 ) -> Option<AnyElement> {
-    None
+    let mut layers: Vec<AnyElement> = Vec::new();
+    layers.extend(toast(app, cx));
+    if app.desktop.layers.help {
+        layers.push(shortcuts::sheet(window, cx));
+    }
+    layers.extend(palette::palette(app, window, cx));
+    layers.extend(menu::layer(app, cx));
+    if layers.is_empty() {
+        return None;
+    }
+    // Above the page and its search list.
+    Some(
+        deferred(div().absolute().inset_0().children(layers))
+            .with_priority(2)
+            .into_any_element(),
+    )
+}
+
+/// A dimmed layer over the whole window that takes the pointer.
+fn scrim(id: &'static str, c: &Colors) -> Stateful<Div> {
+    v_flex()
+        .id(id)
+        .absolute()
+        .inset_0()
+        .items_center()
+        .bg(c.scrim)
+        .occlude()
+}
+
+/// "Link copied", "Playing next": a pill above the player bar for a moment.
+fn toast(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<AnyElement> {
+    let (text, stamp, done) = app.desktop.layers.toast.clone()?;
+    let c = theme::colors(cx);
+    Some(
+        h_flex()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom(size::PLAYER_BAR + space::LG)
+            .justify_center()
+            .child(
+                h_flex()
+                    .h(size::CHIP)
+                    .pl(if done { space::MD } else { space::LG })
+                    .pr(space::LG)
+                    .gap(space::SM)
+                    .rounded(radius::FULL)
+                    .bg(c.overlay)
+                    .shadow(elevation::high(&c))
+                    .type_label()
+                    .children(
+                        done.then(|| widgets::icon(IconName::Check, size::ICON_SM, c.success)),
+                    )
+                    .child(text),
+            )
+            .with_animation(
+                SharedString::from(format!("toast-{stamp}")),
+                Animation::new(motion::BASE).with_easing(motion::ease_out),
+                |el, t| {
+                    el.opacity(t)
+                        .bottom(size::PLAYER_BAR + space::LG - space::SM * (1. - t))
+                },
+            )
+            .into_any_element(),
+    )
 }

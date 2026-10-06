@@ -15,9 +15,11 @@ use crate::assets::Glyph;
 use crate::theme::{Type, size, space};
 use crate::views::widgets::{self, Pill};
 
-/// A description longer than this may run past two lines, so it gets a
-/// Show more.
-const LONG_DESCRIPTION: usize = 180;
+/// A description longer than this may run past three lines, so it gets
+/// More.
+const LONG_DESCRIPTION: usize = 260;
+/// Lines of the description shown until More.
+const DESCRIPTION_LINES: usize = 3;
 
 pub fn header(
     app: &MusicApp,
@@ -132,8 +134,8 @@ pub fn header(
         .into_any_element()
 }
 
-/// Two lines of the description, or all of it; Show more / Show less when
-/// it is long.
+/// Three lines of the description, or all of it; More / Less when it is
+/// long.
 fn description(
     text: String,
     expanded: bool,
@@ -151,14 +153,18 @@ fn description(
     let key = ctx.key.clone();
     v_flex()
         .mt(space::SM)
+        .w_full()
         .max_w(px(640.))
         .items_start()
         .gap(space::XXS)
         .child(
+            // Full width: in a column that doesn't stretch its children,
+            // text would take its whole length and run past the edge.
             div()
+                .w_full()
                 .type_small()
                 .text_color(c.text_muted)
-                .when(!expanded, |d| d.line_clamp(2).text_ellipsis())
+                .when(!expanded, |d| d.line_clamp(DESCRIPTION_LINES).text_ellipsis())
                 .child(text),
         )
         .when(long, |col| {
@@ -169,7 +175,7 @@ fn description(
                     .text_color(c.text)
                     .cursor_pointer()
                     .hover(|s| s.underline())
-                    .child(if expanded { "Show less" } else { "Show more" })
+                    .child(if expanded { "Less" } else { "More" })
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_description(&key, cx))),
             )
         })

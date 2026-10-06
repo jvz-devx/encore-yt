@@ -11,9 +11,21 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui_kit::*;
 
-/// Decoded covers kept in memory (RGBA). A 176 px card is about 120 KB at
-/// scale 1, so this holds well over a thousand on-screen-sized covers.
-const BUDGET: usize = 160 << 20;
+/// Decoded covers kept in memory (RGBA), in MB. A 176 px card is about
+/// 120 KB at scale 1, so this holds well over a thousand on-screen-sized
+/// covers. `YTFAST_GPUI_COVER_BUDGET_MB` changes it (to check eviction).
+const BUDGET_MB: usize = 160;
+
+fn budget() -> usize {
+    static BUDGET: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        std::env::var("YTFAST_GPUI_COVER_BUDGET_MB")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(BUDGET_MB)
+            << 20
+    })
+}
 
 /// The window's scale factor (f32 bits), for the pixel size to ask for.
 static SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
@@ -57,7 +69,7 @@ impl CoverCache {
         // (paint); keep both.
         let keep_from = self.frame.saturating_sub(2);
         self.frame += 1;
-        if self.bytes <= BUDGET {
+        if self.bytes <= budget() {
             return;
         }
         let mut old: Vec<(u64, u64)> = self
@@ -70,7 +82,7 @@ impl CoverCache {
         let mut freed = 0;
         let mut dropped = 0;
         for (_, key) in old {
-            if self.bytes <= BUDGET * 3 / 4 {
+            if self.bytes <= budget() * 3 / 4 {
                 break;
             }
             if let Some(entry) = self.entries.remove(&key) {
@@ -81,6 +93,9 @@ impl CoverCache {
                     cx.drop_image(image, Some(window));
                 }
             }
+        }
+        if dropped == 0 {
+            return;
         }
         log::info!(
             "cover cache: dropped {dropped} covers ({} MB), {} kept ({} MB)",

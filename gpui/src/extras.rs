@@ -29,3 +29,11 @@ impl MusicApp {
         self.extras.heat.insert(id, heat);
     }
 }
+
+/// Shortcuts for this area, in the "Music" key context.
+pub fn bind_keys(_cx: &mut App) {}
+
+/// Handlers for this area's actions, on the window's root element.
+pub fn on_actions(root: Div, _cx: &mut Context<MusicApp>) -> Div {
+    root
+}

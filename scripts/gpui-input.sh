@@ -126,7 +126,8 @@ case "$cmd" in
     launch) launch "$@" ;;
     stop) stop ;;
     place) place ;;
-    locked) exec flock "$LOCK" "$@" ;;
+    # -o: the app a command launches must not inherit (and keep) the lock.
+    locked) exec flock -o "$LOCK" "$@" ;;
     move) move "$1" "$2" ;;
     click) move "$1" "$2"; ydotool click 0xC0 ;;
     rclick) move "$1" "$2"; ydotool click 0xC1 ;;

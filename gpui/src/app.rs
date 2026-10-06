@@ -45,6 +45,9 @@ pub struct MusicApp {
     pub extras: Extras,
     /// The newest error, shown in the strip under the top bar.
     pub error: Option<String>,
+    /// The root's focus, so shortcuts in the "Music" key context reach the
+    /// root while no field has the focus.
+    pub focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
     _events: Task<()>,
     _clock: Task<()>,
@@ -101,6 +104,8 @@ impl MusicApp {
         let (extras, subs) = Extras::new(window, cx);
         subscriptions.extend(subs);
 
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         let mut app = Self {
             backend,
             paths,
@@ -110,6 +115,7 @@ impl MusicApp {
             desktop,
             extras,
             error: None,
+            focus,
             _subscriptions: subscriptions,
             _events: events,
             _clock: clock,

@@ -12,6 +12,8 @@ use ytfast::parse::More;
 use crate::app::MusicApp;
 use crate::nav::{PageState, View};
 
+actions!(music, [Back, Forward]);
+
 /// A page older than this is fetched again when it's opened.
 const STALE: Duration = Duration::from_secs(300);
 
@@ -202,4 +204,18 @@ impl MusicApp {
     pub(crate) fn on_quick_results(&mut self, _query: String, _result: Result<Box<Page>, String>) {
         // M4: Play anything (Ctrl+K).
     }
+}
+
+/// Shortcuts for this area, in the "Music" key context.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("alt-left", Back, Some("Music")),
+        KeyBinding::new("alt-right", Forward, Some("Music")),
+    ]);
+}
+
+/// Handlers for this area's actions, on the window's root element.
+pub fn on_actions(root: Div, cx: &mut Context<MusicApp>) -> Div {
+    root.on_action(cx.listener(|this, _: &Back, _, cx| this.back(cx)))
+        .on_action(cx.listener(|this, _: &Forward, _, cx| this.go_forward(cx)))
 }

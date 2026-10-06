@@ -1,5 +1,8 @@
 //! ytfast-gpui: a GPUI interface on ytfast's backend. See docs/gpui/PLAN.md.
 
+// GPUI's derive macros (Action, IntoElement) name the `gpui` crate.
+extern crate gpui_kit as gpui;
+
 mod account;
 mod app;
 mod assets;
@@ -30,6 +33,13 @@ fn main() -> anyhow::Result<()> {
         .run(move |cx| {
             gpui_kit::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
+            // Each area binds its own shortcuts in the "Music" key context
+            // and handles them in its `on_actions`.
+            pages::bind_keys(cx);
+            playback::bind_keys(cx);
+            account::bind_keys(cx);
+            desktop::bind_keys(cx);
+            extras::bind_keys(cx);
             // img("https://...") fetches cover art through this client.
             match reqwest_client::ReqwestClient::user_agent(concat!(
                 "ytfast-gpui/",

@@ -36,7 +36,9 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
     } else {
         page::page(app, window, cx)
     };
-    v_flex()
+    let root = v_flex()
+        .key_context("Music")
+        .track_focus(&app.focus)
         .size_full()
         .relative()
         .bg(background)
@@ -61,8 +63,13 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
                 .children(queue::panel(app, window, cx)),
         )
         .child(player::player_bar(app, cx))
-        .children(overlays::overlays(app, window, cx))
-        .into_any_element()
+        .children(overlays::overlays(app, window, cx));
+    let root = crate::pages::on_actions(root, cx);
+    let root = crate::playback::on_actions(root, cx);
+    let root = crate::account::on_actions(root, cx);
+    let root = crate::desktop::on_actions(root, cx);
+    let root = crate::extras::on_actions(root, cx);
+    root.into_any_element()
 }
 
 fn error_strip(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<impl IntoElement> {

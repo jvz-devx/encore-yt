@@ -430,8 +430,9 @@ impl MusicApp {
         cx.notify();
     }
 
-    pub(crate) fn on_quick_results(&mut self, _query: String, _result: Result<Box<Page>, String>) {
-        // M4: Play anything (Ctrl+K).
+    /// YouTube Music's answer for Play anything (Ctrl+K, desktop).
+    pub(crate) fn on_quick_results(&mut self, query: String, result: Result<Box<Page>, String>) {
+        self.quick_results(query, result);
     }
 }
 

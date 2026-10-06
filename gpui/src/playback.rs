@@ -382,6 +382,31 @@ fn moved_index(c: usize, from: usize, to: usize) -> usize {
     if to <= c { c + 1 } else { c }
 }
 
+/// An error as the strip shows it: the plain sentence, and the technical
+/// detail behind Copy details (yt-dlp's or mpv's own words), if any.
+pub fn split_error(error: &str) -> (String, Option<String>) {
+    // "Couldn't play “Title”, skipped it. ERROR: …"
+    if let Some(end) = error.find("skipped it.") {
+        let end = end + "skipped it.".len();
+        let detail = error[end..].trim();
+        return (
+            error[..end].to_string(),
+            (!detail.is_empty()).then(|| detail.to_string()),
+        );
+    }
+    // "Couldn't start playback: …": the cause after the first colon that
+    // isn't inside a quoted title.
+    let after_quote = error.rfind('”').map_or(0, |i| i + '”'.len_utf8());
+    if let Some(colon) = error[after_quote..].find(": ") {
+        let colon = after_quote + colon;
+        return (
+            format!("{}.", error[..colon].trim_end_matches('.')),
+            Some(error[colon + 2..].trim().to_string()),
+        );
+    }
+    (error.to_string(), None)
+}
+
 /// "Opus 256 kbps · Premium" from "Opus 256 kbps · Premium (itag 774)":
 /// the itag stays in the tooltip.
 pub fn short_format(full: &str) -> String {

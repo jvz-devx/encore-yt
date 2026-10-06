@@ -1,0 +1,40 @@
+[package]
+name = "ytfast-gpui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "A GPUI interface for ytfast's YouTube Music backend"
+license = "MIT"
+repository = "https://github.com/jvz-devx/ytfast-gpui"
+publish = false
+
+[[bin]]
+name = "ytfast-gpui"
+path = "src/main.rs"
+
+# Its own workspace: the root crate's egui/winit patches don't apply here.
+[workspace]
+
+[dependencies]
+# The backend (InnerTube, yt-dlp resolver, mpv, sign-in, MPRIS) without the
+# egui interface.
+ytfast = { path = "..", default-features = false }
+# GPUI with gpui-component, pinned as one set: gpui-kit pins gpui-pre and
+# gpui-pre-platform (wayland, x11). Move these together.
+gpui-kit = "=0.7.1"
+# The HTTP client img("https://...") fetches cover art with; same version as
+# the gpui-pre that gpui-kit pins.
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
+# Wakes the foreground task that drains backend events.
+smol = "2"
+anyhow = "1"
+log = "0.4"
+# Same log file and panic log setup as the egui app.
+fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = true

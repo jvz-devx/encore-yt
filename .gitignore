@@ -5,3 +5,4 @@
 /notes
 # A machine-local toolchain pin, if one is needed.
 /.cargo/config.toml
+/gpui/target

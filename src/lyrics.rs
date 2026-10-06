@@ -111,7 +111,7 @@ pub async fn fetch(
 }
 
 /// `timedLyricsData` from the Android Music client's lyrics page.
-fn youtube_timed(v: &Value) -> Option<Lyrics> {
+pub fn youtube_timed(v: &Value) -> Option<Lyrics> {
     let data = parse::find(v, "timedLyricsData")?.as_array()?;
     let mut lines: Vec<LyricLine> = data
         .iter()

@@ -1,10 +1,12 @@
 //! Reads the YouTube session from the desktop's Chromium-family or Firefox
-//! browser.
+//! browser, or from cookie files exported elsewhere
+//! (`~/.config/ytfast/*cookies*.txt`).
 //!
 //! The browser keeps its cookie store open, so the database is copied first.
 //! Chromium values are encrypted with a key derived from the browser's "Safe
-//! Storage" password in the Secret Service (see docs/integration.md); Firefox
-//! stores them in the clear. Cookie values are secrets: nothing here logs them.
+//! Storage" password, kept in the Secret Service or, on KDE, in KWallet (see
+//! docs/integration.md); Firefox stores them in the clear. Cookie values and
+//! that password are secrets: nothing here logs them.
 
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -17,12 +19,14 @@ use anyhow::{Context, Result, anyhow, bail};
 use sha2::Digest;
 
 /// One browser installation ytfast can read: its name, its config directory
-/// under `~/.config`, and the `application` its Safe Storage password is
-/// filed under.
+/// under `~/.config`, the `application` its Safe Storage password is filed
+/// under in the Secret Service, and its name in KWallet (folder "<name> Keys",
+/// entry "<name> Safe Storage", as yt-dlp reads them).
 struct Browser {
     name: &'static str,
     dir: &'static str,
     keyring: &'static str,
+    kwallet: &'static str,
 }
 
 const BROWSERS: &[Browser] = &[
@@ -30,21 +34,25 @@ const BROWSERS: &[Browser] = &[
         name: "Brave Origin",
         dir: "BraveSoftware/Brave-Origin",
         keyring: "brave",
+        kwallet: "Brave",
     },
     Browser {
         name: "Brave",
         dir: "BraveSoftware/Brave-Browser",
         keyring: "brave",
+        kwallet: "Brave",
     },
     Browser {
         name: "Google Chrome",
         dir: "google-chrome",
         keyring: "chrome",
+        kwallet: "Chrome",
     },
     Browser {
         name: "Chromium",
         dir: "chromium",
         keyring: "chromium",
+        kwallet: "Chromium",
     },
 ];
 
@@ -185,6 +193,16 @@ enum Store {
     Chromium(&'static Browser),
     /// `moz_cookies`, in the clear.
     Firefox,
+    /// A Netscape cookie file the person put in ytfast's config directory.
+    CookieFile,
+}
+
+/// Where cookie files go, under the config directory: every
+/// `*cookies*.txt` there ("cookies.txt", "browser-cookies.txt").
+const COOKIE_DIR: &str = "ytfast";
+
+fn is_cookie_file(name: &str) -> bool {
+    name.ends_with(".txt") && name.contains("cookies")
 }
 
 /// A profile's cookie database and when it last changed.
@@ -237,8 +255,32 @@ fn candidates() -> Result<Vec<Candidate>> {
     for gecko in GECKOS {
         firefox_candidates(gecko, &base.home_dir().join(gecko.dir), &mut candidates);
     }
+    cookie_file_candidates(&config.join(COOKIE_DIR), &mut candidates);
     candidates.sort_by_key(|c| std::cmp::Reverse((c.modified, c.default)));
     Ok(candidates)
+}
+
+/// Every `*cookies*.txt` file in `dir`, as "Cookie file (browser-cookies.txt)"
+/// with the id "ytfast/browser-cookies.txt".
+fn cookie_file_candidates(dir: &Path, candidates: &mut Vec<Candidate>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if !is_cookie_file(&name) || !path.is_file() {
+            continue;
+        }
+        candidates.push(Candidate {
+            store: Store::CookieFile,
+            id: format!("{COOKIE_DIR}/{name}"),
+            label: format!("Cookie file ({name})"),
+            modified: mtime(&path).unwrap_or(SystemTime::UNIX_EPOCH),
+            cookies: path,
+            default: false,
+        });
+    }
 }
 
 /// The profiles `profiles.ini` lists under `root` that have a cookie store.
@@ -342,7 +384,7 @@ pub fn profiles(scratch: &Path) -> Vec<Profile> {
 pub fn load(scratch: &Path, preferred: Option<&str>) -> Result<Session> {
     let mut candidates = candidates()?;
     if candidates.is_empty() {
-        bail!("No Chromium-family or Firefox browser profile was found");
+        bail!("No Chromium-family or Firefox browser profile or cookie file was found");
     }
     if let Some(preferred) = preferred
         && let Some(i) = candidates.iter().position(|c| c.id == preferred)
@@ -365,24 +407,100 @@ pub fn load(scratch: &Path, preferred: Option<&str>) -> Result<Session> {
 }
 
 fn read_profile(candidate: &Candidate, scratch: &Path) -> Result<Option<Session>> {
+    with_copy(candidate, scratch, |copy| match candidate.store {
+        Store::Chromium(browser) => read_copy(candidate, browser, copy),
+        Store::Firefox => read_firefox_copy(candidate, copy),
+        Store::CookieFile => read_cookie_file(candidate, copy),
+    })
+}
+
+/// Runs `read` on a private copy of the profile's cookie database (with its
+/// write-ahead log), removed afterwards. A cookie file is read in place.
+fn with_copy<T>(
+    candidate: &Candidate,
+    scratch: &Path,
+    read: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    if matches!(candidate.store, Store::CookieFile) {
+        return read(&candidate.cookies);
+    }
     let copy = scratch.join(format!("cookies-{}.sqlite", std::process::id()));
+    let copy_wal = wal_of(&copy);
     std::fs::copy(&candidate.cookies, &copy).context("copying the cookie database")?;
     let wal = wal_of(&candidate.cookies);
     if wal.exists() {
-        let _ = std::fs::copy(
-            &wal,
-            copy.with_file_name(format!("cookies-{}.sqlite-wal", std::process::id())),
-        );
+        let _ = std::fs::copy(&wal, &copy_wal);
     }
-    let result = match candidate.store {
-        Store::Chromium(browser) => read_copy(candidate, browser, &copy),
-        Store::Firefox => read_firefox_copy(candidate, &copy),
-    };
+    let result = read(&copy);
     let _ = std::fs::remove_file(&copy);
-    let _ = std::fs::remove_file(
-        copy.with_file_name(format!("cookies-{}.sqlite-wal", std::process::id())),
-    );
+    let _ = std::fs::remove_file(&copy_wal);
     result
+}
+
+/// What ytfast can read from one browser profile, to diagnose sign-in.
+/// Counts only: no cookie value or password leaves this module.
+#[derive(Clone, Debug)]
+pub struct Inspection {
+    /// "Google Chrome (Default)".
+    pub label: String,
+    /// The [`Profile::id`].
+    pub id: String,
+    /// youtube.com and google.com cookies read (decrypted where needed).
+    pub cookies: usize,
+    /// Encrypted values no key opened.
+    pub undecryptable: usize,
+    /// `v12` values (the desktop portal's key), which ytfast doesn't read.
+    pub portal: usize,
+    /// Whether the cookies read include the one sign-in needs (SAPISID).
+    pub signed_in: bool,
+    /// Where the Safe Storage password came from ("KWallet"), if needed.
+    pub password: Option<&'static str>,
+    /// Why the profile couldn't be read at all.
+    pub error: Option<String>,
+}
+
+/// Reads every profile ytfast would consider, signed in or not, and
+/// reports what it found (`examples/sign_in.rs`). Unlike [`load`], this
+/// asks for a Chromium profile's Safe Storage password even when the
+/// profile isn't signed in.
+pub fn inspect(scratch: &Path) -> Vec<Inspection> {
+    candidates()
+        .unwrap_or_default()
+        .iter()
+        .map(|candidate| {
+            let mut inspection = Inspection {
+                label: candidate.label.clone(),
+                id: candidate.id.clone(),
+                cookies: 0,
+                undecryptable: 0,
+                portal: 0,
+                signed_in: false,
+                password: None,
+                error: None,
+            };
+            let read = with_copy(candidate, scratch, |copy| {
+                let cookies = match candidate.store {
+                    Store::Chromium(browser) => {
+                        let (version, rows) = chromium_rows(copy)?;
+                        let decrypted = decrypt_rows(browser, version, rows)?;
+                        inspection.undecryptable = decrypted.failed;
+                        inspection.portal = decrypted.portal;
+                        inspection.password = decrypted.password;
+                        decrypted.cookies
+                    }
+                    Store::Firefox => firefox_cookies(firefox_rows(copy)?),
+                    Store::CookieFile => cookie_file_cookies(copy)?,
+                };
+                inspection.cookies = cookies.len();
+                inspection.signed_in = cookies.iter().any(|c| signs_in(&c.host, &c.name));
+                Ok(())
+            });
+            if let Err(error) = read {
+                inspection.error = Some(format!("{error:#}"));
+            }
+            inspection
+        })
+        .collect()
 }
 
 type Row = (String, String, String, Vec<u8>, String, i64, bool);
@@ -392,7 +510,9 @@ fn signs_in(host: &str, name: &str) -> bool {
     applies_to_music(host) && (name == "SAPISID" || name == "__Secure-3PAPISID")
 }
 
-fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Option<Session>> {
+/// The youtube.com and google.com rows of a copied Chromium cookie database,
+/// and its schema version.
+fn chromium_rows(copy: &Path) -> Result<(i64, Vec<Row>)> {
     let db =
         rusqlite::Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     let version: i64 = db
@@ -419,20 +539,53 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    if !rows.iter().any(|r| signs_in(&r.0, &r.1)) {
-        return Ok(None);
-    }
-    let key = derive_key(&keyring_password(browser.keyring)?);
-    let mut cookies = Vec::with_capacity(rows.len());
-    let mut failed = 0;
+    Ok((version, rows))
+}
+
+/// What decrypting a Chromium profile's rows gave.
+struct Decrypted {
+    cookies: Vec<Cookie>,
+    /// Values no key opened.
+    failed: usize,
+    /// `v12` values, encrypted with the desktop portal's key, which only the
+    /// browser itself can ask for.
+    portal: usize,
+    /// Where the `v11` password came from, if any value needed it.
+    password: Option<&'static str>,
+}
+
+fn decrypt_rows(browser: &Browser, version: i64, rows: Vec<Row>) -> Result<Decrypted> {
+    let needs_password = rows.iter().any(|r| r.3.starts_with(b"v11"));
+    let (v11, password) = if needs_password {
+        match safe_storage_password(browser)? {
+            Some((password, source)) => (Some(derive_key(&password)), Some(source)),
+            None => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+    let keys = Keys {
+        // Chromium's fixed password without a keyring (`v10`).
+        v10: derive_key(b"peanuts"),
+        v11,
+    };
+    let mut decrypted = Decrypted {
+        cookies: Vec::with_capacity(rows.len()),
+        failed: 0,
+        portal: 0,
+        password,
+    };
     for (host, name, value, encrypted, path, expires_utc, secure) in rows {
         let value = if encrypted.is_empty() {
             value
+        } else if encrypted.starts_with(b"v12") {
+            decrypted.portal += 1;
+            continue;
         } else {
-            match decrypt(&encrypted, &key, &host, version) {
+            match decrypt(&encrypted, &keys, &host, version) {
                 Some(v) => v,
                 None => {
-                    failed += 1;
+                    decrypted.failed += 1;
                     continue;
                 }
             }
@@ -442,7 +595,7 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
         } else {
             0
         };
-        cookies.push(Cookie {
+        decrypted.cookies.push(Cookie {
             host,
             name,
             value,
@@ -451,17 +604,42 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
             expires,
         });
     }
-    if failed > 0
-        && cookies
-            .iter()
-            .all(|c| c.name != "SAPISID" && c.name != "__Secure-3PAPISID")
-    {
-        bail!("{failed} cookies could not be decrypted; the browser's key did not match");
+    Ok(decrypted)
+}
+
+fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Option<Session>> {
+    let (version, rows) = chromium_rows(copy)?;
+    if !rows.iter().any(|r| signs_in(&r.0, &r.1)) {
+        return Ok(None);
+    }
+    let Decrypted {
+        cookies,
+        failed,
+        portal,
+        password,
+    } = decrypt_rows(browser, version, rows)?;
+    if !cookies.iter().any(|c| signs_in(&c.host, &c.name)) {
+        if portal > 0 {
+            bail!(
+                "{} keeps its sign-in encrypted with the desktop portal's key, which ytfast can't read",
+                candidate.label
+            );
+        }
+        bail!(
+            "{failed} cookies of {} could not be decrypted; its Safe Storage password {}",
+            candidate.label,
+            if password.is_some() {
+                "did not match"
+            } else {
+                "is in neither the Secret Service nor KWallet"
+            }
+        );
     }
     log::info!(
-        "read {} cookies from {}, {failed} undecryptable",
+        "read {} cookies from {} (password from {}), {failed} undecryptable, {portal} portal-encrypted",
         cookies.len(),
-        candidate.label
+        candidate.label,
+        password.unwrap_or("nowhere")
     );
     Ok(Some(Session {
         source: candidate.label.clone(),
@@ -472,16 +650,16 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
 
 type FirefoxRow = (String, String, String, String, i64, bool);
 
-/// Reads `moz_cookies` from the default container (no container tab, not
+/// `moz_cookies` rows of the default container (no container tab, not
 /// partitioned).
-fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Session>> {
+fn firefox_rows(copy: &Path) -> Result<Vec<FirefoxRow>> {
     let db =
         rusqlite::Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     let mut statement = db.prepare(
         "SELECT host, name, value, path, expiry, isSecure FROM moz_cookies \
          WHERE originAttributes = '' AND (host LIKE '%youtube.com' OR host LIKE '%google.com')",
     )?;
-    let rows: Vec<FirefoxRow> = statement
+    let rows = statement
         .query_map([], |r| {
             Ok((
                 r.get(0)?,
@@ -493,11 +671,11 @@ fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Sessio
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    if !rows.iter().any(|r| signs_in(&r.0, &r.1)) {
-        return Ok(None);
-    }
-    let cookies: Vec<Cookie> = rows
-        .into_iter()
+    Ok(rows)
+}
+
+fn firefox_cookies(rows: Vec<FirefoxRow>) -> Vec<Cookie> {
+    rows.into_iter()
         .map(|(host, name, value, path, expiry, secure)| Cookie {
             host,
             name,
@@ -511,7 +689,15 @@ fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Sessio
                 expiry.max(0)
             },
         })
-        .collect();
+        .collect()
+}
+
+fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Session>> {
+    let rows = firefox_rows(copy)?;
+    if !rows.iter().any(|r| signs_in(&r.0, &r.1)) {
+        return Ok(None);
+    }
+    let cookies = firefox_cookies(rows);
     log::info!("read {} cookies from {}", cookies.len(), candidate.label);
     Ok(Some(Session {
         source: candidate.label.clone(),
@@ -520,20 +706,178 @@ fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Sessio
     }))
 }
 
-fn keyring_password(application: &str) -> Result<Vec<u8>> {
+fn read_cookie_file(candidate: &Candidate, path: &Path) -> Result<Option<Session>> {
+    let cookies = cookie_file_cookies(path)?;
+    if !cookies.iter().any(|c| signs_in(&c.host, &c.name)) {
+        return Ok(None);
+    }
+    log::info!("read {} cookies from {}", cookies.len(), candidate.label);
+    Ok(Some(Session {
+        source: candidate.label.clone(),
+        profile: candidate.id.clone(),
+        cookies,
+    }))
+}
+
+/// The youtube.com and google.com cookies of a Netscape cookie file, which
+/// must be private: owned by this user and closed to everyone else (mode
+/// 0600 or 0400), since it holds the session.
+fn cookie_file_cookies(path: &Path) -> Result<Vec<Cookie>> {
+    use std::io::Read;
+    use std::os::unix::fs::MetadataExt;
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let shown = format!("~/.config/{COOKIE_DIR}/{name}");
+    let mut file = std::fs::File::open(path).with_context(|| format!("opening {shown}"))?;
+    // The open file's own metadata: it can't be swapped after the check.
+    let meta = file.metadata()?;
+    let me = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
+    if me.is_some_and(|me| meta.uid() != me) {
+        bail!("{shown} belongs to another user. Copy it again as yourself, then Reconnect.");
+    }
+    if meta.mode() & 0o077 != 0 {
+        bail!("{shown} can be read by other users. Run `chmod 600 {shown}`, then Reconnect.");
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .with_context(|| format!("reading {shown}"))?;
+    Ok(parse_netscape(&text))
+}
+
+/// The youtube.com and google.com lines of a Netscape cookie file:
+/// `host, subdomains, path, secure, expires, name, value`, tab-separated.
+/// `#HttpOnly_` marks an HttpOnly cookie; other `#` lines are comments.
+fn parse_netscape(text: &str) -> Vec<Cookie> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim_end_matches('\r');
+            let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+            if line.starts_with('#') {
+                return None;
+            }
+            let mut fields = line.split('\t');
+            let host = fields.next()?;
+            let _subdomains = fields.next()?;
+            let path = fields.next()?;
+            let secure = fields.next()?;
+            let expires = fields.next()?;
+            let name = fields.next()?;
+            let value = fields.next().unwrap_or_default();
+            if !(host.ends_with("youtube.com") || host.ends_with("google.com")) {
+                return None;
+            }
+            Some(Cookie {
+                host: host.to_owned(),
+                name: name.to_owned(),
+                value: value.to_owned(),
+                path: path.to_owned(),
+                secure: secure.eq_ignore_ascii_case("TRUE"),
+                expires: expires.parse::<i64>().unwrap_or(0).max(0),
+            })
+        })
+        .collect()
+}
+
+/// The browser's "Safe Storage" password and where it came from: the Secret
+/// Service (libsecret), else KWallet. `None` when neither has one.
+fn safe_storage_password(browser: &Browser) -> Result<Option<(Vec<u8>, &'static str)>> {
+    if let Some(password) = secret_service_password(browser.keyring) {
+        return Ok(Some((password, "the Secret Service")));
+    }
+    match kwallet::password(browser.kwallet) {
+        Ok(Some(password)) => Ok(Some((password, "KWallet"))),
+        Ok(None) => Ok(None),
+        Err(error) => Err(error.context("reading KWallet")),
+    }
+}
+
+/// `secret-tool lookup application <application>`, without the trailing
+/// newline. `None` when it is empty or `secret-tool` is missing.
+fn secret_service_password(application: &str) -> Option<Vec<u8>> {
     let output = Command::new("secret-tool")
         .args(["lookup", "application", application])
         .output()
-        .context("running secret-tool (libsecret)")?;
+        .ok()?;
     let mut password = output.stdout;
     while password.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
         password.pop();
     }
-    if password.is_empty() {
-        // Chromium falls back to this fixed password without a keyring.
-        return Ok(b"peanuts".to_vec());
+    Some(password).filter(|p| !p.is_empty())
+}
+
+/// KDE's wallet over D-Bus (`org.kde.KWallet`), as Chromium uses it on KDE.
+mod kwallet {
+    use anyhow::{Result, bail};
+    use zbus::blocking::{Connection, Proxy};
+
+    /// How ytfast names itself to kwalletd (its access prompt shows it).
+    const APP_ID: &str = "ytfast";
+
+    /// kwalletd6 (Plasma 6), then kwalletd5.
+    const DAEMONS: &[(&str, &str)] = &[
+        ("org.kde.kwalletd6", "/modules/kwalletd6"),
+        ("org.kde.kwalletd5", "/modules/kwalletd5"),
+    ];
+
+    /// The password in folder "<name> Keys", entry "<name> Safe Storage" of
+    /// the network wallet. `None` when no wallet daemon runs or the entry
+    /// is missing or empty.
+    pub fn password(name: &str) -> Result<Option<Vec<u8>>> {
+        let Ok(bus) = Connection::session() else {
+            return Ok(None);
+        };
+        for (service, path) in DAEMONS {
+            let Ok(proxy) = Proxy::new(&bus, *service, *path, "org.kde.KWallet") else {
+                continue;
+            };
+            // No such daemon (and none to start): try the next.
+            let Ok(enabled) = proxy.call::<_, _, bool>("isEnabled", &()) else {
+                continue;
+            };
+            if !enabled {
+                return Ok(None);
+            }
+            let wallet = proxy
+                .call::<_, _, String>("networkWallet", &())
+                .ok()
+                .filter(|w| !w.is_empty())
+                .unwrap_or_else(|| "kdewallet".into());
+            return read(&proxy, &wallet, name);
+        }
+        Ok(None)
     }
-    Ok(password)
+
+    fn read(proxy: &Proxy<'_>, wallet: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        // Asks the person to unlock the wallet if it is closed.
+        let handle: i32 = proxy.call("open", &(wallet, 0i64, APP_ID))?;
+        if handle < 0 {
+            bail!("the wallet “{wallet}” didn't open");
+        }
+        let folder = format!("{name} Keys");
+        let entry = format!("{name} Safe Storage");
+        let found = proxy
+            .call::<_, _, bool>(
+                "hasEntry",
+                &(handle, folder.as_str(), entry.as_str(), APP_ID),
+            )
+            .unwrap_or(false);
+        let password = if found {
+            proxy.call::<_, _, String>(
+                "readPassword",
+                &(handle, folder.as_str(), entry.as_str(), APP_ID),
+            )
+        } else {
+            Ok(String::new())
+        };
+        let _ = proxy.call::<_, _, i32>("close", &(handle, false, APP_ID));
+        Ok(Some(password?.into_bytes()).filter(|p| !p.is_empty()))
+    }
+}
+
+/// The keys a Chromium profile's values are encrypted with: `v10` with the
+/// fixed password, `v11` with the Safe Storage one.
+struct Keys {
+    v10: [u8; 16],
+    v11: Option<[u8; 16]>,
 }
 
 fn derive_key(password: &[u8]) -> [u8; 16] {
@@ -542,11 +886,13 @@ fn derive_key(password: &[u8]) -> [u8; 16] {
     key
 }
 
-fn decrypt(encrypted: &[u8], key: &[u8; 16], host: &str, version: i64) -> Option<String> {
-    let body = match encrypted.get(..3) {
-        Some(b"v10") | Some(b"v11") => &encrypted[3..],
+fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -> Option<String> {
+    let key = match encrypted.get(..3)? {
+        b"v10" => &keys.v10,
+        b"v11" => keys.v11.as_ref()?,
         _ => return None,
     };
+    let body = &encrypted[3..];
     let decryptor = cbc::Decryptor::<aes::Aes128>::new(key.into(), &[b' '; 16].into());
     let plain = decryptor.decrypt_padded_vec_mut::<Pkcs7>(body).ok()?;
     // Schema 24 prefixes the value with SHA-256 of its host.

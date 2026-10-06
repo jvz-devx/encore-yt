@@ -1,0 +1,35 @@
+{
+"contents": {
+"sectionListRenderer": {
+"contents": [
+{
+"musicDescriptionShelfRenderer": {
+"description": {
+"runs": [
+{
+"text": "You are\nFace to face now\nFace to face"
+}
+]
+},
+"footer": {
+"runs": [
+{
+"text": "Source: Musixmatch"
+}
+]
+},
+"maxCollapsedLines": 0,
+"maxExpandedLines": 0,
+"onShowCommands": [
+{
+"logLyricEventCommand": {
+"serializedLyricInfo": "EhB0XzdsdE0zNGtyMG1ILTEzGAIiBjEwMzY3MQ=="
+}
+}
+]
+}
+}
+]
+}
+}
+}

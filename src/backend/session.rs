@@ -49,32 +49,11 @@ impl super::Worker {
                 Err(error) => log::warn!("could not write the cookie file: {error:#}"),
             }
             client.set_session(Some(session));
-            let account = match client.account().await {
-                Ok(value) => match parse::account(&value) {
-                    Some((name, photo)) => Account::SignedIn {
-                        name,
-                        photo,
-                        source,
-                    },
-                    None => {
-                        client.set_session(None);
-                        resolver.set_cookie_file(None);
-                        Account::SignedOut {
-                            reason: format!("{source} isn't signed in to YouTube Music"),
-                        }
-                    }
-                },
-                Err(ApiError::Auth) => {
-                    client.set_session(None);
-                    resolver.set_cookie_file(None);
-                    Account::SignedOut {
-                        reason: format!("The YouTube session in {source} has expired"),
-                    }
-                }
-                Err(error) => Account::Unverified {
-                    reason: error.to_string(),
-                },
-            };
+            let account = client.verify(&source).await;
+            if matches!(account, Account::SignedOut { .. }) {
+                client.set_session(None);
+                resolver.set_cookie_file(None);
+            }
             let _ = tx.send(Internal::Connected(account));
         });
     }

@@ -1,0 +1,416 @@
+{
+"contents": {
+"elementRenderer": {
+"newElement": {
+"properties": {
+"identifierProperties": {
+"identifier": "timed_lyrics.eml-ja|486dcb916a0645cb",
+"uniqueLoggingIdentifier": "1791318520941828604"
+}
+},
+"type": {
+"componentType": {
+"model": {
+"timedLyricsModel": {
+"context": {
+"adsContext": {
+"experimentFlags": {
+"adSwappingDismissAdButtonTitle": "dismiss",
+"androidLandscapeEpHeightFix": true,
+"cardifiedBasicImmersiveSafeZoneHeight": 24,
+"constrainThumbnailDisclosureBannerForAndroidHomeLandscape": true,
+"darkCompanionInLightMode": true,
+"disableShortsImageA11yFocus": true,
+"disableShortsImageAdsTooltip": true,
+"disableShortsNavigationSelectedBorder": true,
+"dynamicCardHeightOnShortsAds": -1,
+"dynamicCardWidthOnShortsAds": -1,
+"emptyLandscapeEpHeader": true,
+"enableA11yFixCompactAds": true,
+"enableA11yFixOnTap": true,
+"enableAdButtonGroupWithSitelinksCarousel": true,
+"enableAdDisclosureBannerOnPlayerOverlay": true,
+"enableAdIconTextMinWidthFix": true,
+"enableAiDisclosureForAdImageInnertube": true,
+"enableAiDisclosureForAdTextImageInnertube": true,
+"enableCapabilityOnFlattenedRhsForShortsAds": true,
+"enableCardifiedBasicImmersive": true,
+"enableCarouselAndSubscribeButtonWithoutCairo": true,
+"enableClickSourceLoggingForSwipeNudgeEml": true,
+"enableCompactSurveyA11yFix": true,
+"enableConditionalRenderingForDelayedDescription": true,
+"enableDarkInstreamCompactSurveyInLightMode": true,
+"enableDescriptionMaxLineForMauiLandscapeOrientation": true,
+"enableDisplayFullWidthPortraitImageOnSearchTablet": true,
+"enableDisplayFullWidthSquareImageCarouselOnSearchTablet": true,
+"enableDisplayFullWidthSquareImageOnSearchTablet": true,
+"enableDisplayLandscapeImageWideButtonOnSearchAndroidTablet": true,
+"enableDisplayLandscapeImageWideButtonOnSearchIosTablet": true,
+"enableDisplaySquareImageOnSearchTablet": true,
+"enableEngagementHeaderBackgroundColorForMusicMobile": true,
+"enableEngagementHeaderFocusableA11yFix": true,
+"enableFeedAdMetadataHeadlineInteractionForAppendedHeadline": true,
+"enableFeedAdMetadataHeadlineInteractionForResponsiveHeadline": true,
+"enableFixAspectRatioResponsiveGrid": true,
+"enableFixButtonsPositionResponsiveVerticalList": true,
+"enableFixDoublePaddingForImageAds": true,
+"enableFixOverlayIconCompactLandscapeImageOnSearch": true,
+"enableFixOverlayIconForWatchNextFullscreen": true,
+"enableGridAdsImageAccessibilityRefactor": true,
+"enableHeadlineTruncationLargeText": true,
+"enableInstreamCompactSurveyNeutralInfra": true,
+"enableInstreamCompactSurveyNoCompanionZeroHeightFixOnIos": true,
+"enableIosLandscapeModeVerticalTravelTileModifications": true,
+"enableIosVdbgFocusabilityFix": true,
+"enableLandingPagePreviewSaturatedBackground": true,
+"enableLidaIosFix": true,
+"enableLongTapForAndroid": true,
+"enableLongTapForImageAds": true,
+"enableLongTapForThumbnail": true,
+"enableLongTapForVideoAds": true,
+"enableMyAdCenterHeaderAccessibilityContainer": true,
+"enableOneLineDescriptionForShorts": true,
+"enableOverlayButtonForTextImage": true,
+"enableOverlayIconOnPanningImageAd": true,
+"enablePanelCarouselAdAvatarLockupRtlFix": true,
+"enablePanelCarouselCardPortraitVodResponsiveFix": true,
+"enablePivotButtonAndKeepRhsAndThreeDotsPositionOnElements": true,
+"enablePivotButtonOnElements": true,
+"enableProductFeedBadgeOnTapCommand": true,
+"enableProgressiveDisclosureForLpp": true,
+"enableProgressiveDisclosureImageAds": true,
+"enableRedesignedAfsSitelinksInnertube": true,
+"enableReelsAdCardForCreatorPromoFormat": true,
+"enableResponsiveAdsOnTabletHome": true,
+"enableResponsivePositioningAdBadge": true,
+"enableResponsiveTextImageButton": true,
+"enableResponsiveTextImageButtonGroup": true,
+"enableRevampedSitelinkSingleCardFormat": true,
+"enableSfsPlaForWnInnertube": true,
+"enableSfsPlaGridAdsOnTabletInnertube": true,
+"enableSfsResponsiveConfig": true,
+"enableShoppingInstreamAdsOnTablet": true,
+"enableShortsCompactSurvey": true,
+"enableShortsCompactSurveyFollowUp": true,
+"enableShortsImageAdDarkScrimFix": true,
+"enableShortsIosAciBottomScrimFix": true,
+"enableShortsUxFixForVideoAds": true,
+"enableSmallerClickAreaShortsImageAdTooltip": true,
+"enableStoreInsetValuesForTopCarousel": true,
+"enableSwipeUpNudgeClickTargetFix": true,
+"enableSwipeUpNudgeRefactor": true,
+"enableTextImageLayoutA11yFix": true,
+"enableTransparentAiDisclosureAccentColor": true,
+"enableTransparentBorderDualAvatarForPartnershipAds": true,
+"enableUiFixForGridAds": true,
+"enableVerticalPaddingForEngagementFooter": true,
+"enableVideoAdsOnSearchTablet": true,
+"expAdImageKenBurnsAnimationType": "KEN_BURNS_ANIMATION_TYPE_UNSPECIFIED",
+"expAppAdsProgressiveDisclosureBkgGradientTime": 4,
+"expAppAdsProgressiveDisclosureHeaderShrinkTime": 4,
+"expAppAdsProgressiveDisclosureImageZoomTime": 4,
+"expLppProgressiveDisclosureAvatarShrinkTime": 4,
+"expLppProgressiveDisclosureImageZoomTime": 4,
+"expLppProgressiveDisclosureSwipeUpTime": 4,
+"expMainstageEpMargin": 16,
+"expMainstageEpMarginImages": 16,
+"expShoppingProgressiveDisclosureAvatarShrinkTime": 4,
+"expShoppingProgressiveDisclosureImageZoomTime": 4,
+"fixA11yUnlabeledReadoutForAdDisclosureBanner": true,
+"fixEpHeaderTablet": true,
+"fixLongPressInteractionForDescription": true,
+"fixLongPressInteractionOnTextElements": true,
+"fixRightMarginForRve": true,
+"fixSubscribeButtonForWatchNextFullscreenLandscape": true,
+"fixThumbnailSizeForImageAdsOnWatchNextFullscreenLandscape": true,
+"fixThumbnailSizeForWatchNextFullscreenLandscape": true,
+"forceDarkModeForLandscapeEp": true,
+"hideShoppingPanelOnTabletPortrait": true,
+"largeCtaFontSizeOnShortsAds": -1,
+"largeCtaOverlayFontSizeOnShortsAds": -1,
+"largeTextFontSizeOnShortsAds": -1,
+"maxNumberPlaSfs": "2",
+"removeAdBadgeForMusicEpHeader": true,
+"removeChevronFromAdDisclosureBannerEml": true,
+"removePaddingFromPanning": true,
+"setOverflowButtonEndMarginToZeroForWatchNextFullscreenLandscape": true,
+"shiftCtaOverlaySixteenPxFromBottomForShortsAds": true,
+"shortsAdLeaveBehindSecondsToAutoDismiss": 10,
+"shortsAdLeaveBehindSecondsToInvisible": 0.5,
+"shortsCompactSurveyAnimationOutDurationSeconds": 0.4,
+"shortsNavigationAnimationDurationSeconds": 0.5,
+"shortsNavigationFadeInDelaySeconds": 0.2,
+"showCarouselOnDwellForVacTravelInfeedDwellDurationMs": 5000,
+"strongerScrimOverlayForGrid": true,
+"swapOpenInNewWithArrowDiagonalUpRightOnMobile": true,
+"transitionDurationAdSwappingInSec": 0.5,
+"useCellForStoreVisitPanel": true,
+"websiteAutoClickCountdownSeconds": "5"
+}
+},
+"channelsContext": {
+"experimentFlags": {
+"enableViewPronounsOnMainApp": true
+}
+},
+"javascriptContext": {
+"moduleSetVersion": "11818670534864637152"
+},
+"mainAppContext": {
+"experiments": {
+"collectionLoopDelayDurationSec": 1.8,
+"collectionTextTransitionDurationSec": 0.8,
+"collectionThumbnailTransitionDurationSec": 0.8,
+"disableLongPressOnThumbnailForEmptyMenuTapCommand": true,
+"disableTouchFeedbackOnVideoCardsWithoutOnTapCommand": true,
+"disableVarispeedSliderHapticFeedback": true,
+"emlPerfTest": 1,
+"enableA11yFixForThreeDotMenuButton": true,
+"enableBuenosAiresListOptionPattern": true,
+"enableButtonIconDelhiSize": true,
+"enableButtonProtoToButtonViewModelMigration": true,
+"enableButtonTextAlignment": true,
+"enableCairoRefresh": true,
+"enableCairoRefreshRingo2": true,
+"enableCairoRefreshTopicIcons": true,
+"enableCaptionsBottomSheetA11yFix": true,
+"enableCardItemDisabledState": true,
+"enableCenterAlignmentFixForAvatarStack": true,
+"enableContentsAsElementViewModelForHorizontalShelf": true,
+"enableElementsToggleButtonIsTogglingDisabled": true,
+"enableListItemInPlaylistMetadataEditor": true,
+"enableLocalThumbnailForVideoUploadLockups": true,
+"enableLocalThumbnailInThumbnailOverlay": true,
+"enableModernButtons": true,
+"enableModernChipsV1": true,
+"enableModernDialog": true,
+"enableModernPlayerControlsMetadataUpdate": true,
+"enableModernPlayerControlsSeekEdu": true,
+"enableModernPlayerSpeedmasterPadding": true,
+"enableModernizeStructuredDescriptionPlaylistLockupsV2": true,
+"enableModernizedBadges": true,
+"enableResponsiveAvatarRowBreakpoint": 840,
+"enableRoundedBadgesForServer": true,
+"enableRoundedThumbs": true,
+"enableScrollableDialogHeaderAndContent": true,
+"enableSimplifiedSeeYourSubscribersExperiment": true,
+"enableSingleOnTapCommandVideoLockup": true,
+"enableSnappyScrollByDefaultInHorizontalShelf": true,
+"enableTextDialogOnTapDismissalDedupe": true,
+"enableTextFieldA11yFix": true,
+"enableThumbnailBadgeContainerA11yLabel": true,
+"enableTwoLinePrivacyTos": true,
+"enableTypographyTokensMigrationAds": true,
+"enableVideoLockupMetadataModernTypeServer": true,
+"feedNudgeUseTetrisButtonDimensions": true,
+"fixAndroidMobileHistoryShelfLoadJank": true,
+"fixContentMetadataImageIncorrectHeightWidthAssignment": true,
+"fixViewAllButtonAlignmentInHorizontalShelf": true,
+"readAriaLabelOnFocus": true,
+"reanchorOnVisibleToRootChild": true,
+"removeBasicContentScrollableContainer": true,
+"removeHandleClaimingVideoVwcslots": true,
+"replaceRichGridRowVwcslotsWithVideolockup": true,
+"showVideoCollaborators": true,
+"useOnVisibleCommandOnlyForToggleButtonAutoUpdate": true,
+"useSerialCommandForElementChips": true,
+"videoLockupUseEnvironmentOrientation": true,
+"ycEnableUnifiedChannelCreationFlow": true
+}
+},
+"musicContext": {
+"experiments": {
+"allowMusicListItemFlexGrow": true,
+"enableA11yButtonTraitOnPlaylistsInMusicPlaylistsPickerModel": true,
+"enableCreatePlaylistDialogExpansionFix": true,
+"enableDownloadsBadgeQueriesInmemoryLookupOrder": true,
+"enableElcInDownloadButtonComponent": true,
+"enableEmlCollectionScalingWithFontScaleAndroid": true,
+"enableHendrixBackgroundColorOnTimedLyricsTab": true,
+"enableIosNpiSwiftLottieOptimization": true,
+"enableLargeRecapHeaderBackgroundImage": true,
+"enableLibraryEntityQueryInDownloadsBadgeComponent": true,
+"enableListItemA11yScaling": true,
+"enableMusicGridItemModernizationStyleUpdates": true,
+"enablePlaybackProgressModernization": true,
+"enableRadioBuilderCarousel": true,
+"enableRadioBuilderSearch": true,
+"enableShowAndHideMusicThumbnail": true,
+"enableTimedLyricsOpaqueOnStaticLayout": true,
+"enableYoutubeLoggingDirectivesMusicListItem": true,
+"musicEnableListItemIndexWidthFix": true
+}
+},
+"reelsPlayerContext": {
+"experiments": {
+"updateReelsMetadataInnerPadding": true
+}
+},
+"shoppingAppContext": {
+"experiments": {
+"bannerMaxWidthInLandscapeWithVisibleControls": 0.5,
+"bannerMaxWidthInPortraitWithVisibleControls": 0.7,
+"darkThemeProductThumbnailColor": 4280756007,
+"delaySecondsOnCfpRendering": 1,
+"enableMetadataRearrangementForFeaturedProductBanner": true,
+"enableOutOfStockText": true,
+"enableOutOfStockTextAllSurfaces": true,
+"enableProductThumbnailsOverlay3pct": true,
+"enableUnifiedFeaturedProductBanners": true,
+"performOnceProductStickerAnimation": true
+}
+},
+"staticDeviceEnvDataContext": {
+"clientName": "ANDROID_MUSIC",
+"platformName": "PLATFORM_NAME_ANDROID"
+},
+"subscriptionsContext": {
+"experiments": {
+"forceModernSubscribeButton": true
+}
+},
+"themeKey": "EiBkODZlY2MxY2FmZTE4NzM0Mjg1YWQ5OWY3YzEyYmM5ZSBOKAE%3D",
+"typographyContext": {}
+},
+"lyricsData": {
+"backgroundImage": {
+"sources": [
+{
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w544-h544-l90-rj"
+}
+]
+},
+"collectionKey": "lyrics_collection279974727",
+"colorSamplePaletteEntityKey": "EipZVE1fUExBWUVSX0NPTE9SX1NBTVBMRV9QQUxFVFRFX0VOVElUWV9LRVkgiwMoAQ%3D%3D",
+"experiments": {
+"enableAsyncInitController": false,
+"enableFixedBackgroundHeight": false,
+"enableLyricLine": false,
+"enableLyricsAutoScrollPause": false,
+"enableLyricsEpSplitView": false,
+"enableLyricsTextDirectionOverride": false,
+"enableScreenAlwaysOn": false,
+"enableTextWithTranslation": false,
+"enableTimedLyricsWhileCasting": false,
+"updatedLyricTimeMs": 0
+},
+"loggingCommand": {
+"logLyricEventCommand": {
+"serializedLyricInfo": "EhB0XzdsdE0zNGtyMG1ILTEzGAIiBjEwMzY3MSgCMLfx_84B"
+}
+},
+"sourceMessage": "Source: Musixmatch",
+"timedLyricsCommand": {
+"logLyricEventCommand": {
+"serializedLyricInfo": "EhB0XzdsdE0zNGtyMG1ILTEzGAIiBjEwMzY3MSgDMLfx_84B"
+}
+},
+"timedLyricsData": [
+{
+"cueRange": {
+"endTimeMilliseconds": "9150",
+"metadata": {
+"id": "0"
+},
+"startTimeMilliseconds": "0"
+},
+"lyricLine": "♪"
+},
+{
+"cueRange": {
+"endTimeMilliseconds": "11680",
+"metadata": {
+"id": "1"
+},
+"startTimeMilliseconds": "9150"
+},
+"lyricLine": "You are"
+},
+{
+"cueRange": {
+"endTimeMilliseconds": "15540",
+"metadata": {
+"id": "2"
+},
+"startTimeMilliseconds": "11680"
+},
+"lyricLine": "Face to face now"
+}
+]
+}
+}
+},
+"subscriptionConfig": {
+"controllerSubscriptionConfig": {
+"createControllerCommand": {
+"functionName": "createTimedLyricsController|91d5f07a98218013",
+"moduleIdentifier": "timed_lyrics_controller|646b328fb71494fa",
+"moduleSetVersion": "11818670534864637152",
+"persistentContextEffect": "PERSISTENT_CONTEXT_EFFECT_NONE"
+},
+"destroyControllerCommand": {
+"functionName": "destroyTimedLyricsController|91d5f07a98218013",
+"moduleIdentifier": "timed_lyrics_controller|646b328fb71494fa",
+"moduleSetVersion": "11818670534864637152",
+"persistentContextEffect": "PERSISTENT_CONTEXT_EFFECT_CLEAR"
+},
+"modelExtension": 465160965,
+"notifyModelUpdateControllerCommand": {
+"functionName": "notifyModelUpdateTimedLyricsController|91d5f07a98218013",
+"moduleIdentifier": "timed_lyrics_controller|646b328fb71494fa",
+"moduleSetVersion": "11818670534864637152",
+"persistentContextEffect": "PERSISTENT_CONTEXT_EFFECT_NONE"
+},
+"skipModelUpdates": true,
+"stateExtension": 465353514,
+"stateField": 3
+},
+"dataStoreSubscriptionConfig": {
+"mappings": [
+{
+"identifier": "EiAyZGYyYzgyNmQyMWQ1MzU1N2NhOTZiZGM1NjJmY2E1MiB_KAE%3D",
+"resultField": 1,
+"resultPath": [
+1
+]
+},
+{
+"identifier": "EiBkODZlY2MxY2FmZTE4NzM0Mjg1YWQ5OWY3YzEyYmM5ZSBOKAE%3D",
+"resultField": 2,
+"resultPath": [
+2
+]
+},
+{
+"identifier": "EipZVE1fUExBWUVSX0NPTE9SX1NBTVBMRV9QQUxFVFRFX0VOVElUWV9LRVkgiwMoAQ%3D%3D",
+"resultField": 7,
+"resultPath": [
+7
+]
+}
+],
+"resultField": 465160965
+},
+"environmentSubscriptionConfig": {
+"environmentDataField": 6,
+"resultField": 465160965,
+"subscription": {
+"environmentDataFilter": [
+"SUBSCRIPTION_WINDOW_SIZE",
+"SUBSCRIPTION_DEVICE_ORIENTATION",
+"SUBSCRIPTION_IS_SCREEN_READER_ACTIVE"
+]
+}
+}
+},
+"templateConfig": {
+"uriTemplateConfig": {
+"uri": "timed_lyrics.eml-ja|486dcb916a0645cb"
+}
+}
+}
+}
+}
+}
+}
+}

@@ -1,0 +1,832 @@
+{
+"contents": {
+"singleColumnMusicWatchNextResultsRenderer": {
+"tabbedRenderer": {
+"watchNextTabbedResultsRenderer": {
+"tabs": [
+{
+"tabRenderer": {
+"content": {
+"musicQueueRenderer": {
+"content": {
+"playlistPanelRenderer": {
+"contents": [
+{
+"playlistPanelVideoRenderer": {
+"canReorder": true,
+"lengthText": {
+"runs": [
+{
+"text": "4:01"
+}
+]
+},
+"longBylineText": {
+"runs": [
+{
+"navigationEndpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+}
+},
+"browseId": "UCRr1xG_2WIDs18a6cIiCxeA"
+}
+},
+"text": "Daft Punk"
+},
+{
+"text": " • "
+},
+{
+"navigationEndpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_ALBUM"
+}
+},
+"browseId": "MPREb_7ltM34kr0mH"
+}
+},
+"text": "Discovery"
+},
+{
+"text": " • "
+},
+{
+"text": "2001"
+}
+]
+},
+"menu": {
+"menuRenderer": {
+"items": [
+{
+"menuNavigationItemRenderer": {
+"icon": {
+"iconType": "MIX"
+},
+"navigationEndpoint": {
+"watchEndpoint": {
+"params": "wAEB",
+"playlistId": "RDAMVMqXI87eMP-bs",
+"videoId": "qXI87eMP-bs",
+"watchEndpointMusicSupportedConfigs": {
+"watchEndpointMusicConfig": {
+"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+}
+}
+}
+},
+"text": {
+"runs": [
+{
+"text": "Start mix"
+}
+]
+}
+}
+},
+{
+"menuNavigationItemRenderer": {
+"icon": {
+"iconType": "ADD_TO_PLAYLIST"
+},
+"navigationEndpoint": {
+"modalEndpoint": {
+"modal": {
+"modalWithTitleAndButtonRenderer": {
+"button": {
+"buttonRenderer": {
+"isDisabled": false,
+"navigationEndpoint": {
+"signInEndpoint": {
+"hack": true
+}
+},
+"style": "STYLE_BLUE_TEXT",
+"text": {
+"runs": [
+{
+"text": "Sign in"
+}
+]
+}
+}
+},
+"content": {
+"runs": [
+{
+"text": "Make playlists and share them after signing in"
+}
+]
+},
+"title": {
+"runs": [
+{
+"text": "Save this for later"
+}
+]
+}
+}
+}
+}
+},
+"text": {
+"runs": [
+{
+"text": "Save to playlist"
+}
+]
+}
+}
+},
+{
+"menuNavigationItemRenderer": {
+"icon": {
+"iconType": "ALBUM"
+},
+"navigationEndpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_ALBUM"
+}
+},
+"browseId": "MPREb_7ltM34kr0mH"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Go to album"
+}
+]
+}
+}
+},
+{
+"menuNavigationItemRenderer": {
+"icon": {
+"iconType": "ARTIST"
+},
+"navigationEndpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+}
+},
+"browseId": "UCRr1xG_2WIDs18a6cIiCxeA"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Go to artist"
+}
+]
+}
+}
+},
+{
+"menuNavigationItemRenderer": {
+"icon": {
+"iconType": "PEOPLE_GROUP"
+},
+"navigationEndpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+}
+},
+"browseId": "MPTCqXI87eMP-bs"
+}
+},
+"text": {
+"runs": [
+{
+"text": "View song credits"
+}
+]
+}
+}
+},
+{
+"menuNavigationItemRenderer": {
+"icon": {
+"iconType": "SHARE"
+},
+"navigationEndpoint": {
+"shareEntityEndpoint": {
+"serializedShareEntity": "CgtxWEk4N2VNUC1icw%3D%3D",
+"sharePanelType": "SHARE_PANEL_TYPE_UNIFIED_SHARE_PANEL"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Share"
+}
+]
+}
+}
+}
+]
+}
+},
+"navigationEndpoint": {
+"watchEndpoint": {
+"params": "OAHyAQIIAeoEC3FYSTg3ZU1QLWJz",
+"videoId": "qXI87eMP-bs",
+"watchEndpointMusicSupportedConfigs": {
+"watchEndpointMusicConfig": {
+"hasPersistentPlaylistPanel": true,
+"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+}
+}
+}
+},
+"queueNavigationEndpoint": {
+"queueAddEndpoint": {
+"params": "Q0FJJTNE",
+"queueInsertPosition": "INSERT_AT_END",
+"queueTarget": {
+"videoId": "qXI87eMP-bs"
+}
+}
+},
+"selected": true,
+"shortBylineText": {
+"runs": [
+{
+"text": "Daft Punk"
+}
+]
+},
+"thumbnail": {
+"thumbnails": [
+{
+"height": 60,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w60-h60-l90-rj",
+"width": 60
+},
+{
+"height": 120,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w120-h120-l90-rj",
+"width": 120
+},
+{
+"height": 180,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w180-h180-l90-rj",
+"width": 180
+},
+{
+"height": 226,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w226-h226-l90-rj",
+"width": 226
+},
+{
+"height": 302,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w302-h302-l90-rj",
+"width": 302
+},
+{
+"height": 544,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w544-h544-l90-rj",
+"width": 544
+}
+]
+},
+"title": {
+"runs": [
+{
+"text": "Face to Face"
+}
+]
+},
+"videoId": "qXI87eMP-bs"
+}
+},
+{
+"automixPreviewVideoRenderer": {
+"content": {
+"automixPlaylistVideoRenderer": {
+"automixMode": "AUTOMIX_MODE_DEFAULT_ON",
+"navigationEndpoint": {
+"watchPlaylistEndpoint": {
+"params": "wAEB8gECeAHqBAtxWEk4N2VNUC1icw%3D%3D",
+"playlistId": "RDAMVMqXI87eMP-bs"
+}
+}
+}
+}
+}
+}
+],
+"isInfinite": false,
+"shuffleToggleButton": {
+"toggleButtonRenderer": {
+"defaultIcon": {
+"iconType": "MUSIC_SHUFFLE"
+},
+"defaultServiceEndpoint": {
+"watchPlaylistEndpoint": {
+"params": "wAEB8gECKAE%3D"
+}
+},
+"toggledIcon": {
+"iconType": "MUSIC_SHUFFLE"
+},
+"toggledServiceEndpoint": {
+"watchPlaylistEndpoint": {
+"params": "wAEB"
+}
+}
+}
+}
+}
+},
+"hack": true,
+"header": {
+"musicQueueHeaderRenderer": {
+"buttons": [
+{
+"chipCloudChipRenderer": {
+"icon": {
+"iconType": "ADD_TO_PLAYLIST"
+},
+"isSelected": false,
+"navigationEndpoint": {
+"modalEndpoint": {
+"modal": {
+"modalWithTitleAndButtonRenderer": {
+"button": {
+"buttonRenderer": {
+"isDisabled": false,
+"navigationEndpoint": {
+"signInEndpoint": {
+"hack": true
+}
+},
+"style": "STYLE_BLUE_TEXT",
+"text": {
+"runs": [
+{
+"text": "Sign in"
+}
+]
+}
+}
+},
+"content": {
+"runs": [
+{
+"text": "Make playlists and share them after signing in"
+}
+]
+},
+"title": {
+"runs": [
+{
+"text": "Save this for later"
+}
+]
+}
+}
+}
+},
+"saveQueueToPlaylistCommand": {}
+},
+"style": {
+"styleType": "STYLE_TRANSPARENT"
+},
+"text": {
+"runs": [
+{
+"text": "Save"
+}
+]
+},
+"uniqueId": "Save"
+}
+}
+],
+"subtitle": {
+"runs": [
+{
+"text": "Face to Face Mix"
+}
+]
+},
+"title": {
+"runs": [
+{
+"text": "Playing from"
+}
+]
+}
+}
+},
+"musicQueueConfig": {}
+}
+},
+"title": "Up next"
+}
+},
+{
+"tabRenderer": {
+"endpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_TRACK_LYRICS"
+}
+},
+"browseId": "MPLYt_7ltM34kr0mH-13"
+}
+},
+"title": "Lyrics"
+}
+},
+{
+"tabRenderer": {
+"content": {
+"sectionListRenderer": {
+"continuations": [
+{
+"reloadContinuationData": {
+"continuation": "Eg0SC3FYSTg3ZU1QLWJzGAYyHCINIgtxWEk4N2VNUC1ic0ILcVhJODdlTVAtYnNqC3FYSTg3ZU1QLWJz"
+}
+}
+],
+"targetId": "qXI87eMP-bs"
+}
+},
+"title": "Comments"
+}
+},
+{
+"tabRenderer": {
+"endpoint": {
+"browseEndpoint": {
+"browseEndpointContextSupportedConfigs": {
+"browseEndpointContextMusicConfig": {
+"pageType": "MUSIC_PAGE_TYPE_TRACK_RELATED"
+}
+},
+"browseId": "MPTRt_7ltM34kr0mH-13"
+}
+},
+"title": "Related"
+}
+}
+]
+}
+}
+}
+},
+"currentVideoEndpoint": {
+"watchEndpoint": {
+"ustreamerConfig": "GgIIBQ==",
+"videoId": "qXI87eMP-bs"
+}
+},
+"playerOverlays": {
+"playerOverlayRenderer": {
+"actions": [
+{
+"likeButtonRenderer": {
+"dislikeNavigationEndpoint": {
+"modalEndpoint": {
+"modal": {
+"modalWithTitleAndButtonRenderer": {
+"button": {
+"buttonRenderer": {
+"isDisabled": false,
+"navigationEndpoint": {
+"signInEndpoint": {
+"hack": true
+}
+},
+"style": "STYLE_BLUE_TEXT",
+"text": {
+"runs": [
+{
+"text": "Sign in"
+}
+]
+}
+}
+},
+"content": {
+"runs": [
+{
+"text": "Improve your recommendations after signing in"
+}
+]
+},
+"title": {
+"runs": [
+{
+"text": "Not a fan?"
+}
+]
+}
+}
+}
+}
+},
+"likeCommand": {
+"modalEndpoint": {
+"modal": {
+"modalWithTitleAndButtonRenderer": {
+"button": {
+"buttonRenderer": {
+"isDisabled": false,
+"navigationEndpoint": {
+"signInEndpoint": {
+"hack": true
+}
+},
+"style": "STYLE_BLUE_TEXT",
+"text": {
+"runs": [
+{
+"text": "Sign in"
+}
+]
+}
+}
+},
+"content": {
+"runs": [
+{
+"text": "Improve recommendations and save music after signing in"
+}
+]
+},
+"title": {
+"runs": [
+{
+"text": "Like this song"
+}
+]
+}
+}
+}
+}
+},
+"likeStatus": "INDIFFERENT",
+"likesAllowed": true,
+"target": {
+"videoId": "qXI87eMP-bs"
+}
+}
+}
+],
+"browserMediaSession": {
+"browserMediaSessionRenderer": {
+"album": {
+"runs": [
+{
+"text": "Discovery"
+}
+]
+},
+"thumbnailDetails": {
+"thumbnails": [
+{
+"height": 60,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w60-h60-l90-rj",
+"width": 60
+},
+{
+"height": 120,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w120-h120-l90-rj",
+"width": 120
+},
+{
+"height": 226,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w226-h226-l90-rj",
+"width": 226
+},
+{
+"height": 544,
+"url": "https://yt3.googleusercontent.com/qrY7xjdjqL0FEneZKHk845JeeFjdWOgexUa_BhsUxskJ2iflhzpbofqGJZBcPHDGU9JjoZflE4yn3P74=w544-h544-l90-rj",
+"width": 544
+}
+]
+}
+}
+}
+}
+},
+"queueContextParams": "CAEaEVJEQU1WTXFYSTg3ZU1QLWJzIKq_88CdppcDMgtxWEk4N2VNUC1ic0oLcVhJODdlTVAtYnNQAFoECAAQAXgB",
+"videoReporting": {
+"reportFormModalRenderer": {
+"cancelButton": {
+"buttonRenderer": {
+"isDisabled": false,
+"style": "STYLE_TEXT",
+"text": {
+"runs": [
+{
+"text": "Cancel"
+}
+]
+}
+}
+},
+"optionsSupportedRenderers": {
+"optionsRenderer": {
+"items": [
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQASyYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Sexual content"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQATaYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Violent or repulsive content"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQARSYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Hateful or abusive content"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQARGYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Harassment or bullying"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQAQ2YAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Harmful or dangerous acts"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQAUGYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Misinformation"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQAQyYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Child abuse"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQAUWYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Legal issue"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQATWYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Promotes terrorism"
+}
+]
+}
+}
+},
+{
+"optionSelectableItemRenderer": {
+"submitEndpoint": {
+"flagEndpoint": {
+"flagAction": "EAciDwoLcVhJODdlTVAtYnNQBTILcVhJODdlTVAtYnOQATGYAQGoAQM%3D"
+}
+},
+"text": {
+"runs": [
+{
+"text": "Spam or misleading"
+}
+]
+}
+}
+}
+]
+}
+},
+"submitButton": {
+"buttonRenderer": {
+"isDisabled": true,
+"style": "STYLE_BRAND",
+"text": {
+"runs": [
+{
+"text": "Report"
+}
+]
+}
+}
+},
+"title": {
+"runs": [
+{
+"text": "Report video"
+}
+]
+}
+}
+}
+}

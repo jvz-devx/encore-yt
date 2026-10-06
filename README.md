@@ -82,9 +82,42 @@ Song-change notifications are off by default; turn them on in **Settings**. They
 
 ## How it signs in
 
-ytfast reads your YouTube sign-in from a browser you're already signed in to: Firefox or LibreWolf (including their Flatpaks), or a Chromium-family browser (Brave, Brave Origin, Google Chrome or Chromium). It reads the browser's cookie store without changing it. Chromium browsers encrypt it, so ytfast decrypts it with the key the browser keeps in your keyring (the Secret Service, or KWallet on KDE); Firefox doesn't. You never paste headers or export files. In Firefox, sign in outside container tabs: ytfast reads only the default container.
+ytfast reads your YouTube sign-in from a browser you're already signed in to, or from a cookie file exported on another computer (below): Firefox or LibreWolf (including their Flatpaks), or a Chromium-family browser (Brave, Brave Origin, Google Chrome or Chromium). It reads the browser's cookie store without changing it. Chromium browsers encrypt it, so ytfast decrypts it with the key the browser keeps in your keyring (the Secret Service, or KWallet on KDE); Firefox doesn't. You never paste headers, and on this computer you don't export files. In Firefox, sign in outside container tabs: ytfast reads only the default container.
 
 By default it uses the browser profile you used most recently. If different browsers are signed in to different Google accounts, choose one in **Settings**; ytfast remembers it in `~/.config/ytfast/settings.json`.
+
+### From another computer: a cookie file
+
+If the browser you use YouTube Music in is on another computer (a Mac, say), export its session as a Netscape cookie file and put it in `~/.config/ytfast/` with a name containing `cookies` and ending in `.txt` (`cookies.txt`, `browser-cookies.txt`). ytfast lists each such file in **Settings** as "Cookie file (cookies.txt)" next to the browser profiles, and uses it for YouTube Music and for `yt-dlp` like a browser's cookies. It reads only a file's youtube.com and google.com lines, and refuses a file unless it belongs to you and only you can read it (mode `0600`).
+
+YouTube rotates the cookies of a session that stays in use, and a copy of them soon stops working. So export a session that won't be used again:
+
+- **Private window (recommended):** open a private window, sign in to music.youtube.com, export the youtube.com cookies with a cookies.txt extension (yt-dlp suggests "Get cookies.txt LOCALLY" for Chromium browsers and "cookies.txt" for Firefox), then close the private window.
+- **With yt-dlp:** `yt-dlp --cookies-from-browser` reads a browser's saved cookies, not a private window's. Use a separate browser profile: sign in to music.youtube.com there, quit the browser, export, and don't open that profile again. yt-dlp ends with "You must provide at least one URL" but writes the file anyway; the file holds every site's cookies from that profile, so delete it on the Mac once copied.
+
+  ```sh
+  yt-dlp --cookies-from-browser chrome:"Profile 2" --cookies cookies.txt    # Google Chrome
+  yt-dlp --cookies-from-browser brave:"Profile 2" --cookies cookies.txt     # Brave
+  yt-dlp --cookies-from-browser safari --cookies cookies.txt                # Safari
+  ```
+
+  On macOS yt-dlp asks the Keychain for the browser's "Safe Storage" item (`Chrome Safe Storage`, `Brave Safe Storage`; macOS asks you to allow it). Safari needs no Keychain item, but the terminal needs Full Disk Access. For another Chromium-based browser, give yt-dlp the profile's path: `chromium:"$HOME/Library/Application Support/<browser>/<profile>"`. It then looks for the item `Chromium Safe Storage` (account `Chromium`). Helium (profiles in `~/Library/Application Support/net.imput.helium`) files its key as `Helium Storage Key` (account `Helium`), so add a `Chromium Safe Storage` item with the same password for the export and delete it afterwards (this clashes with a real Chromium install, which has its own item):
+
+  ```sh
+  security add-generic-password -a Chromium -s "Chromium Safe Storage" \
+    -w "$(security find-generic-password -w -a Helium -s 'Helium Storage Key')"
+  yt-dlp --cookies-from-browser chromium:"$HOME/Library/Application Support/net.imput.helium/Profile 2" --cookies cookies.txt
+  security delete-generic-password -a Chromium -s "Chromium Safe Storage"
+  ```
+
+Copy it here with the right mode, then press Reconnect (or restart ytfast):
+
+```sh
+scp mac:cookies.txt ~/.config/ytfast/cookies.txt
+chmod 600 ~/.config/ytfast/cookies.txt
+```
+
+When YouTube Music says the session has expired, export a fresh one the same way.
 
 Cookies are never logged or written anywhere readable by other users. To see what ytfast can read from each profile (counts only, no values), run `cargo run --example sign_in --no-default-features`. While it runs, the cookie file that `yt-dlp` needs lives in `$XDG_RUNTIME_DIR/ytfast` with permissions `0600`.
 

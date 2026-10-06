@@ -1,5 +1,6 @@
 //! Reads the YouTube session from the desktop's Chromium-family or Firefox
-//! browser.
+//! browser, or from cookie files exported elsewhere
+//! (`~/.config/ytfast/*cookies*.txt`).
 //!
 //! The browser keeps its cookie store open, so the database is copied first.
 //! Chromium values are encrypted with a key derived from the browser's "Safe
@@ -192,6 +193,16 @@ enum Store {
     Chromium(&'static Browser),
     /// `moz_cookies`, in the clear.
     Firefox,
+    /// A Netscape cookie file the person put in ytfast's config directory.
+    CookieFile,
+}
+
+/// Where cookie files go, under the config directory: every
+/// `*cookies*.txt` there ("cookies.txt", "browser-cookies.txt").
+const COOKIE_DIR: &str = "ytfast";
+
+fn is_cookie_file(name: &str) -> bool {
+    name.ends_with(".txt") && name.contains("cookies")
 }
 
 /// A profile's cookie database and when it last changed.
@@ -244,8 +255,32 @@ fn candidates() -> Result<Vec<Candidate>> {
     for gecko in GECKOS {
         firefox_candidates(gecko, &base.home_dir().join(gecko.dir), &mut candidates);
     }
+    cookie_file_candidates(&config.join(COOKIE_DIR), &mut candidates);
     candidates.sort_by_key(|c| std::cmp::Reverse((c.modified, c.default)));
     Ok(candidates)
+}
+
+/// Every `*cookies*.txt` file in `dir`, as "Cookie file (browser-cookies.txt)"
+/// with the id "ytfast/browser-cookies.txt".
+fn cookie_file_candidates(dir: &Path, candidates: &mut Vec<Candidate>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if !is_cookie_file(&name) || !path.is_file() {
+            continue;
+        }
+        candidates.push(Candidate {
+            store: Store::CookieFile,
+            id: format!("{COOKIE_DIR}/{name}"),
+            label: format!("Cookie file ({name})"),
+            modified: mtime(&path).unwrap_or(SystemTime::UNIX_EPOCH),
+            cookies: path,
+            default: false,
+        });
+    }
 }
 
 /// The profiles `profiles.ini` lists under `root` that have a cookie store.
@@ -349,7 +384,7 @@ pub fn profiles(scratch: &Path) -> Vec<Profile> {
 pub fn load(scratch: &Path, preferred: Option<&str>) -> Result<Session> {
     let mut candidates = candidates()?;
     if candidates.is_empty() {
-        bail!("No Chromium-family or Firefox browser profile was found");
+        bail!("No Chromium-family or Firefox browser profile or cookie file was found");
     }
     if let Some(preferred) = preferred
         && let Some(i) = candidates.iter().position(|c| c.id == preferred)
@@ -375,16 +410,20 @@ fn read_profile(candidate: &Candidate, scratch: &Path) -> Result<Option<Session>
     with_copy(candidate, scratch, |copy| match candidate.store {
         Store::Chromium(browser) => read_copy(candidate, browser, copy),
         Store::Firefox => read_firefox_copy(candidate, copy),
+        Store::CookieFile => read_cookie_file(candidate, copy),
     })
 }
 
 /// Runs `read` on a private copy of the profile's cookie database (with its
-/// write-ahead log), removed afterwards.
+/// write-ahead log), removed afterwards. A cookie file is read in place.
 fn with_copy<T>(
     candidate: &Candidate,
     scratch: &Path,
     read: impl FnOnce(&Path) -> Result<T>,
 ) -> Result<T> {
+    if matches!(candidate.store, Store::CookieFile) {
+        return read(&candidate.cookies);
+    }
     let copy = scratch.join(format!("cookies-{}.sqlite", std::process::id()));
     let copy_wal = wal_of(&copy);
     std::fs::copy(&candidate.cookies, &copy).context("copying the cookie database")?;
@@ -450,6 +489,7 @@ pub fn inspect(scratch: &Path) -> Vec<Inspection> {
                         decrypted.cookies
                     }
                     Store::Firefox => firefox_cookies(firefox_rows(copy)?),
+                    Store::CookieFile => cookie_file_cookies(copy)?,
                 };
                 inspection.cookies = cookies.len();
                 inspection.signed_in = cookies.iter().any(|c| signs_in(&c.host, &c.name));
@@ -664,6 +704,77 @@ fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Sessio
         profile: candidate.id.clone(),
         cookies,
     }))
+}
+
+fn read_cookie_file(candidate: &Candidate, path: &Path) -> Result<Option<Session>> {
+    let cookies = cookie_file_cookies(path)?;
+    if !cookies.iter().any(|c| signs_in(&c.host, &c.name)) {
+        return Ok(None);
+    }
+    log::info!("read {} cookies from {}", cookies.len(), candidate.label);
+    Ok(Some(Session {
+        source: candidate.label.clone(),
+        profile: candidate.id.clone(),
+        cookies,
+    }))
+}
+
+/// The youtube.com and google.com cookies of a Netscape cookie file, which
+/// must be private: owned by this user and closed to everyone else (mode
+/// 0600 or 0400), since it holds the session.
+fn cookie_file_cookies(path: &Path) -> Result<Vec<Cookie>> {
+    use std::io::Read;
+    use std::os::unix::fs::MetadataExt;
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let shown = format!("~/.config/{COOKIE_DIR}/{name}");
+    let mut file = std::fs::File::open(path).with_context(|| format!("opening {shown}"))?;
+    // The open file's own metadata: it can't be swapped after the check.
+    let meta = file.metadata()?;
+    let me = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
+    if me.is_some_and(|me| meta.uid() != me) {
+        bail!("{shown} belongs to another user. Copy it again as yourself, then Reconnect.");
+    }
+    if meta.mode() & 0o077 != 0 {
+        bail!("{shown} can be read by other users. Run `chmod 600 {shown}`, then Reconnect.");
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .with_context(|| format!("reading {shown}"))?;
+    Ok(parse_netscape(&text))
+}
+
+/// The youtube.com and google.com lines of a Netscape cookie file:
+/// `host, subdomains, path, secure, expires, name, value`, tab-separated.
+/// `#HttpOnly_` marks an HttpOnly cookie; other `#` lines are comments.
+fn parse_netscape(text: &str) -> Vec<Cookie> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim_end_matches('\r');
+            let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+            if line.starts_with('#') {
+                return None;
+            }
+            let mut fields = line.split('\t');
+            let host = fields.next()?;
+            let _subdomains = fields.next()?;
+            let path = fields.next()?;
+            let secure = fields.next()?;
+            let expires = fields.next()?;
+            let name = fields.next()?;
+            let value = fields.next().unwrap_or_default();
+            if !(host.ends_with("youtube.com") || host.ends_with("google.com")) {
+                return None;
+            }
+            Some(Cookie {
+                host: host.to_owned(),
+                name: name.to_owned(),
+                value: value.to_owned(),
+                path: path.to_owned(),
+                secure: secure.eq_ignore_ascii_case("TRUE"),
+                expires: expires.parse::<i64>().unwrap_or(0).max(0),
+            })
+        })
+        .collect()
 }
 
 /// The browser's "Safe Storage" password and where it came from: the Secret

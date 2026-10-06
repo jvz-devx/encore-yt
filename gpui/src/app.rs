@@ -40,7 +40,6 @@ pub struct MusicApp {
     pub pages: Pages,
     pub player: Player,
     pub account: AccountUi,
-    #[allow(dead_code, reason = "filled by M4")]
     pub desktop: Desktop,
     pub extras: Extras,
     /// The newest error, shown in the strip under the top bar.
@@ -48,6 +47,9 @@ pub struct MusicApp {
     /// The root's focus, so shortcuts in the "Music" key context reach the
     /// root while no field has the focus.
     pub focus: FocusHandle,
+    /// The newest playback report that came while no window was open; the
+    /// player's sliders need a window to move.
+    pending_playback: Option<ytfast::model::Playback>,
     _subscriptions: Vec<Subscription>,
     _events: Task<()>,
     _clock: Task<()>,
@@ -63,12 +65,11 @@ impl MusicApp {
             Ok(backend) => backend,
             Err(e) => panic!("starting the backend: {e:#}"),
         };
-        let events = cx.spawn_in(window, async move |this, cx| {
+        // Not tied to a window: the app outlives its window (desktop).
+        let events = cx.spawn(async move |this, cx| {
             while wake_rx.recv().await.is_ok() {
-                let drained = this.update_in(cx, |this, window, cx| this.drain(window, cx));
-                if drained.is_err() {
-                    break;
-                }
+                let Some(app) = this.upgrade() else { break };
+                cx.update(|cx| drain_events(&app, cx));
             }
         });
         let clock = cx.spawn(async move |this, cx| {
@@ -116,6 +117,7 @@ impl MusicApp {
             extras,
             error: None,
             focus,
+            pending_playback: None,
             _subscriptions: subscriptions,
             _events: events,
             _clock: clock,
@@ -128,15 +130,22 @@ impl MusicApp {
         self.backend.send(command);
     }
 
-    fn drain(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Takes in the backend's events; `window` is the one showing the app,
+    /// if any.
+    pub(crate) fn drain(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
+        if let Some(window) = window.as_deref_mut()
+            && let Some(playback) = self.pending_playback.take()
+        {
+            self.on_playback(playback, window, cx);
+        }
         while let Ok(event) = self.backend.events.try_recv() {
-            self.handle(event, window, cx);
+            self.handle(event, window.as_deref_mut(), cx);
         }
         cx.notify();
     }
 
     /// Hands each event to the module that owns it.
-    fn handle(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
+    fn handle(&mut self, event: Event, window: Option<&mut Window>, cx: &mut Context<Self>) {
         match event {
             Event::Account(account) => self.on_account(account, cx),
             Event::Page {
@@ -155,7 +164,10 @@ impl MusicApp {
             Event::Lyrics { id, result } => self.on_lyrics(id, result),
             Event::Searches(saved) => self.on_searches(saved),
             Event::Queue(queue) => self.on_queue(queue),
-            Event::Playback(playback) => self.on_playback(playback, window, cx),
+            Event::Playback(playback) => match window {
+                Some(window) => self.on_playback(playback, window, cx),
+                None => self.pending_playback = Some(playback),
+            },
             Event::Error(error) => {
                 log::warn!("{error}");
                 self.error = Some(error);
@@ -167,6 +179,16 @@ impl MusicApp {
             Event::Heat { id, heat } => self.on_heat(id, heat),
             Event::QuickResults { query, result } => self.on_quick_results(query, result),
         }
+    }
+}
+
+/// Drains in the window that shows the app, or without one while it's closed.
+fn drain_events(app: &Entity<MusicApp>, cx: &mut App) {
+    let drained = cx.with_window(app.entity_id(), |window, cx| {
+        app.update(cx, |this, cx| this.drain(Some(window), cx));
+    });
+    if drained.is_none() {
+        app.update(cx, |this, cx| this.drain(None, cx));
     }
 }
 

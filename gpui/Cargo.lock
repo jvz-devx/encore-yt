@@ -9162,6 +9162,7 @@ dependencies = [
  "gpui-pre-reqwest-client",
  "log",
  "smol",
+ "tokio",
  "ytfast",
 ]
 

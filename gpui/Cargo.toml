@@ -27,6 +27,8 @@ gpui-kit = "=0.7.1"
 reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 # Wakes the foreground task that drains backend events.
 smol = "2"
+# SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
+tokio = { version = "1", features = ["signal"] }
 anyhow = "1"
 log = "0.4"
 # Same log file and panic log setup as the egui app.

@@ -141,6 +141,12 @@ self._backend_task = cx.spawn(async move |this, cx| {
 - Monitor in DPMS off: no frame callbacks, so no redraws. `kscreen-doctor --dpms on` first.
 - No `.desktop` file for app_id `ytfast-gpui`: KDE shows a generic window icon.
 - From a non-session shell, export `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`.
+- On Linux GPUI quits when the last window closes (`QuitMode::Default`); set
+  `cx.set_quit_mode(QuitMode::Explicit)` to live on without a window.
+- An entity can outlive its window and be shown by a new one: gpui-pre tracks each
+  entity's *current* window (the last one that rendered it), and `subscribe_in` and
+  `cx.with_window(entity_id, ..)` follow it. `spawn_in(window)` and `observe_*`/`on_blur`
+  with a window stay bound to the first window and stop once it closes.
 
 ## Build numbers (debug, `-j4`, deps at opt-level 2)
 

@@ -193,6 +193,9 @@ impl MusicApp {
         }
         if song_changed {
             player.link_hover = None;
+            if let Some((i, track)) = playback.index.and_then(|i| Some((i, player.queue.get(i)?))) {
+                log::info!("now playing {} (queue {})", track.video_id, i + 1);
+            }
         }
         player.playback = playback;
         player.playback_at = Instant::now();

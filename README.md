@@ -8,6 +8,35 @@ It's built on [fastframe](https://github.com/crmne/fastframe), [Carmine Paolino]
 
 It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music's private web API, so a change on YouTube's side can break it. It talks only to YouTube and Google, and to LRCLIB for timed lyrics (sending a song's title, artist, album and length, nothing else).
 
+## GPUI app (this fork)
+
+This fork ([jvz-devx/ytfast-gpui](https://github.com/jvz-devx/ytfast-gpui)) adds a second interface in `gpui/`: the same backend (InnerTube, yt-dlp, mpv, sign-in, MPRIS, tray) drawn with [GPUI](https://www.gpui.rs) through gpui-kit, for Fedora and KDE Plasma on Wayland (X11 should work too). It has its own design (`gpui/DESIGN.md`) instead of the Omarchy theme. The plan and its progress are in [docs/gpui/PLAN.md](docs/gpui/PLAN.md).
+
+![The GPUI app's Home, signed out](docs/screenshots/gpui-home.png)
+
+Build and run:
+
+```sh
+cd gpui && cargo run --release
+```
+
+`gpui/` is its own Cargo workspace; the root crate (the egui app) builds as before.
+
+At runtime it needs:
+
+- `mpv` for playback.
+- `yt-dlp` with the EJS challenge solver, plus `deno`, for streams. Fedora's `yt-dlp` lacks the solver, so signed-in streams fail with "Requested format is not available"; nixpkgs' `yt-dlp` bundles it (`nix profile add nixpkgs#yt-dlp nixpkgs#deno`, ahead of `/usr/bin` in `PATH`).
+- For your account, one sign-in source: an exported cookie file at `~/.config/ytfast/*cookies*.txt` (mode 0600), a Firefox or LibreWolf profile signed in to YouTube, or a Chromium-family browser (Chrome, Chromium, Brave) whose key comes from the Secret Service or KWallet. Without one it runs signed out.
+
+Light and dark follow the desktop while the app runs (the XDG desktop portal's colour scheme, which KDE sets from its colour scheme), and so does reduced motion (KDE's animation speed at Instant). `YTFAST_GPUI_THEME=light` or `=dark` pins a look.
+
+Scripts:
+
+- `scripts/check.sh gpui|backend|egui|tests|shaders`: a quick `cargo check` of what you touched.
+- `scripts/gpui-check.sh`: the gate: formatting, clippy for both crates, tests and a release build.
+- `scripts/gpui-smoke.sh`: builds the release app and runs it signed out with a fresh state, visits Home, Explore, a mood, an album, search and an artist, plays three songs across Next and a seek, opens Now Playing (Lyrics) and Up next, and captures each state to `artifacts/gpui/smoke-*.png`. It checks the log and mpv and exits non-zero on a failure.
+- `scripts/gpui-input.sh`: drives the desktop for visual checks (KWin, ydotool, spectacle): launch, click, keys, text, captures, and a lock so one script drives the screen at a time.
+
 ## Screenshots
 
 | | |

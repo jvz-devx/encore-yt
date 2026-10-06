@@ -1,9 +1,10 @@
-//! Reads the YouTube session from the desktop's Chromium-family browser.
+//! Reads the YouTube session from the desktop's Chromium-family or Firefox
+//! browser.
 //!
 //! The browser keeps its cookie store open, so the database is copied first.
-//! Values are encrypted with a key derived from the browser's "Safe Storage"
-//! password in the Secret Service (see docs/plan/integration.md). Cookie
-//! values are secrets: nothing here logs them.
+//! Chromium values are encrypted with a key derived from the browser's "Safe
+//! Storage" password in the Secret Service (see docs/integration.md); Firefox
+//! stores them in the clear. Cookie values are secrets: nothing here logs them.
 
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -44,6 +45,36 @@ const BROWSERS: &[Browser] = &[
         name: "Chromium",
         dir: "chromium",
         keyring: "chromium",
+    },
+];
+
+/// One Firefox-family installation: its name and its profiles directory
+/// (the one holding `profiles.ini`) under the home directory.
+struct Gecko {
+    name: &'static str,
+    dir: &'static str,
+}
+
+const GECKOS: &[Gecko] = &[
+    Gecko {
+        name: "Firefox",
+        dir: ".mozilla/firefox",
+    },
+    Gecko {
+        name: "Firefox",
+        dir: ".config/mozilla/firefox",
+    },
+    Gecko {
+        name: "Firefox Flatpak",
+        dir: ".var/app/org.mozilla.firefox/.mozilla/firefox",
+    },
+    Gecko {
+        name: "LibreWolf",
+        dir: ".librewolf",
+    },
+    Gecko {
+        name: "LibreWolf Flatpak",
+        dir: ".var/app/io.gitlab.librewolf-community/.librewolf",
     },
 ];
 
@@ -148,23 +179,26 @@ fn specificity(host: &str) -> usize {
     host.trim_start_matches('.').len()
 }
 
-/// A profile's cookie database and when it last changed.
-struct Candidate {
-    browser: &'static Browser,
-    profile: String,
-    cookies: PathBuf,
-    modified: SystemTime,
+/// How a profile's cookie database is read.
+enum Store {
+    /// Encrypted with the browser's Safe Storage key.
+    Chromium(&'static Browser),
+    /// `moz_cookies`, in the clear.
+    Firefox,
 }
 
-impl Candidate {
-    /// "google-chrome/Default": how settings name a profile.
-    fn id(&self) -> String {
-        format!("{}/{}", self.browser.dir, self.profile)
-    }
-
-    fn label(&self) -> String {
-        format!("{} ({})", self.browser.name, self.profile)
-    }
+/// A profile's cookie database and when it last changed.
+struct Candidate {
+    store: Store,
+    /// How settings name a profile: "google-chrome/Default",
+    /// ".mozilla/firefox/abcd1234.default-release".
+    id: String,
+    /// "Google Chrome (Default)", "Firefox (default-release)".
+    label: String,
+    cookies: PathBuf,
+    modified: SystemTime,
+    /// Firefox's default profile for its installation, preferred on a tie.
+    default: bool,
 }
 
 /// A browser profile signed in to YouTube.
@@ -174,12 +208,11 @@ pub struct Profile {
     pub label: String,
 }
 
-/// Every Chromium-family profile with a cookie store, most recently used first.
+/// Every Chromium-family and Firefox profile with a cookie store, most
+/// recently used first.
 fn candidates() -> Result<Vec<Candidate>> {
-    let config = directories::BaseDirs::new()
-        .context("no home directory")?
-        .config_dir()
-        .to_path_buf();
+    let base = directories::BaseDirs::new().context("no home directory")?;
+    let config = base.config_dir().to_path_buf();
     let mut candidates = Vec::new();
     for browser in BROWSERS {
         let Ok(entries) = std::fs::read_dir(config.join(browser.dir)) else {
@@ -190,16 +223,103 @@ fn candidates() -> Result<Vec<Candidate>> {
             let Ok(meta) = std::fs::metadata(&cookies) else {
                 continue;
             };
+            let profile = entry.file_name().to_string_lossy().into_owned();
             candidates.push(Candidate {
-                browser,
-                profile: entry.file_name().to_string_lossy().into_owned(),
+                store: Store::Chromium(browser),
+                id: format!("{}/{profile}", browser.dir),
+                label: format!("{} ({profile})", browser.name),
                 cookies,
                 modified: meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+                default: false,
             });
         }
     }
-    candidates.sort_by_key(|c| std::cmp::Reverse(c.modified));
+    for gecko in GECKOS {
+        firefox_candidates(gecko, &base.home_dir().join(gecko.dir), &mut candidates);
+    }
+    candidates.sort_by_key(|c| std::cmp::Reverse((c.modified, c.default)));
     Ok(candidates)
+}
+
+/// The profiles `profiles.ini` lists under `root` that have a cookie store.
+/// `installs.ini` (and `[Install…]` sections) name each installation's
+/// default profile.
+fn firefox_candidates(gecko: &Gecko, root: &Path, candidates: &mut Vec<Candidate>) {
+    let Ok(profiles) = std::fs::read_to_string(root.join("profiles.ini")) else {
+        return;
+    };
+    let profiles = ini(&profiles);
+    let installs = std::fs::read_to_string(root.join("installs.ini")).unwrap_or_default();
+    let defaults: Vec<&str> = ini(&installs)
+        .iter()
+        .chain(profiles.iter().filter(|(s, _)| s.starts_with("Install")))
+        .filter_map(|(_, keys)| ini_value(keys, "Default"))
+        .collect();
+    for (section, keys) in &profiles {
+        if !section.starts_with("Profile") {
+            continue;
+        }
+        let Some(path) = ini_value(keys, "Path") else {
+            continue;
+        };
+        let dir = if ini_value(keys, "IsRelative") == Some("0") {
+            PathBuf::from(path)
+        } else {
+            root.join(path)
+        };
+        let cookies = dir.join("cookies.sqlite");
+        let Ok(meta) = std::fs::metadata(&cookies) else {
+            continue;
+        };
+        // Firefox writes to the WAL first; it changes when the profile is used.
+        let modified = [meta.modified().ok(), mtime(&wal_of(&cookies))]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let name = ini_value(keys, "Name").unwrap_or(path);
+        candidates.push(Candidate {
+            store: Store::Firefox,
+            id: format!("{}/{path}", gecko.dir),
+            label: format!("{} ({name})", gecko.name),
+            cookies,
+            modified,
+            default: defaults.contains(&path)
+                || (defaults.is_empty() && ini_value(keys, "Default") == Some("1")),
+        });
+    }
+}
+
+type Section<'a> = (&'a str, Vec<(&'a str, &'a str)>);
+
+/// The sections of an INI file and their `key=value` lines.
+fn ini(text: &str) -> Vec<Section<'_>> {
+    let mut sections: Vec<Section<'_>> = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            sections.push((name, Vec::new()));
+        } else if let (Some((key, value)), Some(section)) =
+            (line.split_once('='), sections.last_mut())
+        {
+            section.1.push((key.trim(), value.trim()));
+        }
+    }
+    sections
+}
+
+fn ini_value<'a>(keys: &[(&'a str, &'a str)], key: &str) -> Option<&'a str> {
+    keys.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
+}
+
+fn mtime(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+/// SQLite's write-ahead log beside `database`.
+fn wal_of(database: &Path) -> PathBuf {
+    let mut wal = database.as_os_str().to_owned();
+    wal.push("-wal");
+    PathBuf::from(wal)
 }
 
 /// The browser profiles signed in to YouTube, for choosing which account to use.
@@ -209,8 +329,8 @@ pub fn profiles(scratch: &Path) -> Vec<Profile> {
         .iter()
         .filter(|c| matches!(read_profile(c, scratch), Ok(Some(_))))
         .map(|c| Profile {
-            id: c.id(),
-            label: c.label(),
+            id: c.id.clone(),
+            label: c.label.clone(),
         })
         .collect()
 }
@@ -222,10 +342,10 @@ pub fn profiles(scratch: &Path) -> Vec<Profile> {
 pub fn load(scratch: &Path, preferred: Option<&str>) -> Result<Session> {
     let mut candidates = candidates()?;
     if candidates.is_empty() {
-        bail!("No Chromium-family browser profile was found");
+        bail!("No Chromium-family or Firefox browser profile was found");
     }
     if let Some(preferred) = preferred
-        && let Some(i) = candidates.iter().position(|c| c.id() == preferred)
+        && let Some(i) = candidates.iter().position(|c| c.id == preferred)
     {
         let chosen = candidates.remove(i);
         candidates.insert(0, chosen);
@@ -236,7 +356,7 @@ pub fn load(scratch: &Path, preferred: Option<&str>) -> Result<Session> {
             Ok(Some(session)) => return Ok(session),
             Ok(None) => {}
             Err(error) => {
-                log::warn!("could not read {}: {error:#}", candidate.label());
+                log::warn!("could not read {}: {error:#}", candidate.label);
                 last_error = Some(error);
             }
         }
@@ -247,14 +367,17 @@ pub fn load(scratch: &Path, preferred: Option<&str>) -> Result<Session> {
 fn read_profile(candidate: &Candidate, scratch: &Path) -> Result<Option<Session>> {
     let copy = scratch.join(format!("cookies-{}.sqlite", std::process::id()));
     std::fs::copy(&candidate.cookies, &copy).context("copying the cookie database")?;
-    let wal = candidate.cookies.with_file_name("Cookies-wal");
+    let wal = wal_of(&candidate.cookies);
     if wal.exists() {
         let _ = std::fs::copy(
             &wal,
             copy.with_file_name(format!("cookies-{}.sqlite-wal", std::process::id())),
         );
     }
-    let result = read_copy(candidate, &copy);
+    let result = match candidate.store {
+        Store::Chromium(browser) => read_copy(candidate, browser, &copy),
+        Store::Firefox => read_firefox_copy(candidate, &copy),
+    };
     let _ = std::fs::remove_file(&copy);
     let _ = std::fs::remove_file(
         copy.with_file_name(format!("cookies-{}.sqlite-wal", std::process::id())),
@@ -264,7 +387,12 @@ fn read_profile(candidate: &Candidate, scratch: &Path) -> Result<Option<Session>
 
 type Row = (String, String, String, Vec<u8>, String, i64, bool);
 
-fn read_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Session>> {
+/// Whether a cookie is the one SAPISIDHASH needs: the profile is signed in.
+fn signs_in(host: &str, name: &str) -> bool {
+    applies_to_music(host) && (name == "SAPISID" || name == "__Secure-3PAPISID")
+}
+
+fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Option<Session>> {
     let db =
         rusqlite::Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     let version: i64 = db
@@ -291,13 +419,10 @@ fn read_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Session>> {
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    if !rows
-        .iter()
-        .any(|r| applies_to_music(&r.0) && (r.1 == "SAPISID" || r.1 == "__Secure-3PAPISID"))
-    {
+    if !rows.iter().any(|r| signs_in(&r.0, &r.1)) {
         return Ok(None);
     }
-    let key = derive_key(&keyring_password(candidate.browser.keyring)?);
+    let key = derive_key(&keyring_password(browser.keyring)?);
     let mut cookies = Vec::with_capacity(rows.len());
     let mut failed = 0;
     for (host, name, value, encrypted, path, expires_utc, secure) in rows {
@@ -334,14 +459,63 @@ fn read_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Session>> {
         bail!("{failed} cookies could not be decrypted; the browser's key did not match");
     }
     log::info!(
-        "read {} cookies from {} ({}), {failed} undecryptable",
+        "read {} cookies from {}, {failed} undecryptable",
         cookies.len(),
-        candidate.browser.name,
-        candidate.profile
+        candidate.label
     );
     Ok(Some(Session {
-        source: candidate.label(),
-        profile: candidate.id(),
+        source: candidate.label.clone(),
+        profile: candidate.id.clone(),
+        cookies,
+    }))
+}
+
+type FirefoxRow = (String, String, String, String, i64, bool);
+
+/// Reads `moz_cookies` from the default container (no container tab, not
+/// partitioned).
+fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Session>> {
+    let db =
+        rusqlite::Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let mut statement = db.prepare(
+        "SELECT host, name, value, path, expiry, isSecure FROM moz_cookies \
+         WHERE originAttributes = '' AND (host LIKE '%youtube.com' OR host LIKE '%google.com')",
+    )?;
+    let rows: Vec<FirefoxRow> = statement
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    if !rows.iter().any(|r| signs_in(&r.0, &r.1)) {
+        return Ok(None);
+    }
+    let cookies: Vec<Cookie> = rows
+        .into_iter()
+        .map(|(host, name, value, path, expiry, secure)| Cookie {
+            host,
+            name,
+            value,
+            path,
+            secure,
+            // Seconds in older Firefox, milliseconds in newer (schema 17).
+            expires: if expiry > 100_000_000_000 {
+                expiry / 1000
+            } else {
+                expiry.max(0)
+            },
+        })
+        .collect();
+    log::info!("read {} cookies from {}", cookies.len(), candidate.label);
+    Ok(Some(Session {
+        source: candidate.label.clone(),
+        profile: candidate.id.clone(),
         cookies,
     }))
 }

@@ -82,7 +82,7 @@ Song-change notifications are off by default; turn them on in **Settings**. They
 
 ## How it signs in
 
-ytfast reads your YouTube sign-in from a Chromium-family browser you're already signed in to (Brave, Brave Origin, Google Chrome or Chromium). It reads the browser's cookie store without changing it, and decrypts it with the key the browser keeps in your keyring. You never paste headers or export files.
+ytfast reads your YouTube sign-in from a browser you're already signed in to: Firefox or LibreWolf (including their Flatpaks), or a Chromium-family browser (Brave, Brave Origin, Google Chrome or Chromium). It reads the browser's cookie store without changing it. Chromium browsers encrypt it, so ytfast decrypts it with the key the browser keeps in your keyring; Firefox doesn't. You never paste headers or export files. In Firefox, sign in outside container tabs: ytfast reads only the default container.
 
 By default it uses the browser profile you used most recently. If different browsers are signed in to different Google accounts, choose one in **Settings**; ytfast remembers it in `~/.config/ytfast/settings.json`.
 
@@ -93,7 +93,7 @@ Cookies are never logged or written anywhere readable by other users. While it r
 You need:
 
 - to build: Rust 1.98 or newer, CMake and a C compiler
-- to run: `mpv`, `yt-dlp`, `deno` (yt-dlp uses it for YouTube's player challenges) and `secret-tool` (libsecret)
+- to run: `mpv`, `yt-dlp`, `deno` (yt-dlp uses it for YouTube's player challenges) and, for Chromium-family browsers, `secret-tool` (libsecret)
 
 ```sh
 git clone https://github.com/MayberryDT/ytfast

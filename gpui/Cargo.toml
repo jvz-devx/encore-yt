@@ -29,6 +29,10 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 smol = "2"
 # SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
 tokio = { version = "1", features = ["signal"] }
+# Light/dark and reduced motion from the XDG desktop portal's Settings
+# (src/theme/portal.rs). Already in the tree through gpui-pre-linux and
+# gpui-base with these features, on zbus's `async-io` reactor.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 anyhow = "1"
 log = "0.4"
 # Same log file and panic log setup as the egui app.

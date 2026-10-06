@@ -217,6 +217,11 @@ fn glide(scroll: ScrollHandle, direction: f32, pitch: Pixels, cx: &mut Context<M
     let items = ((width / pitch).floor() - 1.).max(1.);
     let to = ((from / pitch).round() + direction * items) * pitch;
     let to = to.clamp(px(0.), max);
+    if crate::theme::reduced_motion(cx) {
+        scroll.set_offset(point(-to, scroll.offset().y));
+        cx.notify();
+        return;
+    }
     cx.spawn(async move |this, cx| {
         let start = Instant::now();
         loop {

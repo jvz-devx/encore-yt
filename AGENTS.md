@@ -2,6 +2,17 @@
 
 ytfast is a native YouTube Music client for Omarchy (Linux): Rust + egui on [fastframe](https://github.com/crmne/fastframe), modelled on ZapFast and Spotifast. It has no browser engine, no telemetry and no server of its own. Shown to people as "Music".
 
+## This fork: the GPUI frontend
+
+This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `upstream`). It adds a GPUI interface in `gpui/` on the same backend. Read [docs/gpui/PLAN.md](docs/gpui/PLAN.md) first: it holds the milestones, how each is verified, and the log.
+
+- The root crate's egui interface sits behind the default `egui` feature. The backend must keep building with `--no-default-features`, and the egui app must keep building too. Keep root-crate changes small and upstream-shaped so `git merge upstream/main` stays easy.
+- `gpui/` is its own Cargo workspace (own `Cargo.lock`, own `target/`). It depends on the root crate with `default-features = false`.
+- Platform for the GPUI app: Fedora, KDE Plasma on Wayland. The Omarchy rules below apply to the egui app; the GPUI app takes its colours from its own theme module, never hard-coded in views.
+- Fixture-based parser tests (saved signed-out InnerTube responses) are allowed in this fork, as an exception to the "no unit tests" rule below.
+- Verify UI work visually: run the app on the Wayland session and capture it with `spectacle` (see PLAN.md). Don't claim a view works without looking at a capture.
+- Commit in small topical commits on `main` and push to `origin`. Never push to `upstream`.
+
 ## Start here
 
 1. [docs/SPEC.md](docs/SPEC.md): the product: journeys, decisions, exclusions. Don't redefine it from the code.

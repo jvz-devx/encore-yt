@@ -11,15 +11,23 @@
 //! to ~3 s to show some changes, so for a while the app's own state wins
 //! over what a fetched page says.
 
+// The orchestration is `impl App` below, so only the egui build uses all of
+// this; the GPUI frontend shares it once it moves onto `AccountState`.
+#![cfg_attr(not(feature = "egui"), allow(dead_code))]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "egui")]
 use crate::app::{App, LibraryTab, View};
+#[cfg(feature = "egui")]
 use crate::backend::Command;
+#[cfg(feature = "egui")]
+use crate::model::Account;
 use crate::model::{
-    Account, Item, ItemKind, LibraryToggle, LikeStatus, Page, Run, Shelf, ShelfStyle, Subscription,
-    Target, Track,
+    Item, ItemKind, LibraryToggle, LikeStatus, Page, Run, Shelf, ShelfStyle, Subscription, Target,
+    Track,
 };
 
 /// How long a change YouTube Music accepted outlives reads that don't show
@@ -403,7 +411,8 @@ fn playlist_target(playlist_id: &str) -> Target {
 }
 
 fn library_target() -> Target {
-    LibraryTab::Playlists.target()
+    // `LibraryTab::Playlists.target()`, which lives with the egui app.
+    Target::browse("FEmusic_liked_playlists")
 }
 
 /// A row for a song added to a playlist page before YouTube Music lists it.
@@ -668,6 +677,7 @@ impl PageEdit {
     }
 }
 
+#[cfg(feature = "egui")]
 impl App {
     pub(crate) fn signed_in(&self) -> bool {
         matches!(self.account, Account::SignedIn { .. })

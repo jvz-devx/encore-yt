@@ -9,23 +9,28 @@ authors = ["Tyler Mayberry"]
 repository = "https://github.com/MayberryDT/ytfast"
 publish = false
 
+[[bin]]
+name = "ytfast"
+path = "src/main.rs"
+required-features = ["egui"]
+
 [dependencies]
 # UI framework, as in ZapFast and Spotifast. glow avoids the larger wgpu stack.
-eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11", "persistence"] }
-egui = "0.36"
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11", "persistence"], optional = true }
+egui = { version = "0.36", optional = true }
 # Decodes cover art (JPEG/PNG/WebP) and the SVG icons.
-egui_extras = { version = "0.36", features = ["image", "svg"] }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+egui_extras = { version = "0.36", features = ["image", "svg"], optional = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"], optional = true }
 # Shared foundation of the ZapFast/Spotifast family (github.com/crmne/fastframe).
 # Every crate comes from the same tag; move them together.
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
-fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2", optional = true }
+fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2", optional = true }
 fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
-fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2", optional = true }
+fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2", optional = true }
 # Keeps the app (audio, MPRIS) alive between windows: closing the window
 # plays on, and the shell recreates the window on demand (src/main.rs).
-fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+fastframe-shell = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2", optional = true }
 anyhow = "1"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
@@ -53,8 +58,12 @@ sha1 = "0.10"
 sha2 = "0.10"
 
 [features]
+# The egui interface (src/app.rs, src/ui/). Off for frontends that only use the
+# backend, like the GPUI app in gpui/.
+default = ["egui"]
+egui = ["dep:eframe", "dep:egui", "dep:egui_extras", "dep:image", "dep:fastframe-fonts", "dep:fastframe-icons", "dep:fastframe-text", "dep:fastframe-theme", "dep:fastframe-shell"]
 # The scripted end-to-end run (src/e2e.rs, scripts/e2e.sh). Never in a normal build.
-e2e = []
+e2e = ["egui"]
 
 [patch.crates-io]
 # crmne/egui apps-0.36 and crmne/winit apps-0.30, the revisions ZapFast 0.18.2

@@ -89,7 +89,10 @@ fn main() -> anyhow::Result<()> {
         backend.commands(),
         backend.now.clone(),
         request_tx.clone(),
-        waker.clone(),
+        {
+            let waker = waker.clone();
+            Arc::new(move || waker.wake())
+        },
     );
     {
         let remote = remote.clone();

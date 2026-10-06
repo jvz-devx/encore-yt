@@ -5,6 +5,7 @@
 //! Transport goes straight to the backend, so it works with no window open.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 
@@ -78,7 +79,7 @@ pub struct Remote {
     commands: tokio::sync::mpsc::UnboundedSender<Command>,
     now: watch::Receiver<Now>,
     requests: mpsc::Sender<Request>,
-    waker: fastframe_shell::Waker,
+    waker: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Remote {
@@ -86,7 +87,7 @@ impl Remote {
         commands: tokio::sync::mpsc::UnboundedSender<Command>,
         now: watch::Receiver<Now>,
         requests: mpsc::Sender<Request>,
-        waker: fastframe_shell::Waker,
+        waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Self {
         Self {
             commands,
@@ -108,7 +109,7 @@ impl Remote {
     /// background loop picks it up within its tick.
     pub fn request(&self, request: Request) {
         if self.requests.send(request).is_ok() {
-            self.waker.wake();
+            (self.waker)();
         }
     }
 

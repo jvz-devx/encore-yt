@@ -1,20 +1,35 @@
 //! M3: the account chip in the top bar, and account dialogs.
 
-use gpui_kit::component::ActiveTheme;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::h_flex;
 use gpui_kit::*;
 use ytfast::model::Account;
 
+use super::widgets;
 use crate::app::MusicApp;
+use crate::theme::{self, Type, radius, size, space};
 
 pub fn chip(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) -> impl IntoElement {
+    let c = theme::colors(cx);
     let label = match &app.account.account {
         Account::Checking => "Checking your account…".to_string(),
         Account::SignedIn { name, .. } => name.clone(),
         Account::SignedOut { .. } => "Signed out of YouTube Music".to_string(),
         Account::Unverified { .. } => "Offline".to_string(),
     };
-    div()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
+    h_flex()
+        .h(px(32.))
+        .pl(space::SM)
+        .pr(space::MD)
+        .gap(space::SM)
+        .rounded(radius::FULL)
+        .bg(c.raised)
+        .type_small()
+        .text_color(c.text_muted)
+        .child(widgets::icon(
+            IconName::UserRound,
+            size::ICON_SM,
+            c.text_muted,
+        ))
         .child(label)
 }

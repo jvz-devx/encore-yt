@@ -32,7 +32,10 @@ const POSITION_TICK: Duration = Duration::from_millis(500);
 
 pub struct MusicApp {
     pub backend: Backend,
-    #[allow(dead_code, reason = "settings and the desktop modules read it (M3, M4)")]
+    #[allow(
+        dead_code,
+        reason = "settings and the desktop modules read it (M3, M4)"
+    )]
     pub paths: Paths,
     pub pages: Pages,
     pub player: Player,

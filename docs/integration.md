@@ -65,6 +65,8 @@ cargo fmt --all --check
 cargo clippy --all-targets --features e2e -- -D warnings
 ```
 
+**Parser fixtures:** `tests/parse_fixtures.rs` runs saved signed-out `WEB_REMIX` responses (`tests/fixtures/innertube/`: Home, Explore, a search, an album, an artist, a playlist, a mood page, watch-next, plain and timed lyrics) through `parse` and checks the structure the interface relies on, so a change in YouTube Music's responses fails `cargo test --no-default-features`. `cargo run --example capture_fixtures --no-default-features` refreshes them with ytfast's own client and no cookies; it drops tracking and session data (`responseContext`, `trackingParams`, `visitorData`…), menu entries the parser doesn't read and accessibility labels, keeps six cards or rows per shelf and three lines of lyrics. Captured 2026-10-06 (~0.9 MB).
+
 A release build from clean takes about 5 minutes on a 4-core desktop CPU and a few GB of memory. On a small machine, cap it, for example `systemd-run --user --wait --pipe -q -p MemoryMax=5G --working-directory=$PWD -- cargo build --release -j 4`. If two different Rust toolchains are installed, make sure one rustc builds everything (`E0514` otherwise); a machine-local `.cargo/config.toml` (gitignored) can pin `build.rustc`.
 
 ## E2E runs

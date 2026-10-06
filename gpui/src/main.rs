@@ -11,12 +11,12 @@ mod extras;
 mod nav;
 mod pages;
 mod playback;
+mod theme;
 mod views;
 
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::*;
 
 fn main() -> anyhow::Result<()> {
@@ -32,7 +32,8 @@ fn main() -> anyhow::Result<()> {
         .with_assets(assets::AppAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
+            // Fonts, colours and gpui-component's theme (YTFAST_GPUI_THEME=light).
+            theme::init(cx);
             // Each area binds its own shortcuts in the "Music" key context
             // and handles them in its `on_actions`.
             pages::bind_keys(cx);

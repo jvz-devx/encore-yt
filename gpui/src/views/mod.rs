@@ -36,7 +36,9 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         return stage;
     }
     let c = theme::colors(cx);
-    let main = if app.player.now_playing {
+    let main = if let Some(spike) = crate::visuals::page(app, cx) {
+        spike
+    } else if app.player.now_playing {
         now_playing::now_playing(app, window, cx)
     } else {
         page::page(app, window, cx)

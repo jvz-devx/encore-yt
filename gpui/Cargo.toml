@@ -33,6 +33,17 @@ anyhow = "1"
 log = "0.4"
 # Same log file and panic log setup as the egui app.
 fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+# M8 visuals (gpui/src/visuals, see gpui/NOTES-visuals.md). Each is already
+# in the lock through gpui-pre, at the same version, so nothing new compiles.
+# Our own offscreen device for shader effects. GPUI doesn't share its device,
+# so frames are read back and painted as images. Keep equal to the wgpu that
+# gpui-pre-wgpu uses.
+wgpu = "29.0.4"
+# Builds the BGRA frames GPUI paints (`RenderImage` holds `image::Frame`s)
+# and downsizes the cover for the backdrop.
+image = { version = "0.25", default-features = false }
+# Reads `pw-dump` (finding mpv's PipeWire node) and mpv's JSON IPC.
+serde_json = "1"
 
 [profile.dev.package."*"]
 opt-level = 2

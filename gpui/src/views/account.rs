@@ -47,7 +47,6 @@ pub fn like_button(
 
 /// M3: a page header's account actions (save to library, subscribe, edit
 /// playlist), placed by the page header (M1). `None` when there are none.
-#[allow(dead_code, reason = "placed by M1's page header")]
 pub fn header_actions(
     _app: &MusicApp,
     _header: &ytfast::model::Header,

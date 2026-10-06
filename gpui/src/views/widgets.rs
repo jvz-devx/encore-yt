@@ -117,7 +117,8 @@ pub fn cover(url: Option<SharedString>, side: Pixels, round: bool, c: &Colors) -
             c.text_faint,
         ))
         .children(url.map(|url| {
-            img(url)
+            // Asks for the size drawn, not the large copy the parser names.
+            img(SharedString::from(super::page::covers::sized(&url, side)))
                 .absolute()
                 .top_0()
                 .left_0()

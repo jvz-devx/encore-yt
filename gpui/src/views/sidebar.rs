@@ -11,10 +11,22 @@ use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::nav::{LibraryTab, View};
 use crate::theme::{self, Colors, Type, radius, size, space};
+use ytfast::model::Target;
 
 pub fn sidebar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let c = theme::colors(cx);
     let library = matches!(app.pages.view, View::Library(_));
+    // A Home mood (Energize, Relax…) is still Home.
+    let home = match &app.pages.view {
+        View::Home => true,
+        View::Page(Target::Browse { id, .. }) => id == "FEmusic_home",
+        _ => false,
+    };
+    // Library opens on the tab it was left at.
+    let library_view = match app.pages.view {
+        View::Library(tab) => View::Library(tab),
+        _ => View::Library(LibraryTab::Playlists),
+    };
     v_flex()
         .w(size::SIDEBAR)
         .flex_none()
@@ -22,14 +34,7 @@ pub fn sidebar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
         .px(space::MD)
         .gap(space::XS)
         .child(brand(&c))
-        .child(item(
-            "Home",
-            IconName::House,
-            app.pages.view == View::Home,
-            View::Home,
-            &c,
-            cx,
-        ))
+        .child(item("Home", IconName::House, home, View::Home, &c, cx))
         .child(item(
             "Explore",
             IconName::Compass,
@@ -42,7 +47,7 @@ pub fn sidebar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
             "Library",
             IconName::LibraryBig,
             library,
-            View::Library(LibraryTab::Playlists),
+            library_view,
             &c,
             cx,
         ))

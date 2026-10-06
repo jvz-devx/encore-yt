@@ -40,7 +40,8 @@ gpui_kit::assets::icon_assets!(
         X,
         Copy,
         ChevronDown,
-        ListX
+        ListX,
+        RotateCcwClock
     ]
 );
 

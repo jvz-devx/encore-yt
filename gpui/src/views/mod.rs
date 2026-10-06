@@ -64,8 +64,8 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         .bg(c.base)
         .text_color(c.text)
         .type_body()
-        // Decoded covers stay across frames while they're on screen.
-        .image_cache(retain_all("covers"))
+        // Decoded covers, held to a memory budget; those on screen stay.
+        .image_cache(page::covers::root_cache(cx))
         .child(
             h_flex()
                 .flex_1()

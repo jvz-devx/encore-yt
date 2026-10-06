@@ -1,18 +1,22 @@
 //! The bar above the page: Back/Forward, search (M1) and the account chip
 //! (M3).
 
+#[path = "search/dropdown.rs"]
+mod dropdown;
+#[path = "search/field.rs"]
+mod field;
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::h_flex;
-use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::widgets;
 use crate::app::MusicApp;
-use crate::theme::{self, Colors, Type, radius, size, space};
+use crate::theme::{self, Colors, size, space};
 
 pub fn top_bar(
-    app: &MusicApp,
+    app: &mut MusicApp,
     window: &mut Window,
     cx: &mut Context<MusicApp>,
 ) -> impl IntoElement {
@@ -34,19 +38,7 @@ pub fn top_bar(
                 b.on_click(cx.listener(|this, _, _, cx| this.go_forward(cx)))
             }),
         )
-        .child(
-            div().flex_1().max_w(px(480.)).ml(space::MD).child(
-                Input::new(&app.pages.search)
-                    .cleanable(true)
-                    .prefix(widgets::icon(IconName::Search, size::ICON_SM, c.text_muted))
-                    .h(px(40.))
-                    .px(space::LG)
-                    .rounded(radius::FULL)
-                    .bg(c.raised)
-                    .border_color(c.raised)
-                    .type_body(),
-            ),
-        )
+        .child(field::search_box(app, window, cx))
         .child(div().flex_1())
         .child(super::account::chip(app, window, cx))
 }

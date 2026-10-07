@@ -11,6 +11,7 @@
 //! nothing pops or shimmers. They twinkle over seconds and the music only
 //! lifts their brightness a little (a smoothed level, never the kick).
 
+use std::f32::consts::TAU;
 use std::time::Instant;
 
 use gpui_kit::component::Colorize as _;
@@ -138,8 +139,8 @@ impl Field {
                 }
                 let t = self.twinkle;
                 let sway = (
-                    (t * 0.21 + r[2] * 6.28).sin() * 0.07,
-                    (t * 0.17 + r[0] * 6.28).cos() * 0.07,
+                    (t * 0.21 + r[2] * TAU).sin() * 0.07,
+                    (t * 0.17 + r[0] * TAU).cos() * 0.07,
                 );
                 let x = (cx as f32 + 0.25 + 0.5 * r[0] + sway.0) * cell + offset.0;
                 let y = (cy as f32 + 0.25 + 0.5 * r[1] + sway.1) * cell + offset.1;

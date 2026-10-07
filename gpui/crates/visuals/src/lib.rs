@@ -41,3 +41,11 @@ pub use spectrum::{AudioTap, BANDS, Bands, band_at};
 pub use strip::{Seek, Strip, StripColors, StripParams};
 pub use target::{Frame, FrameCost};
 pub use visualizer::{BarSettings, Bars, MAX_BARS, Visualizer, VisualizerParams};
+
+/// Tests that make a GPU device take turns: Mesa's Vulkan driver crashes
+/// now and then when several devices are made at once in one process.
+#[cfg(test)]
+pub(crate) fn gpu_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}

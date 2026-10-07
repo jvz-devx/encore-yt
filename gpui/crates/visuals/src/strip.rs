@@ -287,6 +287,7 @@ mod tests {
     /// base, so the bar's text keeps the contrast it has without the glow.
     #[test]
     fn the_glow_keeps_the_bar_text_legible() {
+        let _one = crate::gpu_test_lock();
         let gpu = match Gpu::new() {
             Ok(gpu) => gpu,
             Err(e) => {

@@ -246,6 +246,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let glow = wide * smoothstep(0.3, 0.85, dot(wide, LUMA));
     color += glow * (0.35 + 0.35 * bass) * params.tune.w;
 
+    // The wave goes in before the tone mapping, which keeps it within the
+    // range text stays legible on.
+    color = with_wave(color, in.uv, light);
+
     if light {
         color = tone_light(color);
     } else {
@@ -254,8 +258,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         color *= 1.0 - 0.3 * dot(p, p);
     }
 
-
-    color = with_wave(color, in.uv, light);
 
     // GPUI blends shadows in display space: the same here.
     if params.shadow.w > 0.5 {

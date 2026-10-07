@@ -243,6 +243,7 @@ mod tests {
     /// and the light look light enough for `text_muted` on top (4.5:1).
     #[test]
     fn frames_stay_in_the_text_safe_range() {
+        let _one = crate::gpu_test_lock();
         let gpu = match Gpu::new() {
             Ok(gpu) => gpu,
             Err(e) => {

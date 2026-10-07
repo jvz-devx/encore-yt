@@ -264,6 +264,7 @@ mod tests {
     /// the frame see-through when the music is silent.
     #[test]
     fn every_style_draws() {
+        let _one = crate::gpu_test_lock();
         let gpu = match Gpu::new() {
             Ok(gpu) => gpu,
             Err(e) => {

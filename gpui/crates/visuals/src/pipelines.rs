@@ -264,6 +264,7 @@ mod tests {
     /// device on the same GPU reads it and leaves one file.
     #[test]
     fn the_cache_is_kept_on_disk() {
+        let _one = crate::gpu_test_lock();
         let dir = std::env::temp_dir().join(format!("ytfast-pipelines-{}", std::process::id()));
         let files = || {
             std::fs::read_dir(&dir)

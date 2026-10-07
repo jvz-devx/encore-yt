@@ -124,6 +124,7 @@ mod tests {
     /// way part of the cover is new, part old.
     #[test]
     fn the_front_runs_from_old_to_new() {
+        let _one = crate::gpu_test_lock();
         let gpu = match Gpu::new() {
             Ok(gpu) => gpu,
             Err(e) => {

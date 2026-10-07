@@ -15,7 +15,7 @@ use crate::app::MusicApp;
 use crate::theme::motion::{self, Kind, PageStyle};
 
 /// How far a sliding page travels.
-const SLIDE: Pixels = px(56.);
+const SLIDE: Pixels = px(72.);
 /// How much smaller than the panel a scaling page starts: its leading
 /// edge, trailing edge and top and bottom, as shares of the panel.
 const SCALE_LEAD: f32 = 0.07;

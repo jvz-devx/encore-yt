@@ -169,9 +169,10 @@ pub enum Align {
     Centre,
 }
 
-/// The fastest and slowest speeds offered; a saved value outside them is
-/// brought inside.
-const SLOWEST: f32 = 0.25;
+/// The slowest and fastest speeds a saved file may ask for (Settings
+/// offers 0.5× to 2×; slower speeds are for hand edits and for capturing
+/// a transition mid-way); a value outside them is brought inside.
+const SLOWEST: f32 = 0.1;
 const FASTEST: f32 = 4.0;
 
 impl Config {

@@ -152,6 +152,35 @@ impl HttpSource {
         })
     }
 
+    /// A local file, read whole at once (tests, `YTFAST_FAKE_STREAM`).
+    pub fn local(path: &str) -> Result<Self> {
+        let data = std::fs::read(path).with_context(|| format!("reading {path}"))?;
+        let len = data.len() as u64;
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State {
+                data,
+                have: vec![(0, len)],
+                fetch_pos: len,
+                read_pos: 0,
+                restart: None,
+                error: None,
+                closed: false,
+                throughput: 0.0,
+                stats: HttpStats {
+                    requests: 0,
+                    downloaded: len,
+                    len,
+                },
+            }),
+            wake: Condvar::new(),
+        });
+        Ok(Self {
+            shared,
+            pos: 0,
+            len,
+        })
+    }
+
     /// A handle for reading the counters while the decoder owns the source.
     pub fn stats_handle(&self) -> StatsHandle {
         StatsHandle(self.shared.clone())

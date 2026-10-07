@@ -12,7 +12,9 @@ use rtrb::{Consumer, Producer};
 
 use crate::eq::{EqSettings, Equalizer};
 
-pub const DECKS: usize = 3;
+/// Main, smooth-mix (cued or tail), a spare, and audition, with room for a
+/// deck that is still being dropped while its replacement starts.
+pub const DECKS: usize = 6;
 /// Volume and pause changes glide over about 5 ms, so they don't click.
 const GLIDE_SECS: f32 = 0.005;
 /// A track starts, and resumes after a seek or running dry, only once this
@@ -31,6 +33,9 @@ pub struct TrackShared {
     /// Output frames of silence while the track waited for data, after it
     /// had started (re-buffering).
     pub starved: AtomicU64,
+    /// The track's length in seconds as `f64` bits, once the decoder knows
+    /// it (0 until then).
+    pub duration: AtomicU64,
 }
 
 pub struct Source {
@@ -84,6 +89,8 @@ pub enum Command {
     /// Plays this track right after the current one ends.
     Queue(usize, Source),
     ClearNext(usize),
+    /// The queued track becomes current now, dropping the current one.
+    Skip(usize),
     /// Silences the deck's current track until its seek lands.
     Hold(usize),
     /// The decoder of `track` has seeked: its samples continue in `ring`.
@@ -97,6 +104,8 @@ pub enum Command {
     Stop(usize),
     Pause(usize, bool),
     Volume(usize, f32),
+    /// The current track's loudness gain (linear), from now on.
+    Gain(usize, f32),
     Equalizer(Option<EqSettings>),
 }
 
@@ -197,6 +206,10 @@ impl Mixer {
                 }
                 Command::Queue(deck, source) => self.voices[deck].next = Some(source),
                 Command::ClearNext(deck) => self.voices[deck].next = None,
+                Command::Skip(deck) => {
+                    let voice = &mut self.voices[deck];
+                    voice.current = voice.next.take();
+                }
                 Command::Hold(deck) => {
                     if let Some(source) = self.voices[deck].current.as_mut() {
                         source.held = true;
@@ -230,6 +243,11 @@ impl Mixer {
                 }
                 Command::Pause(deck, paused) => self.voices[deck].paused = paused,
                 Command::Volume(deck, volume) => self.voices[deck].volume = volume,
+                Command::Gain(deck, gain) => {
+                    if let Some(source) = self.voices[deck].current.as_mut() {
+                        source.gain = gain;
+                    }
+                }
                 Command::Equalizer(settings) => self.eq.set(settings),
             }
         }

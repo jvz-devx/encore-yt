@@ -66,6 +66,7 @@ fn main() -> Result<()> {
     };
 
     let engine = Engine::start()?;
+    let events = engine.take_events().expect("the event channel");
     step!("output open at {} Hz", engine.output_rate());
     let asked = now();
     let a = engine.load(0, &first, load.clone())?;
@@ -75,7 +76,7 @@ fn main() -> Result<()> {
     let mut ended_at = None::<Duration>;
     let mut finish_at = None::<f64>;
     loop {
-        while let Ok(event) = engine.events().try_recv() {
+        while let Ok(event) = events.try_recv() {
             match event {
                 Event::Started { track, at, .. } => {
                     step!(
@@ -146,9 +147,10 @@ fn main() -> Result<()> {
     }
     if let Some(stats) = engine.stats(0) {
         step!(
-            "track {} at {:.2} s, starved {:.3} s, http: {} requests, {} of {} bytes",
+            "track {} at {:.2} s of {:?}, starved {:.3} s, http: {} requests, {} of {} bytes",
             stats.track,
             stats.position,
+            stats.duration,
             stats.starved,
             stats.http.requests,
             stats.http.downloaded,

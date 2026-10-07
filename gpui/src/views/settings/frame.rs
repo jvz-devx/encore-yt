@@ -117,7 +117,8 @@ pub(super) fn header(
 
 /// The category's tabs as a segmented control, as Now Playing's: the
 /// chosen one a lifted pill on the raised track. A few tabs hug their
-/// labels; many share the width.
+/// labels; many share the width. ←/→ on a tab, or Ctrl+Tab and
+/// Ctrl+PageDown anywhere in Settings, move between them.
 fn tabs(
     app: &MusicApp,
     category: Category,
@@ -150,12 +151,13 @@ fn tabs(
             .when(!active, |s| {
                 s.cursor_pointer().hover(move |s| s.text_color(hover))
             })
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .child(*label);
+        super::keyed::Chip::new(super::focusable(tab, c)).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.settings.set_tab(category, i);
                 cx.notify();
-            }))
-            .child(*label);
-        super::focusable(tab, c)
+            },
+        ))
     });
     Some(
         h_flex()
@@ -170,7 +172,7 @@ fn tabs(
                     t.flex_none()
                 }
             })
-            .children(items)
+            .children(super::keyed::arrow_row(items))
             .into_any_element(),
     )
 }
@@ -192,9 +194,10 @@ pub fn footer(c: &Colors) -> AnyElement {
         .overflow_hidden()
         .child(hint(&["Esc"], "Close"))
         .child(hint(&["↑", "↓"], "Categories"))
-        .child(hint(&["Control", "Tab"], "Next category"))
-        .child(hint(&["/"], "Search"))
+        .child(hint(&["Control", "Tab"], "Next tab"))
         .child(hint(&["Tab"], "Next setting"))
+        .child(hint(&["←", "→"], "Change it"))
+        .child(hint(&["/"], "Search"))
         .child(div().flex_1())
         .child(
             div()

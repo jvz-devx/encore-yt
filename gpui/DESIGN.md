@@ -244,6 +244,13 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   most-replayed ridge rises from the same edge over it. Without effects
   (`YTFAST_GPUI_VISUALS=0`, no GPU, Stage) it is the plain kit slider in
   `signal` with a `text` thumb.
+- **Keyboard focus on pages** (M29): song rows and cards are tab stops; a
+  row's ring is a 2 px `focus_ring` line on its edge, a card's stands 5 px
+  outside its cover and title (`radius MD` + 5), inside room the carousel
+  keeps clear of its clip. Menus have one highlight (`selected`) that the
+  pointer and the keys move alike, so their entries have no hover style
+  of their own; a submenu opens beside its entry, overlapping the menu by
+  `XS`, with a chevron on the entry.
 - **Panels** (Up next, settings, dialogs): `overlay` (dialogs) or `surface`
   (side panel, `radius LG`, inset like the page panel), `elevation::high` when
   floating, padding `LG`–`XL`, headings `type_heading`.
@@ -267,7 +274,12 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   by category (icon and name over a card of rows, the highlighted one on
   `selected`, its tab in `text_faint`, a chevron) and the sidebar counts
   matches per category, fading those without. Controls are tab stops with
-  a `focus_ring` while the keyboard is on them.
+  a `focus_ring` while the keyboard is on them (`views::keyed`): a 2 px
+  line inside the edge of anything without an opaque fill (rows, tabs,
+  ghost buttons, unchosen chips, sliders), just outside an opaque one
+  (chosen chips, the equalizer's presets). A shadow outside a translucent
+  or missing fill shows through it as a light patch, so never use one
+  there. ←/→ move chips, segments, tabs and sliders (Shift: ten steps).
 - **Keycaps** (`overlays::keycap`): a 24 px cap on `selected` with a
   darker lower edge, `type_caption`. Key names come from the shortcut
   table (`desktop::SHORTCUTS`) through `desktop::key_label`: Ctrl reads

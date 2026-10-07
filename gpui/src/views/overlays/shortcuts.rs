@@ -17,7 +17,7 @@ const LINE: Pixels = px(34.);
 
 /// The columns, left to right.
 const COLUMNS: [&[Group]; 2] = [
-    &[Group::Playback, Group::Navigation],
+    &[Group::Playback, Group::Navigation, Group::Menus],
     &[Group::Views, Group::Library, Group::Settings],
 ];
 

@@ -1,7 +1,9 @@
 //! The equalizer's bands as one smooth curve over a ±12 dB field: each band
 //! a knob on the curve, dragged up or down (a click sets it, a double click
 //! resets it). The curve is the sound's shape, so it is drawn in signal
-//! while the equalizer is on.
+//! while the equalizer is on. From the keyboard (M29) the field is a tab
+//! stop: ←/→ pick a band, ↑/↓ move it a decibel (Shift: three), 0 resets
+//! it.
 
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
@@ -19,6 +21,38 @@ const SCALE: Pixels = px(34.);
 const KNOB: f32 = 14.;
 const KNOB_ACTIVE: f32 = 18.;
 
+actions!(
+    eq_curve,
+    [
+        BandLeft,
+        BandRight,
+        GainUp,
+        GainDown,
+        GainMuchUp,
+        GainMuchDown,
+        GainReset
+    ]
+);
+
+/// The key context of the focused field.
+const CONTEXT: &str = "EqCurve";
+/// Decibels an arrow moves a band, and with Shift.
+const STEP: f32 = 1.;
+const MUCH: f32 = 3.;
+
+pub fn bind_keys(cx: &mut App) {
+    let field = Some(CONTEXT);
+    cx.bind_keys([
+        KeyBinding::new("left", BandLeft, field),
+        KeyBinding::new("right", BandRight, field),
+        KeyBinding::new("up", GainUp, field),
+        KeyBinding::new("down", GainDown, field),
+        KeyBinding::new("shift-up", GainMuchUp, field),
+        KeyBinding::new("shift-down", GainMuchDown, field),
+        KeyBinding::new("0", GainReset, field),
+    ]);
+}
+
 /// A band being dragged (the drag's value; it draws nothing).
 #[derive(Clone)]
 struct BandDrag;
@@ -35,7 +69,11 @@ pub fn graph(
     c: &Colors,
     cx: &mut Context<MusicApp>,
 ) -> impl IntoElement {
-    let active = app.extras.eq_band.or(app.extras.eq_hover);
+    let active = app
+        .extras
+        .eq_band
+        .or(app.extras.eq_hover)
+        .or(app.extras.eq_key);
     v_flex()
         .gap(space::SM)
         .child(
@@ -106,8 +144,19 @@ fn field(
     let colors = *c;
     let store = app.extras.eq_bounds.clone();
     let value = active.map(|i| value_label(i, gains[i], c));
-    div()
+    let field = div()
         .id("eq-field")
+        .debug_selector(|| "eq-field".into())
+        .key_context(CONTEXT)
+        .rounded(radius::MD);
+    crate::views::keyed::ring_inside(field, c)
+        .on_action(cx.listener(|this, _: &BandLeft, _, cx| this.eq_key_band(-1, cx)))
+        .on_action(cx.listener(|this, _: &BandRight, _, cx| this.eq_key_band(1, cx)))
+        .on_action(cx.listener(|this, _: &GainUp, _, cx| this.eq_key_gain(Some(STEP), cx)))
+        .on_action(cx.listener(|this, _: &GainDown, _, cx| this.eq_key_gain(Some(-STEP), cx)))
+        .on_action(cx.listener(|this, _: &GainMuchUp, _, cx| this.eq_key_gain(Some(MUCH), cx)))
+        .on_action(cx.listener(|this, _: &GainMuchDown, _, cx| this.eq_key_gain(Some(-MUCH), cx)))
+        .on_action(cx.listener(|this, _: &GainReset, _, cx| this.eq_key_gain(None, cx)))
         .relative()
         .flex_1()
         .h(HEIGHT)
@@ -151,6 +200,7 @@ fn field(
             cx.listener(|this, _, _, cx| this.end_band_drag(cx)),
         )
         .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| {
+            this.extras.eq_key = None;
             let band = this.band_at(e.position).map(|(b, _)| b);
             if this.extras.eq_hover != band {
                 this.extras.eq_hover = band;
@@ -177,6 +227,26 @@ impl MusicApp {
         let y = f32::from(at.y - b.top());
         let gain = gain_at(y, f32::from(b.size.height)).clamp(-RANGE, RANGE);
         Some((band as usize, gain))
+    }
+
+    /// ←/→: the band before or after the keyboard's, from the first.
+    fn eq_key_band(&mut self, step: isize, cx: &mut Context<Self>) {
+        let last = BANDS.len() as isize - 1;
+        let band = match self.extras.eq_key {
+            Some(b) => (b as isize + step).clamp(0, last),
+            None if step > 0 => 0,
+            None => last,
+        };
+        self.extras.eq_key = Some(band as usize);
+        cx.notify();
+    }
+
+    /// ↑/↓: moves the keyboard's band by `by` decibels; 0 (`None`) resets.
+    fn eq_key_gain(&mut self, by: Option<f32>, cx: &mut Context<Self>) {
+        let band = *self.extras.eq_key.get_or_insert(0);
+        let eq = self.equalizer();
+        let gain = by.map_or(0., |by| (eq.gains[band] + by).clamp(-RANGE, RANGE));
+        self.set_equalizer(eq.with_band(band, gain), cx);
     }
 
     fn end_band_drag(&mut self, cx: &mut Context<Self>) {

@@ -29,6 +29,7 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::keyed::{self, Chip};
 use super::overlays::keycap::combo;
 use super::widgets;
 use crate::app::MusicApp;
@@ -111,9 +112,9 @@ fn modal_size(window: &Window) -> Size<Pixels> {
     )
 }
 
-/// The Settings key context and its keys: ↑/↓ and Ctrl+Tab change the
-/// category (or walk the search results), `/` searches, Esc clears the
-/// search before it closes.
+/// The Settings key context and its keys: ↑/↓ change the category (or
+/// walk the search results), Ctrl+Tab and Ctrl+PageDown the tab, `/`
+/// searches, Esc clears the search before it closes.
 fn keys(app: &MusicApp, cx: &mut Context<MusicApp>) -> Div {
     let searching = !app.settings.query.is_empty();
     let count = if searching {
@@ -121,8 +122,22 @@ fn keys(app: &MusicApp, cx: &mut Context<MusicApp>) -> Div {
     } else {
         0
     };
+    let category = app.settings.category;
+    let tabs = if category == Category::Visuals && !visuals::tabs_shown() {
+        0
+    } else {
+        category.tabs().len()
+    };
     div()
         .key_context(nav::CONTEXT)
+        .on_action(
+            cx.listener(move |this, _: &nav::NextTab, window, cx| {
+                this.step_tab(1, tabs, window, cx)
+            }),
+        )
+        .on_action(cx.listener(move |this, _: &nav::PreviousTab, window, cx| {
+            this.step_tab(-1, tabs, window, cx)
+        }))
         .on_action(
             cx.listener(|this, _: &nav::NextCategory, window, cx| {
                 this.step_category(1, window, cx)
@@ -302,13 +317,14 @@ fn keyed(button: impl IntoElement, keys: &[&'static str], c: &Colors) -> AnyElem
 /// One of a set of choices (an equalizer preset, a sleep timer): a pill
 /// tinted over its card (as `raised` is over the page), or `primary` while
 /// it is the one in effect, as YouTube Music draws its filter chips. Tab
-/// reaches it, Enter or Space picks it.
+/// reaches it, Enter or Space picks it, and in [`choices`] ←/→ pick the one
+/// beside it (M29).
 fn choice(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     chosen: bool,
     c: &Colors,
-) -> Stateful<Div> {
+) -> Chip {
     let (bg, hover, fg) = if chosen {
         (c.primary, c.primary_hover, c.primary_foreground)
     } else {
@@ -332,29 +348,27 @@ fn choice(
         .hover(move |s| s.bg(hover))
         .active(|s| s.opacity(0.9))
         .child(label);
-    focusable(chip, c)
+    // The chosen chip's fill is opaque: its ring can stand outside it.
+    Chip::new(if chosen {
+        keyed::ring_outside(chip, c)
+    } else {
+        keyed::ring_inside(chip, c)
+    })
 }
 
-/// A wrapping row of [`choice`]s under a setting.
-fn choices(chips: impl IntoIterator<Item = Stateful<Div>>) -> AnyElement {
+/// A wrapping row of [`choice`]s under a setting; ←/→ move the choice.
+fn choices(chips: impl IntoIterator<Item = Chip>) -> AnyElement {
     h_flex()
         .flex_wrap()
         .gap(space::SM)
         .pb(space::SM)
-        .children(chips)
+        .children(keyed::arrow_row(chips))
         .into_any_element()
 }
 
-/// Makes a control a tab stop with a ring while the keyboard is on it.
+/// Makes a control a tab stop with a ring while the keyboard is on it,
+/// inside its edge (M29: a ring outside showed as a light fill on rows and
+/// buttons without an opaque fill).
 fn focusable(el: Stateful<Div>, c: &Colors) -> Stateful<Div> {
-    let ring = c.focus_ring;
-    el.tab_index(0).focus_visible(move |s| {
-        s.shadow(vec![BoxShadow {
-            color: ring,
-            offset: point(px(0.), px(0.)),
-            blur_radius: px(0.),
-            spread_radius: px(2.),
-            inset: false,
-        }])
-    })
+    keyed::ring_inside(el, c)
 }

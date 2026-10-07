@@ -14,6 +14,7 @@
 mod account;
 pub(crate) mod extras;
 mod glide;
+pub(crate) mod keyed;
 mod menu;
 mod now_playing;
 mod overlays;
@@ -36,6 +37,13 @@ use crate::theme::{self, Type, radius, size, space};
 use widgets::Pill;
 
 pub use player::layer::PlayerBar;
+
+/// The keys of focused rows and cards, chip rows and sliders (M29).
+pub fn bind_keys(cx: &mut App) {
+    page::item_keys::bind_keys(cx);
+    keyed::bind_keys(cx);
+    extras::bind_eq_keys(cx);
+}
 
 pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
     // Stage replaces the whole window while it's open.

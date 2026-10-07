@@ -29,7 +29,7 @@ pub fn overlays(
         layers.push(shortcuts::sheet(window, cx));
     }
     layers.extend(palette::palette(app, window, cx));
-    layers.extend(menu::layer(app, cx));
+    layers.extend(menu::layer(app, window, cx));
     if layers.is_empty() {
         return None;
     }

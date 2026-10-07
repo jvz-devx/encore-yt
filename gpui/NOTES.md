@@ -148,6 +148,30 @@ self._backend_task = cx.spawn(async move |this, cx| {
   `cx.with_window(entity_id, ..)` follow it. `spawn_in(window)` and `observe_*`/`on_blur`
   with a window stay bound to the first window and stop once it closes.
 
+## Keyboard focus (M29)
+
+- A div's `tab_index`/`tab_stop` apply only to the handle it makes itself.
+  With `track_focus(&handle)` the handle's own flags count: make it with
+  `cx.focus_handle().tab_stop(true)`, or Tab skips it.
+- When the focused element stops being drawn, keys dispatch from the
+  window's root and every context binding goes dead. `desktop::keep_focus`
+  (`cx.on_focus_lost`) moves the focus to `focus_lost_restore_target`.
+  Changing reduced motion rebuilds the tree under Settings, so that
+  happens there too.
+- A focusable element takes the focus on mouse down and calls
+  `prevent_default`, which stops the `active` style of elements under it
+  that run later; make the row or card itself focusable, not a layer on it.
+- `.hover()` twice on one element panics in debug builds ("hover style
+  already set").
+- Enter and Space "click" a focused element on the key's release; GPUI's
+  `simulate_keystrokes` sends only presses (`Ui::press` sends both).
+- A drop shadow is painted under the element's own fill, so a ring made of
+  one fills a transparent or translucent element. Use an inset shadow, a
+  border, or a line drawn over it.
+- A RenderOnce component gets the `Window`: `views::page::item_keys`
+  uses one to keep a keyed focus handle and draw the ring only while
+  `is_focused && last_input_was_keyboard`.
+
 ## UI tests (headless, `just test gpui`)
 
 `src/ui_tests/` runs the real `MusicApp` in a window of GPUI's test platform

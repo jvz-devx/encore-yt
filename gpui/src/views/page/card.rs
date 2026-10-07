@@ -6,6 +6,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::model::{Item, ItemKind};
 
+use super::item_keys::Anchor;
 use super::runs::runs_line;
 use super::{Ctx, on_activate, on_play};
 use crate::app::MusicApp;
@@ -107,6 +108,7 @@ pub fn card(
         .on_click(on_activate(ctx, shelf, i, cx))
         .map(|el| super::intent::page(el, item, cx))
         .map(|el| crate::views::extras::audition::listen(el, item.track.as_ref(), cx))
+        .map(|el| super::item_keys::hook(el, &ctx.key, shelf, i, Anchor::Card, c, cx))
         .into_any_element()
 }
 

@@ -353,10 +353,12 @@ pub fn row(knob: Knob, enabled: bool, c: &Colors, cx: &App) -> AnyElement {
         .try_global::<Knobs>()
         .and_then(|k| k.sliders.get(&knob).cloned());
     let control = div().w(WIDTH).flex_none().children(slider.map(|s| {
-        Slider::new(&s)
-            .disabled(!enabled)
-            .bg(if enabled { c.signal } else { c.text_faint })
-            .text_color(c.text)
+        super::super::keyed::slider(knob.label(), &s, enabled, c).child(
+            Slider::new(&s)
+                .disabled(!enabled)
+                .bg(if enabled { c.signal } else { c.text_faint })
+                .text_color(c.text),
+        )
     }));
     super::super::row(knob.label(), Some(knob.shown(&saved).into()), control, c)
 }

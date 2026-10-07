@@ -12,6 +12,7 @@ pub mod covers;
 mod entries;
 mod header;
 pub mod intent;
+pub mod item_keys;
 mod row;
 mod runs;
 mod shelf;

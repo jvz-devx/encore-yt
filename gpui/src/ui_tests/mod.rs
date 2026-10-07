@@ -11,6 +11,7 @@
 //! where the view puts that in its name. See gpui/NOTES.md "UI tests".
 
 mod home;
+mod keys;
 mod menu;
 mod motion;
 mod player;
@@ -182,6 +183,15 @@ impl Ui {
     /// Keys as GPUI writes them, space separated: "ctrl-, enter".
     pub fn keys(&mut self, keys: &str) {
         self.cx.simulate_keystrokes(keys);
+        self.frame();
+    }
+
+    /// A key pressed and let go, as a person does: a focused button or
+    /// switch acts on the release (`keys` only presses).
+    pub fn press(&mut self, key: &str) {
+        self.cx.simulate_keystrokes(key);
+        let keystroke = gpui_kit::Keystroke::parse(key).expect("a key");
+        self.cx.simulate_event(gpui_kit::KeyUpEvent { keystroke });
         self.frame();
     }
 

@@ -51,7 +51,7 @@ pub fn chip(app: &MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> 
                 .active(|s| s.opacity(0.9))
                 .child(lead)
                 .child(div().max_w(px(160.)).truncate().child(label))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_account_menu(cx))),
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_account_menu(window, cx))),
         )
         .when(open, |el| el.child(super::menu::menu(app, window, cx)))
         .into_any_element()

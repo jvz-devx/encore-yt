@@ -10,6 +10,7 @@ use ytfast::model::Sleep;
 use super::super::widgets;
 use super::controls::time_left;
 use crate::app::MusicApp;
+use crate::desktop::lists::{List, sleep_items};
 use crate::theme::motion::MotionExt as _;
 use crate::theme::{Colors, Type, elevation, motion, radius, size, space};
 
@@ -80,41 +81,41 @@ pub fn menu(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElemen
                     None => "Fades out, then pauses".into(),
                 }),
         );
-    // YTFAST_GPUI_SHORT_SLEEP=1 offers one minute, to check the fade.
-    let short = std::env::var_os("YTFAST_GPUI_SHORT_SLEEP")
-        .is_some()
-        .then_some(("1 minute", Sleep::Minutes(1)));
-    let rows = short
-        .into_iter()
-        .chain(CHOICES)
-        .enumerate()
-        .map(|(i, (label, choice))| {
-            option(("sleep-choice", i), label, chosen == Some(choice), c).on_click(cx.listener(
-                move |this, _, window, cx| {
-                    this.sleep(Some(choice), cx);
-                    this.close_panels(window, cx);
-                },
-            ))
-        })
-        .collect::<Vec<_>>();
-    let off = timer.is_some().then(|| {
-        option(("sleep-choice", 9usize), "Turn off", false, c).on_click(cx.listener(
-            |this, _, window, cx| {
-                this.sleep(None, cx);
-                this.close_panels(window, cx);
-            },
-        ))
-    });
+    let nav = &app.desktop.lists.sleep;
+    let selected = nav.selected;
+    let items = sleep_items(app);
+    let mut rows = Vec::new();
+    let mut off = None;
+    for (i, (label, choice)) in items.into_iter().enumerate() {
+        let on = choice.is_some() && chosen == choice;
+        let row = option(("sleep-choice", i), label, on, c)
+            .debug_selector(move || format!("sleep-choice:{label}"));
+        let row = super::super::menu::list_entry(row, List::Sleep, i, selected, c, cx);
+        if choice.is_some() {
+            rows.push(row);
+        } else {
+            off = Some(row);
+        }
+    }
+    // The list holds the keyboard inside the panel (M29).
+    let list = super::super::menu::list_keys(
+        v_flex().id("sleep-list"),
+        List::Sleep,
+        &nav.focus,
+        |this, window, cx| this.close_panels(window, cx),
+        cx,
+    )
+    .child(header)
+    .children(rows)
+    .children(off.map(|off| {
+        v_flex()
+            .child(div().mx(space::MD).my(space::XS).h(px(1.)).bg(c.hairline))
+            .child(off)
+    }));
     let panel = floating("sleep-menu", app, c, cx)
         .w(WIDTH)
         .p(space::XS)
-        .child(header)
-        .children(rows)
-        .children(off.map(|off| {
-            v_flex()
-                .child(div().mx(space::MD).my(space::XS).h(px(1.)).bg(c.hairline))
-                .child(off)
-        }));
+        .child(list);
     appear(panel, "sleep-menu")
 }
 
@@ -128,7 +129,6 @@ fn option(id: impl Into<ElementId>, label: &'static str, on: bool, c: &Colors) -
         .rounded(radius::MD)
         .type_body()
         .cursor_pointer()
-        .hover(|s| s.bg(c.hover))
         .active(|s| s.bg(c.pressed))
         .child(div().flex_1().child(label))
         .when(on, |s| {

@@ -26,12 +26,14 @@ pub fn section(
             this.set_mixes(Mixes { on: *on, ..mixes }, cx);
         },
     ));
-    let slider = div().w(SLIDER).child(
-        Slider::new(&app.extras.mix_length)
-            .disabled(!mixes.on)
-            .bg(if mixes.on { c.signal } else { c.text_faint })
-            .text_color(c.text),
-    );
+    let slider = super::keyed::slider("Crossfade length", &app.extras.mix_length, mixes.on, c)
+        .w(SLIDER)
+        .child(
+            Slider::new(&app.extras.mix_length)
+                .disabled(!mixes.on)
+                .bg(if mixes.on { c.signal } else { c.text_faint })
+                .text_color(c.text),
+        );
     super::section(
         "Smooth mixes",
         c,

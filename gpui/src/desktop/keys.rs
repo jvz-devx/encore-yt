@@ -55,17 +55,20 @@ pub enum Group {
     Library,
     Navigation,
     Views,
+    /// Menus, lists and panels (M29).
+    Menus,
     /// Inside Settings (M24).
     Settings,
 }
 
 impl Group {
     /// Settings → Keyboard shortcuts' tabs, in this order.
-    pub const ALL: [Group; 5] = [
+    pub const ALL: [Group; 6] = [
         Group::Playback,
         Group::Library,
         Group::Navigation,
         Group::Views,
+        Group::Menus,
         Group::Settings,
     ];
 
@@ -75,6 +78,7 @@ impl Group {
             Group::Library => "Library",
             Group::Navigation => "Navigation",
             Group::Views => "Views",
+            Group::Menus => "Menus",
             Group::Settings => "In Settings",
         }
     }
@@ -148,13 +152,89 @@ pub const SHORTCUTS: &[Shortcut] = &[
         "Keyboard shortcuts",
     ),
     line(
+        Group::Navigation,
+        &[&["Tab"]],
+        "Move to the next song or card, then ↑ ↓ between them",
+    ),
+    line(
+        Group::Navigation,
+        &[&["Enter"]],
+        "Play the song or card in focus",
+    ),
+    line(
+        Group::Menus,
+        &[&["Menu"], &["Shift", "F10"]],
+        "Open the menu of the song or card in focus",
+    ),
+    line(
+        Group::Menus,
+        &[&["↑"], &["↓"]],
+        "Move through a menu, round from the end",
+    ),
+    line(Group::Menus, &[&["Home"], &["End"]], "First or last entry"),
+    line(
+        Group::Menus,
+        &[&["A–Z"]],
+        "Next entry starting with that letter",
+    ),
+    line(Group::Menus, &[&["Enter"], &["Space"]], "Choose the entry"),
+    line(
+        Group::Menus,
+        &[&["→"], &["←"]],
+        "Open or close a submenu, such as Add to playlist",
+    ),
+    line(
+        Group::Menus,
+        &[&["Esc"]],
+        "Close the menu, back to where you were",
+    ),
+    line(
+        Group::Menus,
+        &[&["←"], &["→"]],
+        "In the equalizer: the band before or after",
+    ),
+    line(
+        Group::Menus,
+        &[&["↑"], &["↓"], &["Shift", "↑"]],
+        "In the equalizer: the band up or down 1 dB, or 3 dB",
+    ),
+    line(
         Group::Settings,
         &[&["↑"], &["↓"]],
         "Previous or next category",
     ),
-    line(Group::Settings, &[&["Control", "Tab"]], "Next category"),
+    line(
+        Group::Settings,
+        &[&["Control", "Tab"], &["Control", "PageDown"]],
+        "Next tab, or category where there are none",
+    ),
+    line(
+        Group::Settings,
+        &[&["Control", "Shift", "Tab"], &["Control", "PageUp"]],
+        "Previous tab, or category",
+    ),
     line(Group::Settings, &[&["/"]], "Search settings"),
     line(Group::Settings, &[&["Tab"]], "Next setting"),
+    line(
+        Group::Settings,
+        &[&["←"], &["→"]],
+        "Change a choice, tab or slider",
+    ),
+    line(
+        Group::Settings,
+        &[&["Shift", "←"], &["Shift", "→"]],
+        "Move a slider ten steps",
+    ),
+    line(
+        Group::Settings,
+        &[&["Home"], &["End"]],
+        "A slider's least or most",
+    ),
+    line(
+        Group::Settings,
+        &[&["Space"], &["Enter"]],
+        "Turn a switch on or off, or press a button",
+    ),
     line(
         Group::Settings,
         &[&["Esc"]],
@@ -202,6 +282,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-q", Quit, anywhere),
     ]);
     super::menu::bind_keys(cx);
+    crate::views::bind_keys(cx);
 }
 
 /// The handlers, on the window's root element.

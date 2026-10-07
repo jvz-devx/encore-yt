@@ -303,7 +303,7 @@ fn toggle(
 }
 
 /// Choices side by side in one rounded track, the chosen one filled as
-/// the filter chips are; `set` applies choice `i`.
+/// the filter chips are; `set` applies choice `i`. ←/→ move the choice.
 fn segmented<const N: usize>(
     id: &'static str,
     options: [(&'static str, bool); N],
@@ -335,9 +335,15 @@ fn segmented<const N: usize>(
             .cursor_pointer()
             .hover(move |s| s.bg(hover))
             .active(|s| s.opacity(0.9))
-            .child(label)
-            .on_click(cx.listener(move |_, _, _, cx| motion::update(cx, |m| set(m, i))));
-        super::focusable(segment, c)
+            .child(label);
+        // The chosen one's fill is opaque: its ring stands outside it.
+        let segment = if chosen {
+            super::keyed::ring_outside(segment, c)
+        } else {
+            super::keyed::ring_inside(segment, c)
+        };
+        super::keyed::Chip::new(segment)
+            .on_click(cx.listener(move |_, _, _, cx| motion::update(cx, |m| set(m, i))))
     });
     h_flex()
         .flex_none()
@@ -345,5 +351,5 @@ fn segmented<const N: usize>(
         .gap(space::XXS)
         .rounded(radius::FULL)
         .bg(c.hover)
-        .children(segments)
+        .children(super::keyed::arrow_row(segments))
 }

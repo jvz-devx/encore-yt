@@ -3,8 +3,10 @@
 //! `views::settings` draws the modal; `AccountUi::settings` says whether it
 //! is open.
 //!
-//! Keys inside it: ↑/↓ (or Ctrl+Tab, Ctrl+Shift+Tab) change the category,
-//! `/` goes to the search field, Esc clears the search and then closes.
+//! Keys inside it: ↑/↓ change the category, Ctrl+Tab and Ctrl+Shift+Tab
+//! (or Ctrl+PageDown and Ctrl+PageUp) the tab inside it, or the category
+//! where it has none; `/` goes to the search field, Esc clears the search
+//! and then closes. The controls answer ←/→ (`views::keyed`).
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -16,7 +18,16 @@ mod index;
 
 pub use index::{Entry, search};
 
-actions!(settings, [NextCategory, PreviousCategory, FocusSearch]);
+actions!(
+    settings,
+    [
+        NextCategory,
+        PreviousCategory,
+        NextTab,
+        PreviousTab,
+        FocusSearch
+    ]
+);
 
 /// The key context of the Settings modal (inside `MusicDialog`).
 pub const CONTEXT: &str = "Settings";
@@ -101,7 +112,14 @@ impl Category {
             ],
             Category::Motion => &["Motion", "Lyrics"],
             // `Group::ALL`'s titles.
-            Category::Shortcuts => &["Playback", "Library", "Navigation", "Views", "In Settings"],
+            Category::Shortcuts => &[
+                "Playback",
+                "Library",
+                "Navigation",
+                "Views",
+                "Menus",
+                "In Settings",
+            ],
             _ => &[],
         }
     }
@@ -171,8 +189,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("down", NextCategory, keys),
         KeyBinding::new("up", PreviousCategory, keys),
         KeyBinding::new("/", FocusSearch, keys),
-        KeyBinding::new("ctrl-tab", NextCategory, anywhere),
-        KeyBinding::new("ctrl-shift-tab", PreviousCategory, anywhere),
+        KeyBinding::new("ctrl-tab", NextTab, anywhere),
+        KeyBinding::new("ctrl-shift-tab", PreviousTab, anywhere),
+        KeyBinding::new("ctrl-pagedown", NextTab, anywhere),
+        KeyBinding::new("ctrl-pageup", PreviousTab, anywhere),
     ]);
 }
 
@@ -233,6 +253,25 @@ impl MusicApp {
         if on_sidebar {
             self.settings.item(next).clone().focus(window, cx);
         }
+    }
+
+    /// Ctrl+Tab: the next tab of the category (`tabs` of them showing),
+    /// going round, or the next category where it has none.
+    pub fn step_tab(
+        &mut self,
+        step: isize,
+        tabs: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if tabs < 2 || !self.settings.query.is_empty() {
+            self.step_category(step, window, cx);
+            return;
+        }
+        let category = self.settings.category;
+        let at = (self.settings.tab(category) as isize + step).rem_euclid(tabs as isize);
+        self.settings.set_tab(category, at as usize);
+        cx.notify();
     }
 
     pub fn focus_settings_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {

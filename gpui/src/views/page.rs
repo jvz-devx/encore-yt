@@ -15,6 +15,7 @@ mod row;
 mod runs;
 mod shelf;
 mod states;
+mod transition;
 
 use std::rc::Rc;
 
@@ -25,7 +26,8 @@ use ytfast::model::{Item, Page, Shelf};
 
 use crate::app::MusicApp;
 use crate::nav::View;
-use crate::theme::{self, Colors, motion, size, space};
+use crate::theme::motion::{self, MotionExt as _};
+use crate::theme::{self, Colors, size, space};
 use entries::Entry;
 
 /// What drawing an entry needs besides the page.
@@ -54,7 +56,14 @@ impl Ctx {
     }
 }
 
-pub fn page(app: &mut MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
+/// The current view's page, arriving with the page transition after a
+/// move.
+pub fn page(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
+    let content = content(app, cx);
+    transition::arrive(app, content, window)
+}
+
+fn content(app: &mut MusicApp, cx: &mut Context<MusicApp>) -> AnyElement {
     let target = app.pages.view.target();
     let key = target.key();
     let tab = match app.pages.view {
@@ -102,21 +111,25 @@ pub fn page(app: &mut MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>
             .into_any_element()
     })
     .size_full();
-    v_flex()
+    let page = v_flex()
         .id(SharedString::from(format!("page:{key}")))
         .flex_1()
         .w_full()
         .min_h_0()
         .relative()
         .child(body)
-        .vertical_scrollbar(&list_state)
-        // A new page settles in rather than popping.
-        .with_animation(
-            SharedString::from(format!("enter:{key}")),
-            Animation::new(motion::BASE).with_easing(motion::ease_out),
-            |el, t| el.opacity(t),
-        )
-        .into_any_element()
+        .vertical_scrollbar(&list_state);
+    if app.pages.transition.ready {
+        return page.into_any_element();
+    }
+    // A page that arrives after its skeleton settles in rather than
+    // popping.
+    page.with_motion(
+        SharedString::from(format!("enter:{key}")),
+        motion::Kind::Pages,
+        motion::BASE,
+        |el, t| el.opacity(t),
+    )
 }
 
 /// Draws one entry of page `key`.

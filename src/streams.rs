@@ -3,7 +3,8 @@
 //! and, for clients whose URLs carry them, the player script's signature
 //! and `n` challenges solved in the embedded JS engine (`crate::jsc`).
 //!
-//! Opt-in with `YTFAST_RESOLVER=rust`; `crate::resolver` falls back to
+//! On by default in the GPUI app (the `rust-resolver` feature), opt-in
+//! elsewhere with `YTFAST_RESOLVER=rust`; `crate::resolver` falls back to
 //! yt-dlp on any failure. What works and what doesn't (PO tokens, SABR) is
 //! in docs/gpui/RESOLVER.md.
 
@@ -93,9 +94,15 @@ impl std::fmt::Display for PlayerFailure {
 
 impl std::error::Error for PlayerFailure {}
 
-/// Whether `YTFAST_RESOLVER=rust` asks for this resolver.
+/// Whether this resolver runs first: by default with the `rust-resolver`
+/// feature (the GPUI app), otherwise when `YTFAST_RESOLVER=rust` asks for
+/// it; `YTFAST_RESOLVER=ytdlp` leaves it to yt-dlp.
 pub fn enabled() -> bool {
-    std::env::var("YTFAST_RESOLVER").is_ok_and(|v| v == "rust")
+    match std::env::var("YTFAST_RESOLVER").as_deref() {
+        Ok("rust") => true,
+        Ok("ytdlp" | "yt-dlp") => false,
+        _ => cfg!(feature = "rust-resolver"),
+    }
 }
 
 /// The current player script, as last checked.

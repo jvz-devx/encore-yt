@@ -52,7 +52,11 @@ pub fn sheet(
     Some(
         widgets::scrim("sign-in-scrim", &c)
             .on_click(cx.listener(|this, _, window, cx| this.close_sign_in(window, cx)))
-            .child(widgets::settle_in("sign-in-in", panel))
+            .child(widgets::settle_in(
+                "sign-in-in",
+                theme::motion::Kind::Panels,
+                panel,
+            ))
             .into_any_element(),
     )
 }

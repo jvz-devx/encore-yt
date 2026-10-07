@@ -40,6 +40,20 @@ pub struct Pages {
     pub expanded: HashSet<String>,
     /// The subtitle link under the pointer: (text element id, run index).
     pub link_hover: Option<(SharedString, usize)>,
+    /// The last move between views, for the page transition.
+    pub transition: Transition,
+}
+
+/// A move to another view: when, which way, and whether its page was
+/// already there to show.
+#[derive(Clone, Copy, Debug)]
+pub struct Transition {
+    pub started: Instant,
+    /// Back in history (the page arrives from the other side).
+    pub back: bool,
+    /// The page was cached when the move happened, so it arrives with the
+    /// transition rather than fading in later on its own.
+    pub ready: bool,
 }
 
 impl Pages {
@@ -56,6 +70,11 @@ impl Pages {
                 carousels: HashMap::new(),
                 expanded: HashSet::new(),
                 link_hover: None,
+                transition: Transition {
+                    started: Instant::now(),
+                    back: false,
+                    ready: false,
+                },
             },
             Vec::new(),
         )
@@ -73,7 +92,8 @@ impl Pages {
 impl MusicApp {
     pub fn open(&mut self, view: View, cx: &mut Context<Self>) {
         let pages = &mut self.pages;
-        if view != pages.view {
+        let changed = view != pages.view;
+        if changed {
             let previous = std::mem::replace(&mut pages.view, view);
             pages.history.push(previous);
             pages.forward.clear();
@@ -87,8 +107,29 @@ impl MusicApp {
             list.scroll_to_top();
         }
         self.player.now_playing = false;
-        self.ensure_page(self.pages.view.target(), false);
+        if changed {
+            self.moved(false);
+        } else {
+            self.ensure_page(self.pages.view.target(), false);
+        }
         cx.notify();
+    }
+
+    /// Starts the page transition into the view just made current, and
+    /// asks for its page.
+    fn moved(&mut self, back: bool) {
+        let target = self.pages.view.target();
+        let ready = self
+            .pages
+            .states
+            .get(&target.key())
+            .is_some_and(|s| s.page.is_some());
+        self.pages.transition = Transition {
+            started: Instant::now(),
+            back,
+            ready,
+        };
+        self.ensure_page(target, false);
     }
 
     pub fn back(&mut self, cx: &mut Context<Self>) {
@@ -96,7 +137,7 @@ impl MusicApp {
             let left = std::mem::replace(&mut self.pages.view, view);
             self.pages.forward.push(left);
             self.player.now_playing = false;
-            self.ensure_page(self.pages.view.target(), false);
+            self.moved(true);
             cx.notify();
         }
     }
@@ -106,7 +147,7 @@ impl MusicApp {
             let left = std::mem::replace(&mut self.pages.view, view);
             self.pages.history.push(left);
             self.player.now_playing = false;
-            self.ensure_page(self.pages.view.target(), false);
+            self.moved(false);
             cx.notify();
         }
     }

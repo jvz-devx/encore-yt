@@ -15,6 +15,7 @@ use crate::app::MusicApp;
 use crate::desktop::menu::{
     self, CONTEXT, Entry, MenuChoose, MenuClose, MenuDown, MenuUp, Place, Subject,
 };
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 
 /// The menu's width.
@@ -48,9 +49,10 @@ pub fn layer(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<AnyElement> {
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
         .children(rows(&entries, open.selected, &c, cx))
-        .with_animation(
+        .with_motion(
             SharedString::from(format!("menu-{}", open.serial)),
-            Animation::new(motion::FAST).with_easing(motion::ease_out),
+            motion::Kind::Menus,
+            motion::FAST,
             |el, t| el.opacity(t).top(px(-4.) * (1. - t)),
         );
     let close = cx.listener(|this, _: &MouseDownEvent, window, cx| this.close_menu(window, cx));

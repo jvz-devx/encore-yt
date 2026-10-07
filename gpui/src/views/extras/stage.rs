@@ -16,6 +16,7 @@ use super::super::{clock, runs_text, widgets};
 use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::playback::SEEK_SCALE;
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 use crate::visuals::{self, Slot};
 
@@ -94,9 +95,10 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .child(body)
         .child(transport(app, margin, &c, cx))
         .child(corner_buttons(window, &c, cx))
-        .with_animation(
+        .with_motion(
             "enter:stage",
-            Animation::new(motion::SLOW).with_easing(motion::ease_out),
+            motion::Kind::NowPlaying,
+            motion::SLOW,
             |el, t| el.opacity(t),
         );
     // Every area's shortcuts work in Stage too; Stage's own (Esc, F11,

@@ -1,12 +1,13 @@
 //! Settings, over the window: one scrolling panel of sections (Account,
-//! Equalizer, Sleep timer, Loudness levelling, Smooth mixes,
-//! Notifications, Visuals, Updates). Each section lives in its own file under
+//! Visuals, Motion and Lyrics, Equalizer, Sleep timer, Loudness levelling,
+//! Smooth mixes, Notifications, Updates). Each section lives in its own file under
 //! `settings/` and draws its rows with [`row`] and its choices with [`choice`]; a new
 //! section is one more file and one more entry in [`settings`].
 
 mod account;
 mod equalizer;
 mod mixes;
+mod motion;
 mod playback;
 mod sleep;
 pub mod updates;
@@ -36,13 +37,15 @@ pub fn settings(
     let max_h = window.viewport_size().height - space::XXXL * 2.;
     let sections = [
         account::section(app, &c, cx),
+        // The look comes early, so its presets show as Settings opens.
+        visuals::section(app, &c, window, cx),
+        motion::section(&c, cx),
         equalizer::section(app, &c, cx),
         sleep::section(app, &c, cx),
         playback::section(app, &c, cx),
         playback::player(app, &c, cx),
         mixes::section(app, &c, window, cx),
         playback::notifications(app, &c, cx),
-        visuals::section(app, &c, window, cx),
         updates::section(app, &c, cx),
     ];
     let panel = widgets::floating(&c)
@@ -90,7 +93,11 @@ pub fn settings(
     Some(
         widgets::scrim("settings-scrim", &c)
             .on_click(cx.listener(|this, _, window, cx| this.open_settings(false, window, cx)))
-            .child(widgets::settle_in("settings-in", panel))
+            .child(widgets::settle_in(
+                "settings-in",
+                theme::motion::Kind::Panels,
+                panel,
+            ))
             .into_any_element(),
     )
 }

@@ -81,6 +81,10 @@ e2e = ["egui"]
 # Playback on ytfast-audio (src/player/rust.rs) as well as mpv; chosen with
 # YTFAST_PLAYER=rust|mpv or the player setting.
 rust-audio = ["dep:ytfast-audio"]
+# Resolve streams in Rust first by default (src/streams.rs), with yt-dlp as
+# the fallback; YTFAST_RESOLVER=ytdlp turns it off. Without the feature it
+# stays opt-in with YTFAST_RESOLVER=rust.
+rust-resolver = []
 
 [patch.crates-io]
 # crmne/egui apps-0.36 and crmne/winit apps-0.30, the revisions ZapFast 0.18.2

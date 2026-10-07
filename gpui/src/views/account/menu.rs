@@ -52,7 +52,11 @@ pub fn menu(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
         anchored()
             .anchor(Anchor::TopRight)
             .snap_to_window_with_margin(space::SM)
-            .child(widgets::settle_in("account-menu-in", panel)),
+            .child(widgets::settle_in(
+                "account-menu-in",
+                theme::motion::Kind::Menus,
+                panel,
+            )),
     ))
 }
 

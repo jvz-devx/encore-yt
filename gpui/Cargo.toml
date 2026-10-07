@@ -22,7 +22,7 @@ members = [".", "crates/visuals", "crates/audio"]
 [dependencies]
 # The backend (InnerTube, yt-dlp resolver, mpv, sign-in, MPRIS) without the
 # egui interface, with the pure Rust audio engine next to mpv (PLAN M19).
-ytfast = { path = "..", default-features = false, features = ["rust-audio"] }
+ytfast = { path = "..", default-features = false, features = ["rust-audio", "rust-resolver"] }
 # GPUI with gpui-component, pinned as one set: gpui-kit pins gpui-pre and
 # gpui-pre-platform (wayland, x11). Move these together.
 gpui-kit = "=0.7.1"

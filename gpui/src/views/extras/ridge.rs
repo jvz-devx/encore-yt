@@ -37,8 +37,11 @@ pub fn ridge(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Option<A
             .child(
                 canvas(
                     |_, _, _| {},
-                    move |bounds, _, window, _| {
-                        paint(bounds, &curve, duration, played, &colors, window)
+                    // The effects layer draws it while it paints the bar.
+                    move |bounds, _, window, cx| {
+                        if !crate::visuals::paints_bar(cx) {
+                            paint(bounds, &curve, duration, played, &colors, window)
+                        }
                     },
                 )
                 .size_full(),

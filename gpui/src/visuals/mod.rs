@@ -163,6 +163,7 @@ fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
         known: duration > 0.0,
         duration,
         video_id: track.map(|t| t.video_id.clone()),
+        heat: app.current_heat().cloned(),
     })
 }
 

@@ -246,13 +246,14 @@ impl MusicApp {
     }
 
     /// What the player bar draws of the position itself: the elapsed time's
-    /// second and, with the ridge, its playhead to the pixel.
+    /// second and, with the ridge (unless the effects layer draws it), its
+    /// playhead to the pixel.
     pub(crate) fn bar_shows(&self, cx: &App) -> (u64, Option<i64>) {
         let position = self.player.position();
         let duration = self.player.playback.duration;
         let ridge = self
             .current_heat()
-            .filter(|_| duration > 0.0)
+            .filter(|_| duration > 0.0 && !crate::visuals::paints_bar(cx))
             .and_then(|_| crate::visuals::seek_width(cx))
             .map(|width| (position / duration * f64::from(f32::from(width))) as i64);
         (position as u64, ridge)

@@ -20,6 +20,9 @@ struct Params {
     cover: vec4<f32>,
     // x: the cover's corner radius, y: on (0/1)
     cover_state: vec4<f32>,
+    // The most-replayed ridge over the seek bar: x: on (0/1), y: its
+    // height in points where the heat is greatest
+    ridge: vec4<f32>,
     // Display-space colours: the window base, signal (the fill), ink (the
     // playhead and the unplayed track; w: the track's opacity), the
     // halo's accent.
@@ -27,12 +30,15 @@ struct Params {
     signal: vec4<f32>,
     ink: vec4<f32>,
     accent: vec4<f32>,
+    // The ridge ahead of the playhead (behind it is signal)
+    muted: vec4<f32>,
     palette: array<vec4<f32>, 4>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var wave: texture_2d<f32>;
-@group(0) @binding(2) var wave_sampler: sampler;
+@group(0) @binding(2) var heat: texture_2d<f32>;
+@group(0) @binding(3) var wave_sampler: sampler;
 
 // Dark look: the glow lifts OKLab lightness at most this much over the
 // base (0.145), so text_faint keeps 4.5:1 (it needs a luminance <= 0.0095).
@@ -308,12 +314,51 @@ fn seek_bar(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
     return out;
 }
 
+fn heat_at(u: f32) -> f32 {
+    return textureSampleLevel(heat, wave_sampler, vec2<f32>(clamp(u, 0.0, 1.0), 0.5), 0.0).r;
+}
+
+// The most-replayed ridge (YouTube's replay heat) as a low hill rising
+// from the track's top edge: signal behind the playhead, muted ahead, a
+// one-point edge along its top.
+fn ridge(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
+    let s = params.output.w;
+    let x0 = params.seek.x;
+    let x1 = params.seek.z;
+    if p.x < x0 || p.x > x1 {
+        return color;
+    }
+    let len = max(x1 - x0, 1.0);
+    let base = params.seek.y + 9.0 * s;
+    let height = params.ridge.y * s;
+    let u = (p.x - x0) / len;
+    let top = base - height * heat_at(u);
+    // The edge's distance across its slope, for an even line width.
+    let slope = (heat_at(u + 1.0 / len) - heat_at(u - 1.0 / len)) * 0.5 * height;
+    let across = abs(p.y - top) / sqrt(1.0 + slope * slope);
+    let fill = clamp(p.y - top + 0.5, 0.0, 1.0) * clamp(base - p.y + 0.5, 0.0, 1.0);
+    let edge = clamp(0.5 * s + 0.5 - across, 0.0, 1.0) * step(p.y, base + 0.5);
+    let head = x0 + clamp(params.seek.w, 0.0, 1.0) * len;
+    let played = select(0.0, clamp(head - p.x + 0.5, 0.0, 1.0), params.seek_state.x > 0.5);
+    // Blended in display space, as GPUI blends the ridge it draws without
+    // effects.
+    let signal = params.signal.rgb;
+    let muted = params.muted.rgb;
+    var out = mix(to_display(color), muted, fill * 0.16 * (1.0 - played));
+    out = mix(out, signal, fill * 0.42 * played);
+    out = mix(out, muted, edge * 0.5 * (1.0 - played));
+    return to_linear(mix(out, signal, edge * played));
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let p = in.uv * params.output.xy;
     var color = glow(p);
     color = halos(p, color);
     if params.seek_state.w > 0.5 {
+        if params.ridge.x > 0.5 {
+            color = ridge(p, color);
+        }
         color = seek_bar(p, color);
     }
     let display = to_display(color) + (hash(p) - 0.5) / 255.0;

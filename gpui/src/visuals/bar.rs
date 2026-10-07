@@ -36,6 +36,8 @@ pub struct Input {
     pub duration: f64,
     /// The song whose outline to show.
     pub video_id: Option<String>,
+    /// The song's replay heat, for the most-replayed ridge.
+    pub heat: Option<ytfast::heat::Heat>,
 }
 
 /// What changes the strip's still picture: when it differs from the last
@@ -51,6 +53,7 @@ struct Still {
     look: Option<Look>,
     reduce: bool,
     wave: bool,
+    heat: bool,
     cover: bool,
     /// Device pixel positions of the bar's controls.
     layout: [i32; 6],
@@ -96,6 +99,8 @@ pub struct Bar {
     palette: Palette,
     /// The waveform uploaded, by video id.
     wave: Option<String>,
+    /// The heat uploaded: video id and song length.
+    heat: Option<(String, u64)>,
     /// A slow swell following the kicks, for the glow.
     breath: f32,
     /// The pointer is over the seek bar (set from the paint's listener).
@@ -120,6 +125,7 @@ impl Bar {
                 at: None,
             },
             wave: None,
+            heat: None,
             breath: 0.4,
             hover: Rc::new(Cell::new(false)),
             drawn: None,
@@ -175,6 +181,8 @@ impl Bar {
     pub fn release(&mut self) {
         self.strip = None;
         self.drawn = None;
+        self.wave = None;
+        self.heat = None;
     }
 
     pub fn forget(&mut self) {
@@ -219,6 +227,15 @@ impl Bar {
             if values.is_some() || input.video_id.is_none() {
                 self.wave = input.video_id.clone();
             }
+        }
+        let heat = input
+            .video_id
+            .clone()
+            .zip(input.heat.as_ref())
+            .map(|(id, _)| (id, input.duration.to_bits()));
+        if self.heat != heat {
+            strip.set_heat(heat_values(input).as_deref());
+            self.heat = heat;
         }
         // Animating, frames are pipelined (one frame late, no waiting);
         // a still picture is waited for, so it shows in this render.
@@ -309,6 +326,7 @@ impl Bar {
             seek,
             play,
             cover,
+            ridge: input.heat.as_ref().map(|_| RIDGE),
             colors: colours(cx, accent(&palette)),
             palette,
         }
@@ -338,6 +356,7 @@ impl Bar {
                 .video_id
                 .as_deref()
                 .is_some_and(|id| super::waveform::has_outline(id, cx)),
+            heat: p.ridge.is_some(),
             cover: p.glow > 0.0,
             layout: [
                 seek.left as i32,
@@ -367,7 +386,23 @@ fn colours(cx: &App, accent: [f32; 3]) -> StripColors {
             theme::Mode::Light => 0.16,
         },
         accent,
+        muted: rgb(c.text_muted),
     }
+}
+
+/// The ridge's height where the heat is greatest (as `extras::ridge`
+/// draws it without effects).
+const RIDGE: f32 = 11.;
+
+/// The song's replay heat evenly over its length, for the strip.
+fn heat_values(input: &Input) -> Option<Vec<f32>> {
+    let heat = input.heat.as_ref().filter(|_| input.duration > 0.0)?;
+    let n = 512;
+    Some(
+        (0..n)
+            .map(|i| heat.value_at((i as f64 + 0.5) / n as f64 * input.duration))
+            .collect(),
+    )
 }
 
 /// The palette entry farthest from grey.

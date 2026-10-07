@@ -108,7 +108,7 @@ pub fn card(
         .on_click(on_activate(ctx, shelf, i, cx))
         .map(|el| super::intent::page(el, item, cx))
         .map(|el| crate::views::extras::audition::listen(el, item.track.as_ref(), cx))
-        .map(|el| super::item_keys::hook(el, &ctx.key, shelf, i, Anchor::Card, c, cx))
+        .map(|el| super::item_keys::hook(el, ctx, shelf, i, Anchor::Card, cx))
         .into_any_element()
 }
 

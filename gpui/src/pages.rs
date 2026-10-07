@@ -41,6 +41,8 @@ pub struct Pages {
     pub lists: HashMap<String, PageList>,
     /// Horizontal scroll of carousels, by page key and shelf.
     pub carousels: HashMap<(String, usize), ScrollHandle>,
+    /// A carousel's glide under way; a new one replaces (and stops) it.
+    pub glides: HashMap<(String, usize), Task<()>>,
     /// Pages whose header description is shown in full.
     pub expanded: HashSet<String>,
     /// The subtitle link under the pointer: (text element id, run index).
@@ -82,6 +84,7 @@ impl Pages {
                 search: Search::default(),
                 lists: HashMap::new(),
                 carousels: HashMap::new(),
+                glides: HashMap::new(),
                 expanded: HashSet::new(),
                 link_hover: None,
                 transition: Transition {

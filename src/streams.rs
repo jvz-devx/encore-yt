@@ -15,7 +15,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
 use crate::innertube::{Client, PlayerClient, Stream};
-use crate::jsc::{Challenges, Player, Solver, decipher};
+use crate::jsc::{Challenges, Player, Solver, Status, decipher, scripts};
 
 /// The audio formats wanted, best first (the same list yt-dlp gets).
 const ITAGS: [u64; 7] = [774, 141, 251, 140, 250, 249, 139];
@@ -60,6 +60,39 @@ pub const WEB_CREATOR: PlayerClient = PlayerClient {
     extra: &[],
 };
 
+/// The pins file on the repository's default branch: the list of solver
+/// releases (by SHA-256) the app may download when its own solver can't
+/// use a player. Changing it takes a reviewed commit to `main`.
+const PINS_URL: &str =
+    "https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/src/jsc/pins.txt";
+
+/// Where yt-dlp-ejs publishes its release assets.
+const EJS_RELEASES: &str = "https://github.com/yt-dlp/ejs/releases/download";
+
+/// A failure that holds for every song until the player version or the
+/// solver changes: `crate::resolver` logs it once per player version.
+#[derive(Debug)]
+pub struct PlayerFailure {
+    pub player: String,
+    pub preparing: bool,
+    pub reason: String,
+}
+
+impl std::fmt::Display for PlayerFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.preparing {
+            true => write!(f, "player {} is being prepared", self.player),
+            false => write!(
+                f,
+                "the solver can't use player {}: {}",
+                self.player, self.reason
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PlayerFailure {}
+
 /// Whether `YTFAST_RESOLVER=rust` asks for this resolver.
 pub fn enabled() -> bool {
     std::env::var("YTFAST_RESOLVER").is_ok_and(|v| v == "rust")
@@ -75,9 +108,14 @@ struct Current {
 
 pub struct Native {
     innertube: Arc<Client>,
-    /// `<cache>/player`: `<id>.js`, `<id>.ejs.js`, and `current` (the id).
+    /// `<cache>/player`: `<id>.js`, `<id>.ejs-<solver>.js`, and `current`
+    /// (the id).
     dir: PathBuf,
-    solver: Solver,
+    /// `<cache>/ejs`: a downloaded solver release and the fetched pins.
+    ejs: PathBuf,
+    solver: Arc<Solver>,
+    /// Players a newer solver was looked for, at most once each.
+    refreshed: Mutex<std::collections::HashSet<String>>,
     current: tokio::sync::Mutex<Option<Current>>,
     /// The last player response's client, for the log.
     last: Mutex<&'static str>,
@@ -86,11 +124,19 @@ pub struct Native {
 }
 
 impl Native {
-    pub fn new(innertube: Arc<Client>, cache: &Path) -> Self {
+    /// The solver is the newest pinned release among the vendored copy,
+    /// `<cache>/ejs/` and `<config>/ejs/`.
+    pub fn new(innertube: Arc<Client>, cache: &Path, config: &Path) -> Self {
+        let ejs = cache.join(scripts::DIR);
+        let dirs = [ejs.clone(), config.join(scripts::DIR)];
+        let solver =
+            Solver::with_scripts(scripts::Scripts::best(&dirs, &ejs.join(scripts::PINS_FILE)));
         Self {
             innertube,
             dir: cache.join("player"),
-            solver: Solver::new(),
+            ejs,
+            solver: Arc::new(solver),
+            refreshed: Mutex::default(),
             current: tokio::sync::Mutex::default(),
             last: Mutex::new(""),
             dump: None,
@@ -113,6 +159,16 @@ impl Native {
         let current = self.player().await?;
         self.solver.load(&current.player).await?;
         Ok(current.player.id)
+    }
+
+    /// The current player script on disk (downloaded if needed).
+    pub async fn player_path(&self) -> Result<PathBuf> {
+        Ok(self.player().await?.player.path)
+    }
+
+    /// The solver release in use.
+    pub fn solver_version(&self) -> String {
+        self.solver.version()
     }
 
     /// The best audio stream: signed out through VISIONOS, signed in
@@ -198,9 +254,26 @@ impl Native {
             }
             (None, None) => bail!("the format has no URL"),
         };
-        if !self.solver.prepared(player) {
-            self.solver.warm(player);
-            bail!("player {} is being prepared", player.id);
+        match self.solver.status(player) {
+            Status::Ready => {}
+            Status::Cold => {
+                self.solver.warm(player);
+                return Err(PlayerFailure {
+                    player: player.id.clone(),
+                    preparing: true,
+                    reason: String::new(),
+                }
+                .into());
+            }
+            Status::Broken(reason) => {
+                self.refresh_solver(&player.id);
+                return Err(PlayerFailure {
+                    player: player.id.clone(),
+                    preparing: false,
+                    reason,
+                }
+                .into());
+            }
         }
         let n = url_param(&url, "n");
         let challenges = Challenges {
@@ -304,6 +377,33 @@ impl Native {
         Ok(())
     }
 
+    /// Looks for a newer pinned solver release once per broken player, in
+    /// the background: the pins on the repository's `main` name the
+    /// releases, the files come from yt-dlp-ejs's GitHub release, and both
+    /// must match their pinned SHA-256 before they are saved or run.
+    fn refresh_solver(&self, player: &str) {
+        let first = self
+            .refreshed
+            .lock()
+            .expect("refresh lock")
+            .insert(player.to_owned());
+        if !first {
+            return;
+        }
+        let (http, dir, solver) = (
+            self.innertube.http().clone(),
+            self.ejs.clone(),
+            self.solver.clone(),
+        );
+        tokio::spawn(async move {
+            match fetch_solver(&http, &dir, &solver.version()).await {
+                Ok(Some(found)) => solver.set_scripts(found),
+                Ok(None) => log::info!("no newer EJS solver is pinned"),
+                Err(error) => log::warn!("couldn't update the EJS solver: {error:#}"),
+            }
+        });
+    }
+
     /// Keeps only the current player's files.
     fn prune(&self, id: &str) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
@@ -316,6 +416,55 @@ impl Native {
             }
         }
     }
+}
+
+/// Fetches the repository's pins and, if they name a release newer than
+/// `current`, downloads and checks its two files and saves them with the
+/// pins under `dir`.
+async fn fetch_solver(
+    http: &reqwest::Client,
+    dir: &Path,
+    current: &str,
+) -> Result<Option<scripts::Scripts>> {
+    let get = |url: String| async move {
+        http.get(&url)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .with_context(|| format!("fetching {url}"))?
+            .text()
+            .await
+            .with_context(|| format!("reading {url}"))
+    };
+    let fetched = get(PINS_URL.to_owned()).await?;
+    let mut pins = scripts::parse_pins(scripts::PINS);
+    pins.extend(scripts::parse_pins(&fetched));
+    let Some(version) = scripts::newest_pinned(&pins, current) else {
+        return Ok(None);
+    };
+    let mut files = Vec::new();
+    for name in [scripts::LIB, scripts::CORE] {
+        let text = get(format!("{EJS_RELEASES}/{version}/{name}")).await?;
+        let want = scripts::pinned_hash(&pins, &version, name)?;
+        if scripts::sha256_hex(text.as_bytes()) != want {
+            bail!("{name} of EJS {version} doesn't match its pinned hash");
+        }
+        files.push(text);
+    }
+    let core = files.pop().expect("two files");
+    let lib = files.pop().expect("two files");
+    let found = scripts::Scripts::verified(lib, core, &pins)?;
+    std::fs::create_dir_all(dir).context("creating the solver directory")?;
+    for (name, text) in [
+        (scripts::LIB, &*found.lib),
+        (scripts::CORE, &*found.core),
+        (scripts::PINS_FILE, fetched.as_str()),
+    ] {
+        crate::paths::write_atomic(&dir.join(name), text.as_bytes())
+            .with_context(|| format!("saving {name}"))?;
+    }
+    log::info!("downloaded EJS solver {version}");
+    Ok(Some(found))
 }
 
 /// An audio format from a player response.

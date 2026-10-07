@@ -7,7 +7,10 @@
 //! `cargo run --example resolve_rust --no-default-features -- [--signed-in]
 //! [--client visionos|tv|creator] [--cache DIR] VIDEO_ID...` (`--client`
 //! asks only that client, so a failure costs no second request; `--no-fetch`
-//! skips the range fetch; `--dump DIR` saves the player responses).
+//! skips the range fetch; `--dump DIR` saves the player responses). Exits
+//! with status 1 if the player can't be prepared, a song doesn't resolve or
+//! a range fetch doesn't answer 200 or 206: the resolver canary
+//! (`scripts/resolver-canary.sh`) runs this signed out.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -67,7 +70,9 @@ async fn main() -> Result<()> {
             started.elapsed().as_secs_f64()
         );
     }
-    let mut native = Native::new(client.clone(), &cache.unwrap_or(paths.cache));
+    let mut failures = 0;
+    let mut native = Native::new(client.clone(), &cache.unwrap_or(paths.cache), &paths.config);
+    println!("EJS solver {}", native.solver_version());
     if let Some(dir) = &dump {
         native.dump_responses(dir.clone());
     }
@@ -89,6 +94,7 @@ async fn main() -> Result<()> {
             Ok(stream) => stream,
             Err(error) => {
                 println!("{id}: failed after {elapsed:.2}s: {error:#}");
+                failures += 1;
                 continue;
             }
         };
@@ -133,15 +139,24 @@ async fn main() -> Result<()> {
         match response {
             Ok(response) => {
                 let status = response.status();
+                if !matches!(status.as_u16(), 200 | 206) {
+                    failures += 1;
+                }
                 let bytes = response.bytes().await.map(|b| b.len()).unwrap_or(0);
                 println!(
                     "{id}: range 0-1023 -> {status}, {bytes} bytes in {:.2}s",
                     started.elapsed().as_secs_f64()
                 );
             }
-            Err(error) => println!("{id}: range fetch failed: {error}"),
+            Err(error) => {
+                println!("{id}: range fetch failed: {error}");
+                failures += 1;
+            }
         }
     }
     println!("YouTube requests: {requests} (plus the player script if it was downloaded)");
+    if failures > 0 {
+        anyhow::bail!("{failures} of the checks failed");
+    }
     Ok(())
 }

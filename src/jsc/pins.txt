@@ -1,0 +1,7 @@
+# The yt-dlp-ejs solver scripts ytfast trusts, by SHA-256 (one line per file:
+# hash, release, release asset). The app runs a newer solver from disk only if
+# both of its files are listed here, or in the copy of this file it fetched
+# from the repository (docs/gpui/RESOLVER.md, "Keeping up"). Written by
+# scripts/ejs-bump.sh; keep older releases listed.
+c55987fe697e5b9ee18830163f7af85327e9bb5c3e674b969d38c8d205eaa577  0.8.0  yt.solver.lib.min.js
+18da6ce0758b416e7ae645084f4f8801f9f9d59d6c477c05eaa0ff94ebd8cc00  0.8.0  yt.solver.core.min.js

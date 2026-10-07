@@ -2,12 +2,14 @@
 //! player script is YouTube's, so it isn't committed: capture one under
 //! `artifacts/resolver/` (`<id>.js`, see docs/gpui/RESOLVER.md) and write the
 //! answers yt-dlp's EJS gives in deno with `scripts/ejs-expected.sh`. Without
-//! a capture the test says so and passes.
+//! a capture the test says so and passes. scripts/resolver-canary.sh runs
+//! it on the current player in CI.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use ytfast::jsc::scripts::{self, Scripts};
 use ytfast::jsc::{Challenges, Engine, Player, decipher};
 
 #[derive(Deserialize)]
@@ -16,8 +18,12 @@ struct Expected {
     sig: HashMap<usize, Vec<usize>>,
 }
 
+/// `artifacts/resolver/`, or `YTFAST_RESOLVER_CAPTURES` (the canary's
+/// fresh capture of the current player).
 fn captures() -> Vec<(Player, Expected)> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts/resolver");
+    let dir = std::env::var_os("YTFAST_RESOLVER_CAPTURES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts/resolver"));
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -61,7 +67,7 @@ fn quickjs_solves_like_ytdlp() {
         let started = std::time::Instant::now();
         let solved = engine.solve(&player, &challenges);
         let cold = started.elapsed();
-        let preprocessed = player.path.with_extension("ejs.js");
+        let preprocessed = engine.preprocessed(&player);
         let _ = std::fs::remove_file(&player.path);
         let solved = solved.unwrap_or_else(|e| panic!("player {}: {e:#}", player.id));
         assert_eq!(solved.n, expected.n, "n answers for player {}", player.id);
@@ -104,6 +110,41 @@ fn quickjs_solves_like_ytdlp() {
             .collect();
         assert_eq!(decipher(&s, spec).map(|d| d.len()), Some(spec.len()));
     }
+}
+
+/// The vendored scripts are the release `pins.txt` names (what
+/// scripts/ejs-bump.sh keeps in step), and a solver on disk runs only when
+/// both of its files are pinned to one release.
+#[test]
+fn runs_only_pinned_solver_scripts() {
+    let vendored = Scripts::vendored();
+    assert_ne!(
+        vendored.version, "vendored",
+        "the vendored solver isn't pinned"
+    );
+    let dir = std::env::temp_dir().join(format!("ytfast-ejs-{}", std::process::id()));
+    let disk = dir.join("cache");
+    std::fs::create_dir_all(&disk).expect("scratch dir");
+    std::fs::write(disk.join(scripts::LIB), &*vendored.lib).expect("lib");
+    std::fs::write(disk.join(scripts::CORE), &*vendored.core).expect("core");
+    // The same files pinned as a newer release by a fetched pins file.
+    let fetched = dir.join("pins.txt");
+    let pin = |file: &str, text: &str| {
+        format!("{}  99.0.0  {file}\n", scripts::sha256_hex(text.as_bytes()))
+    };
+    let pins = pin(scripts::LIB, &vendored.lib) + &pin(scripts::CORE, &vendored.core);
+    std::fs::write(&fetched, pins).expect("pins");
+    let best = Scripts::best(std::slice::from_ref(&disk), &fetched);
+    assert_eq!(best.version, "99.0.0");
+    // A changed file is no longer pinned: the vendored copy runs.
+    std::fs::write(disk.join(scripts::CORE), format!("{};", vendored.core)).expect("core");
+    let best = Scripts::best(std::slice::from_ref(&disk), &fetched);
+    assert_eq!(best.version, vendored.version);
+    // Nor do pins that aren't the app's or fetched ones.
+    std::fs::write(disk.join(scripts::CORE), &*vendored.core).expect("core");
+    let best = Scripts::best(std::slice::from_ref(&disk), &dir.join("missing"));
+    assert_eq!(best.version, vendored.version);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn capture(name: &str) -> Option<String> {

@@ -101,6 +101,9 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
     let content = view(layers.content.clone().into(), cache);
     // Under the app's views, in the room they leave for it, so their
     // dialogs and menus cover it. Stage hides it.
+    // Redrawn afresh in this frame once its elapsed time or ridge would
+    // show the position differently (`MusicApp::position_moved`).
+    let bar_stale = app.player.bar_shown != Some(app.bar_shows(cx));
     let bar_layer = (!app.extras.stage.open).then(|| {
         div()
             .absolute()
@@ -108,7 +111,7 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
             .right_0()
             .bottom_0()
             .h(theme::size::PLAYER_BAR)
-            .child(view(layers.bar.clone().into(), cache))
+            .child(view(layers.bar.clone().into(), cache && !bar_stale))
     });
     div()
         .size_full()
@@ -161,9 +164,9 @@ fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
 }
 
 /// The position moved: whether the effects layer shows it without the
-/// player bar redrawing (it draws the seek bar). While its ticker runs the
-/// next frame shows it; otherwise (reduced motion) it is woken for a still
-/// frame.
+/// player bar being notified (it draws the seek bar, and the shell redraws
+/// the bar in its frames when needed). While its ticker runs the next frame
+/// shows it; otherwise (reduced motion) it is woken for a frame.
 pub fn position_moved(cx: &mut App) -> bool {
     if !paints_bar(cx) {
         return false;

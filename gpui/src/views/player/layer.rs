@@ -36,7 +36,7 @@ impl PlayerBar {
 }
 
 impl Render for PlayerBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(app) = self.app.upgrade() else {
             return Empty.into_any_element();
         };
@@ -48,7 +48,11 @@ impl Render for PlayerBar {
             .size_full()
             .text_color(c.text)
             .type_body()
-            .child(app.update(cx, |app, cx| super::player_bar(app, cx).into_any_element()))
+            .child(app.update(cx, |app, cx| {
+                app.sync_seek(window, cx);
+                app.player.bar_shown = Some(app.bar_shows(cx));
+                super::player_bar(app, cx).into_any_element()
+            }))
             .into_any_element()
     }
 }

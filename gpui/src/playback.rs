@@ -75,7 +75,7 @@ pub struct Player {
     /// The volume before Mute, to go back to.
     pub muted_from: Option<f64>,
     /// What the player bar last drew of the position ([`MusicApp::bar_shows`]).
-    bar_shows: Option<(u64, Option<i64>)>,
+    pub bar_shown: Option<(u64, Option<i64>)>,
     /// Now Playing fills the page area.
     pub now_playing: bool,
     /// The page view when Now Playing opened: navigating away closes it.
@@ -122,7 +122,7 @@ impl Player {
                 pending_seek: None,
                 volume_synced: false,
                 muted_from: None,
-                bar_shows: None,
+                bar_shown: None,
                 now_playing: false,
                 now_playing_over: None,
                 tab: Tab::default(),
@@ -190,12 +190,6 @@ impl MusicApp {
                 playback.position = to;
             }
         }
-        if !player.seeking && playback.duration > 0.0 {
-            let at = (playback.position / playback.duration) as f32 * SEEK_SCALE;
-            player
-                .seek
-                .update(cx, |slider, cx| slider.set_value(at, window, cx));
-        }
         if !player.volume_synced {
             player.volume_synced = true;
             let volume = playback.volume as f32;
@@ -212,32 +206,46 @@ impl MusicApp {
         let changed = !same_but_position(&player.playback, &playback);
         player.playback = playback;
         player.playback_at = Instant::now();
+        // Stage draws the seek slider inside the app's views.
+        if self.extras.stage.open {
+            self.sync_seek(window, cx);
+        }
         self.prefetch_lyrics();
         changed
+    }
+
+    /// Moves the seek slider to the position. The player bar does this as
+    /// it renders: a slider change asks for a window frame of its own, so a
+    /// playback report doesn't move it.
+    pub(crate) fn sync_seek(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let player = &self.player;
+        let duration = player.playback.duration;
+        if player.seeking || duration <= 0.0 {
+            return;
+        }
+        let at = (player.position() / duration) as f32 * SEEK_SCALE;
+        player
+            .seek
+            .update(cx, |slider, cx| slider.set_value(at, window, cx));
     }
 
     /// Redraws what shows the position. Stage and Now Playing (its
     /// waveform) draw it inside the app's views; otherwise only the player
     /// bar and the mini player do, and they watch [`Clock`]. While the
-    /// effects layer draws the seek bar, the bar redraws only when its
-    /// elapsed time or the ridge's playhead would change.
+    /// effects layer draws the seek bar, its frames show the position, and
+    /// the shell redraws the bar in one of them once what the bar shows
+    /// changed ([`MusicApp::bar_shows`]): a tick needs no frame of its own.
     pub(crate) fn position_moved(&mut self, cx: &mut Context<Self>) {
         if self.player.now_playing || self.extras.stage.open {
             cx.notify();
-            return;
+        } else if self.extras.mini_open() || !crate::visuals::position_moved(cx) {
+            self.player.clock.update(cx, |_, cx| cx.notify());
         }
-        let shows = self.bar_shows(cx);
-        let same = self.player.bar_shows == Some(shows);
-        if same && !self.extras.mini_open() && crate::visuals::position_moved(cx) {
-            return;
-        }
-        self.player.bar_shows = Some(shows);
-        self.player.clock.update(cx, |_, cx| cx.notify());
     }
 
     /// What the player bar draws of the position itself: the elapsed time's
     /// second and, with the ridge, its playhead to the pixel.
-    fn bar_shows(&self, cx: &App) -> (u64, Option<i64>) {
+    pub(crate) fn bar_shows(&self, cx: &App) -> (u64, Option<i64>) {
         let position = self.player.position();
         let duration = self.player.playback.duration;
         let ridge = self

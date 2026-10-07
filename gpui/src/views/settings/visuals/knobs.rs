@@ -34,6 +34,7 @@ pub enum Knob {
     PeakFall,
     Opacity,
     VisGlow,
+    Thickness,
     Amount,
     Size,
     Softness,
@@ -50,7 +51,7 @@ pub enum Knob {
 }
 
 impl Knob {
-    const ALL: [Knob; 30] = [
+    const ALL: [Knob; 31] = [
         Knob::Blur,
         Knob::Swirl,
         Knob::Bloom,
@@ -68,6 +69,7 @@ impl Knob {
         Knob::PeakFall,
         Knob::Opacity,
         Knob::VisGlow,
+        Knob::Thickness,
         Knob::Amount,
         Knob::Size,
         Knob::Softness,
@@ -112,6 +114,7 @@ impl Knob {
             Knob::Frequencies => "Frequencies",
             Knob::PeakFall => "Peak fall speed",
             Knob::Opacity => "Opacity",
+            Knob::Thickness => "Thickness",
         }
     }
 
@@ -133,6 +136,7 @@ impl Knob {
             Knob::Frequencies => (config::HZ.0, config::HZ.1, 1., true),
             Knob::PeakFall => (0.1, 4., 0.05, false),
             Knob::Opacity => (0.1, 1., 0.05, false),
+            Knob::Thickness => (config::THICKNESS.0, config::THICKNESS.1, 0.25, false),
             _ => (0., 2., 0.05, false),
         }
     }
@@ -170,6 +174,7 @@ impl Knob {
             Knob::PeakFall => v.peak_fall,
             Knob::Opacity => v.opacity,
             Knob::VisGlow => v.glow,
+            Knob::Thickness => v.thickness,
         })
     }
 
@@ -212,6 +217,7 @@ impl Knob {
             Knob::PeakFall => v.peak_fall = x,
             Knob::Opacity => v.opacity = x,
             Knob::VisGlow => v.glow = x,
+            Knob::Thickness => v.thickness = x,
         }
     }
 
@@ -226,6 +232,7 @@ impl Knob {
             Knob::PeakFall => format!("Caps fall in {:.1} s", 1. / x.max(0.01)),
             Knob::Frequencies => format!("{} to {}", hz(value.start()), hz(value.end())),
             Knob::Size => format!("{:.1} to {:.1} px", value.start(), value.end()),
+            Knob::Thickness => format!("{} px", (x * 100.).round() / 100.),
             Knob::Direction => direction(x),
             Knob::WaveHeight => format!("{:.0}% down", x * 100.),
             Knob::TwinkleSpeed => format!("{x:.1}x"),

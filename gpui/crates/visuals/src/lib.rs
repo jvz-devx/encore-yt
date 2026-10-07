@@ -11,7 +11,8 @@
 //! - [`Dissolve`]: a cover burning into the next one on a track change.
 //! - [`Visualizer`]: the audio visualiser (bars, mirrored bars, a ring
 //!   round the cover, a line spectrum, a particle field), with alpha, from
-//!   [`Bars`] made of the spectrum.
+//!   [`Bars`] made of the spectrum, and an oscilloscope from [`Scope`]'s
+//!   traces of the samples.
 //! - [`AudioTap`]: what the audio engine plays (`ytfast_audio::Tap`, in
 //!   process), analysed into spectrum bands plus bass and beat levels.
 //! - [`waveform`]: a whole song's loudness outline, decoded with the audio
@@ -25,6 +26,7 @@ mod dissolve;
 mod gpu;
 mod pipelines;
 mod renderer;
+mod scope;
 mod spectrum;
 mod strip;
 mod target;
@@ -35,7 +37,8 @@ pub use cover::{COVER_SIZE, Cover};
 pub use dissolve::Dissolve;
 pub use gpu::Gpu;
 pub use renderer::{CoverShadow, FrameParams, Look, Renderer, Tune};
-pub use spectrum::{AudioTap, BANDS, Bands, band_at};
+pub use scope::{Channels, SPAN, Scope};
+pub use spectrum::{AudioTap, BANDS, Bands, RECENT, band_at};
 pub use strip::{Seek, Strip, StripColors, StripParams};
 pub use target::{Frame, FrameCost};
 pub use visualizer::{BarSettings, Bars, MAX_BARS, Visualizer, VisualizerParams};

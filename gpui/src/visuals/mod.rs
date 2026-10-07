@@ -248,7 +248,7 @@ pub fn stage_band(height: f32) -> Pixels {
     let config = config::get();
     let banded = matches!(
         config.visualizer.style,
-        config::Style::Bars | config::Style::Mirrored | config::Style::Line
+        config::Style::Bars | config::Style::Mirrored | config::Style::Line | config::Style::Scope
     );
     if enabled() && config.stage.visualizer && banded {
         px((height * 0.16).clamp(72., 200.))

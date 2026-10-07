@@ -1,23 +1,32 @@
 //! The audio visualiser (M21): `shaders/visualizer.wgsl` draws bars,
 //! mirrored bars, a ring around the cover, a line spectrum or a particle
-//! field from the spectrum, offscreen with an alpha channel, read back like
-//! the other effects and painted over the backdrop.
+//! field from the spectrum, or an oscilloscope from the samples (M22),
+//! offscreen with an alpha channel, read back like the other effects and
+//! painted over the backdrop.
 //!
 //! [`Bars`] turns the analysis's 32 bands into the bars the settings ask
 //! for (count, frequency range and spacing, sensitivity, rise smoothing,
-//! fall speed, peak caps); [`Visualizer`] draws them.
+//! fall speed, peak caps), [`Scope`] the samples into traces;
+//! [`Visualizer`] draws them.
 
 use anyhow::Result;
 
 use crate::gpu::{Gpu, bytes};
 use crate::renderer::Look;
+use crate::scope::{Channels, MAX_POINTS, Scope, XY_POINTS};
 use crate::spectrum::{BANDS, band_at};
 use crate::target::{Frame, Target};
 
 /// The most bars the shader holds (four to a vec4).
 pub const MAX_BARS: usize = 128;
-/// Six vec4s, four colour stops, then the bars and the peaks.
-const PARAMS_SIZE: u64 = (6 + 4 + 2 * MAX_BARS as u64 / 4) * 16;
+/// The scope's values: one trace, two, or X/Y pairs.
+const WAVE: usize = 2 * MAX_POINTS;
+/// The X/Y figure's segments go in this many runs, each with its bounds,
+/// so the shader skips the runs far from a pixel.
+const RUNS: usize = 16;
+/// Seven vec4s, four colour stops, the bars and the peaks, the scope's
+/// values and the X/Y runs' bounds.
+const PARAMS_SIZE: u64 = (7 + 4 + 2 * MAX_BARS as u64 / 4 + WAVE as u64 / 4 + RUNS as u64) * 16;
 /// Levels under this are drawn as nothing (about -39 dB from the loudest).
 const FLOOR: f32 = 0.18;
 /// A peak cap stays this long before it falls, in seconds.
@@ -102,7 +111,7 @@ impl Bars {
 /// Inputs for one frame. Positions and sizes are in output pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct VisualizerParams<'a> {
-    /// 0 bars, 1 mirrored, 2 ring, 3 line, 4 particles.
+    /// 0 bars, 1 mirrored, 2 ring, 3 line, 4 particles, 5 scope.
     pub style: u32,
     pub seconds: f32,
     /// The particles' clock: runs faster when the music is loud.
@@ -115,6 +124,8 @@ pub struct VisualizerParams<'a> {
     pub opacity: f32,
     /// 0..2, 1 a soft halo.
     pub glow: f32,
+    /// The line's and the scope's stroke, in output pixels.
+    pub thickness: f32,
     pub peaks: bool,
     /// Output pixels per point.
     pub scale: f32,
@@ -128,6 +139,7 @@ pub struct VisualizerParams<'a> {
     /// The gradient along the spectrum, linear RGB, low to high.
     pub stops: [[f32; 3]; 4],
     pub bars: &'a Bars,
+    pub scope: &'a Scope,
 }
 
 pub struct Visualizer {
@@ -207,7 +219,14 @@ impl Visualizer {
         let (cover, corner) = p.cover.unwrap_or_default();
         floats.extend(cover);
         floats.extend([corner, p.reach, p.travel, p.treble]);
-        floats.extend([p.scale, flag(p.cover.is_some()), p.margin, 0.0]);
+        floats.extend([
+            p.scale,
+            flag(p.cover.is_some()),
+            p.margin,
+            p.thickness * 0.5,
+        ]);
+        let channels = p.scope.channels;
+        floats.extend([p.scope.points as f32, channels.index() as f32, 0.0, 0.0]);
         for stop in &p.stops {
             floats.extend(*stop);
             floats.push(1.0);
@@ -219,8 +238,35 @@ impl Visualizer {
             }
             floats.extend(values);
         }
+        let mut wave = [0.0f32; WAVE];
+        for (v, s) in wave.iter_mut().zip(&p.scope.values) {
+            *v = *s;
+        }
+        floats.extend(wave);
+        floats.extend(runs(&p.scope.values, channels).into_iter().flatten());
         bytes(&floats)
     }
+}
+
+/// The bounds (least x, least y, most x, most y) of each run of the X/Y
+/// figure's segments; nothing for the traces.
+fn runs(values: &[f32], channels: Channels) -> [[f32; 4]; RUNS] {
+    let mut out = [[0.0; 4]; RUNS];
+    if channels != Channels::XY || values.len() < XY_POINTS * 2 {
+        return out;
+    }
+    let per = XY_POINTS.div_ceil(RUNS);
+    for (r, bounds) in out.iter_mut().enumerate() {
+        let first = r * per;
+        let last = ((r + 1) * per).min(XY_POINTS - 1);
+        let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for k in first..=last {
+            let (x, y) = (values[2 * k], values[2 * k + 1]);
+            b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+        }
+        *bounds = b;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -281,10 +327,23 @@ mod tests {
             *l = 0.3 + 0.6 * (i as f32 * 0.7).sin().abs();
         }
         let quiet = Bars::default();
+        let silent = Scope::default();
         for _ in 0..20 {
             bars.update(&levels, &settings(32), 1.0 / 60.0);
         }
-        for style in 0..5 {
+        let rate = 48_000;
+        let sound: Vec<[f32; 2]> = (0..crate::scope::frames_needed(rate))
+            .map(|i| {
+                let t = i as f32 / rate as f32;
+                let s = (std::f32::consts::TAU * 180.0 * t).sin();
+                [s * 0.5, s * 0.3]
+            })
+            .collect();
+        let mut kinds: Vec<(u32, Channels)> = (0..5).map(|s| (s, Channels::Mono)).collect();
+        kinds.extend([Channels::Mono, Channels::Stereo, Channels::XY].map(|c| (5, c)));
+        for (style, channels) in kinds {
+            let mut scope = Scope::default();
+            scope.update(&sound, rate, channels, 1.0, 64, 0.05);
             let mut p = VisualizerParams {
                 style,
                 seconds: 2.0,
@@ -296,6 +355,7 @@ mod tests {
                 look: Look::Dark,
                 opacity: 1.0,
                 glow: 1.0,
+                thickness: 2.5,
                 peaks: true,
                 scale: 1.0,
                 cover: Some(([50.0, 30.0, 110.0, 90.0], 8.0)),
@@ -308,11 +368,13 @@ mod tests {
                     [0.3, 0.4, 1.0],
                 ],
                 bars: &bars,
+                scope: &scope,
             };
             let frame = vis.frame_now(&p).expect("frame");
             let lit = frame.bgra.chunks(4).filter(|px| px[3] > 128).count();
-            assert!(lit > 40, "style {style}: {lit} opaque pixels");
+            assert!(lit > 40, "style {style} {channels:?}: {lit} opaque pixels");
             p.bars = &quiet;
+            p.scope = &silent;
             p.bass = 0.0;
             p.kick = 0.0;
             p.level = 0.0;
@@ -320,7 +382,7 @@ mod tests {
             let lit = frame.bgra.chunks(4).filter(|px| px[3] > 128).count();
             assert!(
                 lit < 160 * 120 / 10,
-                "style {style} silent: {lit} opaque pixels"
+                "style {style} {channels:?} silent: {lit} opaque pixels"
             );
         }
     }

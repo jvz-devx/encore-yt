@@ -15,8 +15,8 @@
 //! variables override what is saved, without saving: `YTFAST_GPUI_VISUALS=0`
 //! (everything off), `YTFAST_GPUI_VISUALS_FPS`, `YTFAST_GPUI_VISUALS_FLIGHT_MS`,
 //! `YTFAST_GPUI_VISUALS_PRESET=off|calm|default|vivid` and
-//! `YTFAST_GPUI_VISUALIZER=bars|mirrored|ring|line|particles` (also shows it
-//! in Now Playing and Stage).
+//! `YTFAST_GPUI_VISUALIZER=bars|mirrored|ring|line|particles|scope` (also
+//! shows it in Now Playing and Stage) and `YTFAST_GPUI_SCOPE=mono|stereo|xy`.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -53,6 +53,8 @@ pub const SPARKLE_PX: (f32, f32) = (0.5, 4.);
 pub const BARS: (u32, u32) = (16, 128);
 /// The frequency range the analysis covers, in Hz.
 pub const HZ: (f32, f32) = (50., 16_000.);
+/// The line's and the scope's stroke, in points.
+pub const THICKNESS: (f32, f32) = (1., 6.);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -278,15 +280,18 @@ pub enum Style {
     Ring,
     Line,
     Particles,
+    /// The oscilloscope (M22): the samples, not the spectrum.
+    Scope,
 }
 
 impl Style {
-    pub const ALL: [Style; 5] = [
+    pub const ALL: [Style; 6] = [
         Style::Bars,
         Style::Mirrored,
         Style::Ring,
         Style::Line,
         Style::Particles,
+        Style::Scope,
     ];
 
     pub fn label(self) -> &'static str {
@@ -296,12 +301,60 @@ impl Style {
             Style::Ring => "Ring",
             Style::Line => "Line",
             Style::Particles => "Particles",
+            Style::Scope => "Scope",
         }
     }
 
     /// The shader's style number.
     pub fn index(self) -> u32 {
         self as u32
+    }
+
+    /// Drawn from the spectrum's bars (all but the scope).
+    pub fn spectral(self) -> bool {
+        self != Style::Scope
+    }
+
+    /// Drawn with a stroke whose thickness the settings choose.
+    pub fn stroked(self) -> bool {
+        matches!(self, Style::Line | Style::Scope)
+    }
+}
+
+/// How the scope shows the two channels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScopeChannels {
+    /// One trace of the mix.
+    #[default]
+    Mono,
+    /// The left channel over the right.
+    Stereo,
+    /// Mid against side, a goniometer's figure.
+    Xy,
+}
+
+impl ScopeChannels {
+    pub const ALL: [ScopeChannels; 3] = [
+        ScopeChannels::Mono,
+        ScopeChannels::Stereo,
+        ScopeChannels::Xy,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScopeChannels::Mono => "Mono",
+            ScopeChannels::Stereo => "Stereo",
+            ScopeChannels::Xy => "X/Y",
+        }
+    }
+
+    pub fn visuals(self) -> ytfast_visuals::Channels {
+        match self {
+            ScopeChannels::Mono => ytfast_visuals::Channels::Mono,
+            ScopeChannels::Stereo => ytfast_visuals::Channels::Stereo,
+            ScopeChannels::Xy => ytfast_visuals::Channels::XY,
+        }
     }
 }
 
@@ -478,6 +531,10 @@ pub struct Visualizer {
     pub custom: [Swatch; 2],
     pub opacity: f32,
     pub glow: f32,
+    /// The line's and the scope's stroke, in points.
+    pub thickness: f32,
+    /// How the scope shows the channels.
+    pub channels: ScopeChannels,
 }
 
 impl Default for VisualsConfig {
@@ -574,6 +631,8 @@ impl Default for Visualizer {
             custom: [Swatch::Rose, Swatch::Violet],
             opacity: 0.85,
             glow: 0.4,
+            thickness: 2.5,
+            channels: ScopeChannels::Mono,
         }
     }
 }
@@ -715,6 +774,7 @@ impl VisualsConfig {
         m(&mut v.peak_fall, 4.);
         m(&mut v.opacity, 1.);
         m(&mut v.glow, 2.);
+        within(&mut v.thickness, THICKNESS, 2.5);
         v.low_hz = v.low_hz.clamp(HZ.0, 2_000.);
         v.high_hz = v.high_hz.clamp(v.low_hz * 2., HZ.1);
         self
@@ -744,6 +804,14 @@ impl VisualsConfig {
             self.visualizer.style = style;
             self.visualizer.now_playing = Placement::Visualizer;
             self.stage.visualizer = true;
+        }
+        let channels = var("YTFAST_GPUI_SCOPE").and_then(|s| {
+            ScopeChannels::ALL
+                .into_iter()
+                .find(|c| c.label().replace('/', "").eq_ignore_ascii_case(&s))
+        });
+        if let Some(channels) = channels {
+            self.visualizer.channels = channels;
         }
         self
     }

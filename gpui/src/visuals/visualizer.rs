@@ -3,10 +3,10 @@
 //! Settings → Visuals puts it there), in Stage (when switched on) and in
 //! the full-window visualiser (V).
 //!
-//! Where it draws depends on the style: bars, mirrored bars and the line
-//! spectrum take a band (Now Playing's strip above the title; in Stage and
-//! the full window a band along the bottom, or through the cover for
-//! mirrored bars), the ring goes round the cover, and particles fill the
+//! Where it draws depends on the style: bars, mirrored bars, the line
+//! spectrum and the scope take a band (Now Playing's strip above the title;
+//! in Stage and the full window a band along the bottom, or through the
+//! cover for mirrored bars), the ring goes round the cover, and particles fill the
 //! space round the cover (Now Playing) or the whole scene. Frames come only
 //! with the paced frames while music plays; paused, hidden or under reduced
 //! motion it draws nothing.
@@ -14,7 +14,9 @@
 use std::sync::Arc;
 
 use gpui_kit::*;
-use ytfast_visuals::{BANDS, BarSettings, Bars, Look, Visualizer, VisualizerParams, color};
+use ytfast_visuals::{
+    BANDS, BarSettings, Bars, Look, SPAN, Scope, Visualizer, VisualizerParams, color,
+};
 
 use super::config::{self, Palette, Spacing, Style};
 use super::effects::Tick;
@@ -36,6 +38,9 @@ pub struct Vis {
     renderer: Option<Visualizer>,
     frames: Frames,
     bars: Bars,
+    scope: Scope,
+    /// The scope's newest samples, kept between frames.
+    samples: Vec<[f32; 2]>,
     /// The particles' clock.
     travel: f32,
     /// Where the frame on screen goes, in window coordinates.
@@ -56,6 +61,7 @@ impl Vis {
             self.region = None;
             self.pending_region = None;
             self.bars = Bars::default();
+            self.scope = Scope::default();
             if let Some(r) = &mut self.renderer {
                 r.discard();
             }
@@ -112,8 +118,12 @@ impl Vis {
             linear: v.spacing == Spacing::Linear,
             peak_fall: v.peak_fall,
         };
-        self.bars
-            .update(&tick.levels, &settings, tick.dt.max(1. / 120.));
+        let dt = tick.dt.max(1. / 120.);
+        if v.style.spectral() {
+            self.bars.update(&tick.levels, &settings, dt);
+        } else {
+            self.listen(tick, v, size.0, dt);
+        }
         self.travel += tick.dt * (0.35 + 1.5 * tick.level);
         let renderer = self.renderer.get_or_insert_with(|| {
             let started = std::time::Instant::now();
@@ -148,6 +158,7 @@ impl Vis {
             look: tick.look,
             opacity: v.opacity,
             glow: v.glow,
+            thickness: v.thickness * scale,
             peaks: v.peaks,
             scale,
             cover,
@@ -159,6 +170,7 @@ impl Vis {
             },
             stops: stops(v.palette, &v.custom, palette, tick.look, cx),
             bars: &self.bars,
+            scope: &self.scope,
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {
@@ -169,6 +181,26 @@ impl Vis {
             Err(e) => log::warn!("visuals: visualiser frame: {e:#}"),
         }
         self.pending_region = Some(region);
+    }
+
+    /// Moves the scope to the newest samples, with a point every 2.5
+    /// output pixels across `width`.
+    fn listen(&mut self, tick: &Tick, v: &config::Visualizer, width: u32, dt: f32) {
+        let rate = tick
+            .tap
+            .map_or(0, |tap| tap.recent(SPAN, &mut self.samples));
+        if rate == 0 {
+            self.samples.clear();
+        }
+        let points = (width as f32 / 2.5) as usize;
+        self.scope.update(
+            &self.samples,
+            rate,
+            v.channels.visuals(),
+            v.sensitivity,
+            points,
+            dt,
+        );
     }
 }
 
@@ -238,6 +270,8 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
                 let grown = around(c, c.size.width * 0.3);
                 Some(grown.intersect(&page))
             }
+            // The scope's traces sit round the strip's middle.
+            Style::Scope => Slots::get(cx, Slot::Spectrum).map(|s| s.dilate(px(8.))),
             _ => Slots::get(cx, Slot::Spectrum).map(super::visualizer_strip),
         },
         Place::Stage | Place::Full => {
@@ -248,7 +282,7 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
             match style {
                 Style::Ring => cover.map(|c| around(c, reach(place, cx) + px(32.))),
                 Style::Particles => Slots::get(cx, Slot::Stage),
-                Style::Bars | Style::Line | Style::Mirrored => {
+                Style::Bars | Style::Line | Style::Mirrored | Style::Scope => {
                     // Mirrored bars stand on a floor with their reflection
                     // under it: a taller band.
                     let band = if style == Style::Mirrored {

@@ -1,5 +1,6 @@
-//! The Visualiser tab: style, where it shows, how the bars move and their
-//! colours, and a button to open the full-window visualiser.
+//! The Visualiser tab: style, where it shows, how the bars move (or, for
+//! the scope, which channels it shows), the stroke, the colours, and a
+//! button to open the full-window visualiser.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::h_flex;
@@ -11,7 +12,9 @@ use super::knobs::{self, Knob};
 use super::{change, labelled, toggle};
 use crate::app::MusicApp;
 use crate::theme::{Colors, Type, radius, size, space};
-use crate::visuals::config::{Palette, Placement, Spacing, Style, Swatch, VisualsConfig};
+use crate::visuals::config::{
+    Palette, Placement, ScopeChannels, Spacing, Style, Swatch, VisualsConfig,
+};
 
 /// The swatches' size.
 const SWATCH: Pixels = px(24.);
@@ -36,12 +39,6 @@ pub fn rows(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<An
         )
         .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.now_playing = p)))
     }));
-    let spacing = choices(
-        [(Spacing::Log, "Octaves"), (Spacing::Linear, "Linear")].map(|(sp, label)| {
-            choice(("visuals-spacing", sp as usize), label, v.spacing == sp, c)
-                .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.spacing = sp)))
-        }),
-    );
     let palettes = choices(Palette::ALL.map(|p| {
         choice(
             ("visuals-palette", p as usize),
@@ -64,6 +61,37 @@ pub fn rows(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<An
             cx,
             |s, v| s.stage.visualizer = v,
         ),
+    ];
+    if v.style.spectral() {
+        rows.extend(bar_rows(s, c, cx));
+    } else {
+        rows.push(labelled("Channels", channels(s, c, cx)));
+        rows.push(knobs::row(Knob::Sensitivity, true, c, cx));
+    }
+    if v.style.stroked() {
+        rows.push(knobs::row(Knob::Thickness, true, c, cx));
+    }
+    rows.push(labelled("Colours", palettes));
+    if v.palette == Palette::Custom {
+        rows.push(swatches(0, "From", v.custom[0], c, cx));
+        rows.push(swatches(1, "To", v.custom[1], c, cx));
+    }
+    rows.push(knobs::row(Knob::Opacity, true, c, cx));
+    rows.push(knobs::row(Knob::VisGlow, true, c, cx));
+    rows.push(open_button(c, cx));
+    rows
+}
+
+/// How the bars move: their count, response, frequencies and caps.
+fn bar_rows(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
+    let v = &s.visualizer;
+    let spacing = choices(
+        [(Spacing::Log, "Octaves"), (Spacing::Linear, "Linear")].map(|(sp, label)| {
+            choice(("visuals-spacing", sp as usize), label, v.spacing == sp, c)
+                .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.spacing = sp)))
+        }),
+    );
+    vec![
         knobs::row(Knob::Bars, true, c, cx),
         knobs::row(Knob::Sensitivity, true, c, cx),
         knobs::row(Knob::Smoothing, true, c, cx),
@@ -81,16 +109,21 @@ pub fn rows(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<An
             |s, on| s.visualizer.peaks = on,
         ),
         knobs::row(Knob::PeakFall, v.peaks, c, cx),
-        labelled("Colours", palettes),
-    ];
-    if v.palette == Palette::Custom {
-        rows.push(swatches(0, "From", v.custom[0], c, cx));
-        rows.push(swatches(1, "To", v.custom[1], c, cx));
-    }
-    rows.push(knobs::row(Knob::Opacity, true, c, cx));
-    rows.push(knobs::row(Knob::VisGlow, true, c, cx));
-    rows.push(open_button(c, cx));
-    rows
+    ]
+}
+
+/// The scope's channels: the mix, left over right, or the X/Y figure.
+fn channels(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let chosen = s.visualizer.channels;
+    choices(ScopeChannels::ALL.map(|ch| {
+        choice(
+            ("visuals-channels", ch as usize),
+            ch.label(),
+            chosen == ch,
+            c,
+        )
+        .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.channels = ch)))
+    }))
 }
 
 /// A row of the custom gradient's colours to pick one stop from.

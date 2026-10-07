@@ -23,6 +23,7 @@
 //!
 //! Findings and numbers: `docs/gpui/VISUALS.md`.
 
+pub mod clock;
 pub mod color;
 mod cover;
 mod dissolve;

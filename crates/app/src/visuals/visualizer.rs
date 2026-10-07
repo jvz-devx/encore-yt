@@ -19,6 +19,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use encore_visuals::clock::{self, GRAIN_PERIOD, Rebase, SWAY_PERIOD};
 use encore_visuals::{
     BANDS, BarSettings, Bars, Look, Pace, SPAN, Scene, SceneKind, SceneParams, Scope, Visualizer,
     VisualizerParams, color, seed,
@@ -55,8 +56,12 @@ pub struct Vis {
     scope: Scope,
     /// The scope's newest samples, kept between frames.
     samples: Vec<[f32; 2]>,
-    /// The particles' clock.
-    travel: f32,
+    /// The particles' clock, and what their shader gets of it (rebased
+    /// while hidden or at a new song, see `encore_visuals::clock`).
+    travel: f64,
+    travel_base: Rebase,
+    /// The video id last drawn for: a new one re-seeds the scenes.
+    song: Option<String>,
     /// Where the frame on screen goes, in window coordinates, and its
     /// corners.
     region: Option<(Bounds<Pixels>, Corners<Pixels>)>,
@@ -86,6 +91,8 @@ impl Vis {
             }
             self.scene_at = None;
             self.frames.clear(cx);
+            // Nothing shows: the particles may start elsewhere.
+            self.travel_base.hidden(self.travel, 0.);
         }
     }
 
@@ -115,6 +122,14 @@ impl Vis {
     ) {
         if !tick.due {
             return;
+        }
+        // A new song: the scenes take its seed (the whole scene changes at
+        // once) and start their clocks again, and the particles' clock may
+        // start again.
+        if self.song.as_deref() != video_id {
+            self.song = video_id.map(str::to_owned);
+            self.pace.restart_clocks();
+            self.travel_base.hidden(self.travel, 0.);
         }
         let config = config::get();
         let v = &config.visualizer;
@@ -151,7 +166,7 @@ impl Vis {
         } else {
             self.listen(tick, v, size.0, dt);
         }
-        self.travel += tick.dt * (0.35 + 1.5 * tick.level);
+        self.travel += f64::from(tick.dt * (0.35 + 1.5 * tick.level));
         let renderer = self.renderer.get_or_insert_with(|| {
             let started = std::time::Instant::now();
             let r = Visualizer::new(tick.gpu, size.0, size.1);
@@ -176,8 +191,8 @@ impl Vis {
         let treble = tick.levels[BANDS - 8..].iter().sum::<f32>() / 8.;
         let params = VisualizerParams {
             style: v.style.index(),
-            seconds: tick.seconds,
-            travel: self.travel,
+            seconds: clock::wrap(tick.seconds, SWAY_PERIOD),
+            travel: self.travel_base.gpu(self.travel),
             bass: tick.bass,
             kick: tick.kick,
             level: tick.level,
@@ -264,7 +279,8 @@ impl Vis {
             kind,
             look: tick.look,
             visualiser: place == Place::Full,
-            seconds: tick.seconds,
+            // The scenes don't read it; their clocks are `Pace`'s.
+            seconds: clock::wrap(tick.seconds, GRAIN_PERIOD),
             bass: tick.bass,
             kick: tick.kick,
             level: tick.level,

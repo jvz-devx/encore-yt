@@ -12,6 +12,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use encore_visuals::clock::{Rebase, WAVE_PERIOD};
 use encore_visuals::{Look, Seek, Strip, StripColors, StripParams};
 use gpui_kit::*;
 
@@ -105,6 +106,11 @@ pub struct Bar {
     heat: Option<(String, u64)>,
     /// A slow swell following the kicks, for the glow.
     breath: f32,
+    /// What the glow's shader gets of the animation time: rebased (by
+    /// whole periods of its waves) under a palette cross-fade.
+    glow_base: Rebase,
+    /// A palette cross-fade began since the last frame.
+    new_palette: bool,
     /// The pointer is over the seek bar (set from the paint's listener).
     pub hover: Rc<Cell<bool>>,
     drawn: Option<Still>,
@@ -129,6 +135,8 @@ impl Bar {
             wave: None,
             heat: None,
             breath: 0.4,
+            glow_base: Rebase::default(),
+            new_palette: false,
             hover: Rc::new(Cell::new(false)),
             drawn: None,
             pending: 0,
@@ -159,6 +167,7 @@ impl Bar {
             self.palette.from = to;
             self.palette.glow_from = glow_to;
         }
+        self.new_palette = true;
         self.pending = self.pending.max(2);
     }
 
@@ -202,6 +211,9 @@ impl Bar {
         let Some(bar) = Slots::get(cx, Slot::Bar) else {
             return;
         };
+        if std::mem::take(&mut self.new_palette) {
+            self.glow_base.hidden(tick.seconds, WAVE_PERIOD);
+        }
         let scale = window.scale_factor();
         let size = (
             (f32::from(bar.size.width) * scale).round().max(1.) as u32,
@@ -340,7 +352,7 @@ impl Bar {
             _ => 0.0,
         };
         StripParams {
-            seconds: tick.seconds,
+            seconds: self.glow_base.gpu(tick.seconds),
             breath: if still { 0.4 } else { self.breath },
             kick: if still { 0.0 } else { tick.kick },
             glow: if input.track { glow } else { 0.0 },

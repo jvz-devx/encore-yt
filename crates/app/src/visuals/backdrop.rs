@@ -1,6 +1,7 @@
 //! The animated cover backdrop over the page panel while Now Playing shows
 //! (M8): `encore_visuals::Renderer` frames, painted under the app.
 
+use encore_visuals::clock::{self, GRAIN_PERIOD, Rebase, TURN_PERIOD, WAVE_PERIOD};
 use encore_visuals::{Cover, CoverShadow, FrameParams, Renderer, Tune};
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
@@ -27,10 +28,13 @@ pub struct Backdrop {
     shadow: Option<CoverShadow>,
     /// The flow's clock (it runs at the swirl speed), and the animation
     /// time it last moved with.
-    flow: f32,
+    flow: f64,
+    /// What the shader gets of the flow: rebased when a new cover fades
+    /// in, by whole turns of the cover.
+    flow_base: Rebase,
     /// The light wave's clock: the flow's at the wave's speed.
-    wave_clock: f32,
-    seconds: f32,
+    wave_clock: f64,
+    seconds: f64,
     /// The settings' revision last drawn with.
     revision: u64,
     /// Frames still to render although nothing moves (a new cover or size
@@ -42,9 +46,10 @@ pub struct Backdrop {
 
 impl Backdrop {
     /// The light wave's clock (the flow's at the wave's speed), which the
-    /// sparkles gather round too.
+    /// sparkles gather round too: within one period of the wave, which
+    /// repeats exactly.
     pub fn wave_clock(&self) -> f32 {
-        self.wave_clock
+        clock::wrap(self.wave_clock, WAVE_PERIOD)
     }
 
     pub fn image(&self) -> Option<std::sync::Arc<RenderImage>> {
@@ -114,6 +119,8 @@ impl Backdrop {
         {
             let fade = self.cover.is_some() && !tick.reduce;
             renderer.set_cover(art, fade);
+            // The cover changes: the flow's warp may jump under it.
+            self.flow_base.hidden(self.flow, TURN_PERIOD);
             self.palette = Some(art.palette);
             self.cover = Some(url.clone());
             self.pending = self.pending.max(2);
@@ -124,20 +131,20 @@ impl Backdrop {
             self.pending = self.pending.max(2);
         }
         let passed = (tick.seconds - self.seconds).max(0.);
-        self.flow += passed * b.swirl;
-        self.wave_clock += passed * b.swirl * config.wave.speed;
+        self.flow += passed * f64::from(b.swirl);
+        self.wave_clock += passed * f64::from(b.swirl * config.wave.speed);
         self.seconds = tick.seconds;
         if !tick.due && self.pending == 0 {
             return;
         }
         let params = FrameParams {
-            seconds: tick.seconds,
+            seconds: clock::wrap(tick.seconds, GRAIN_PERIOD),
             bass: (tick.bass * b.bass_pulse).min(1.5),
             kick: (tick.kick * b.bass_pulse).min(1.5),
             level: tick.level,
             look: tick.look,
             shadow: self.shadow,
-            flow: self.flow,
+            flow: self.flow_base.gpu(self.flow),
             tune: Tune {
                 blur: b.blur,
                 bloom: b.bloom,
@@ -147,7 +154,7 @@ impl Backdrop {
                 } else {
                     0.
                 },
-                wave_clock: self.wave_clock,
+                wave_clock: clock::wrap(self.wave_clock, WAVE_PERIOD),
                 ribbons: config.wave.ribbons,
                 wave_height: config.wave.height,
             },

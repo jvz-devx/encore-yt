@@ -72,8 +72,10 @@ pub struct Tick<'a> {
     pub due: bool,
     /// Seconds since the previous paced frame.
     pub dt: f32,
-    /// Animation time: moves only while animating.
-    pub seconds: f32,
+    /// Animation time: moves only while animating. An f64 that only
+    /// grows: each effect hands its shader a small f32 of it
+    /// (`encore_visuals::clock`).
+    pub seconds: f64,
     pub bass: f32,
     pub kick: f32,
     pub level: f32,
@@ -108,7 +110,7 @@ pub struct Effects {
     changes: Rc<RefCell<[Change; 2]>>,
     look: Look,
     reduce: bool,
-    clock: f32,
+    clock: f64,
     last: Option<Instant>,
     /// Only the player bar moves: frames come when it would look different.
     bar_only: bool,
@@ -278,7 +280,7 @@ impl Effects {
             0.0
         };
         self.last = Some(now);
-        self.clock += dt;
+        self.clock += f64::from(dt);
         (true, dt)
     }
 

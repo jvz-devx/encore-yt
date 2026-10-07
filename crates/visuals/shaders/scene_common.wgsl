@@ -18,7 +18,8 @@ struct Params {
     // The song's seed: four values 0..1 from the video id
     seed: vec4<f32>,
     // x: the scene's clock (seconds, a little faster while the music is
-    // loud), yzw: unused
+    // loud; from 0 for each song), y: Ridges' camera's whole rows flown,
+    // z: its z within them, w: 1 on a modest GPU (Adreno, GL)
     clock: vec4<f32>,
     palette: array<vec4<f32>, 4>,
     // The 32 bands, four per vec4, low to high

@@ -7,6 +7,7 @@ mod recent;
 use std::path::PathBuf;
 
 use gpui_kit::*;
+use ytfast::account::Dialog;
 use ytfast::backend::Command;
 use ytfast::model::{Item, ItemKind, Run, Shelf, ShelfStyle, Target};
 
@@ -60,17 +61,16 @@ impl MusicApp {
         }
     }
 
-    /// The account changed (or was first known): signed in, the sidebar
-    /// lists Library → Playlists; signed out, Explore's shortcuts.
-    pub(crate) fn sidebar_account(&mut self, changed: bool) {
+    /// The account is known or changed: signed in, the sidebar lists
+    /// Library → Playlists (account.rs refreshes it on sign-in); signed
+    /// out, Explore's shortcuts.
+    pub(crate) fn sidebar_account(&mut self) {
         let target = if self.account.signed_in() {
             LibraryTab::Playlists.target()
         } else {
             View::Explore.target()
         };
-        // The page in view was just asked for again (account.rs).
-        let force = changed && self.pages.view.target() != target;
-        self.ensure_page(target, force);
+        self.ensure_page(target, false);
     }
 
     /// The account's playlists with Liked music first, as YouTube Music's
@@ -178,13 +178,15 @@ impl MusicApp {
         }
     }
 
-    /// The sidebar's New playlist.
-    ///
-    /// HOOK(M3 create playlist): once `crate::account` has the New playlist
-    /// dialog (`open_account_dialog(Dialog::NewPlaylist { .. })`, as Library
-    /// → Playlists' button opens it), open it here instead of the notice.
-    pub fn sidebar_new_playlist(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.notice("New playlist isn't available yet", cx);
+    /// The sidebar's New playlist: M3's New playlist dialog, as Library →
+    /// Playlists' own button opens it.
+    pub fn sidebar_new_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dialog = Dialog::NewPlaylist {
+            title: String::new(),
+            description: String::new(),
+            tracks: Vec::new(),
+        };
+        self.open_account_dialog(dialog, window, cx);
     }
 }
 

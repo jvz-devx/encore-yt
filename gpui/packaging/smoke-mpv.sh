@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Proves an installer's bundled mpv works on its own. With PATH holding only
 # the system's directories (and no mpv there) it prints its version and
-# plays a short generated tone to the null output. On Linux and macOS it
+# plays a short generated tone to the null output, with the options the app
+# starts mpv with (src/mpv.rs) and the ones it sets later (volume-gain, the
+# equalizer's lavfi graph). On Linux and macOS it
 # also checks that every library it loads comes from the system or from
 # inside the bundle.
 #
@@ -43,7 +45,11 @@ with wave.open(sys.argv[1], "wb") as w:
     w.setframerate(44100)
     w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(i / 7))) for i in range(22050)))
 EOF
-run "$mpv" --no-config --no-terminal --no-video --ao=null --log-file="$work/play.log" "$work/tone.wav"
+run "$mpv" --no-video --no-terminal --no-config --ytdl=no --gapless-audio=yes \
+    --prefetch-playlist=yes --cache=yes --demuxer-max-bytes=64MiB \
+    --audio-client-name=ytfast --replaygain=no --volume=80 --volume-gain=-3 \
+    --af='@ytfast-eq:lavfi=[volume@pre=volume=-3dB,equalizer@b0=f=60:t=o:w=1:g=2.0]' \
+    --ao=null --log-file="$work/play.log" "$work/tone.wav"
 grep -q 'AO: \[null\]' "$work/play.log" || { cat "$work/play.log" >&2; echo "mpv did not play the tone" >&2; exit 1; }
 echo "played the tone"
 

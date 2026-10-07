@@ -12,13 +12,15 @@
 //! Results are cached until ten minutes before the URL expires, in memory
 //! and in the runtime directory (0600), so a relaunch can start at once.
 //! The iOS client's direct URLs were tried and dropped: they stop after the
-//! first bytes.
+//! first bytes. With `YTFAST_RESOLVER=rust` each run tries `crate::streams`
+//! (InnerTube and an embedded JS engine, no yt-dlp) first and falls back to
+//! yt-dlp when it fails, or when a stream it gave failed to play.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -102,6 +104,10 @@ pub struct Resolver {
     /// Serialises writes of the saved cache.
     saving: Mutex<()>,
     runs: AtomicU64,
+    /// The Rust resolver, when `YTFAST_RESOLVER=rust`.
+    native: OnceLock<crate::streams::Native>,
+    /// Songs whose Rust-resolved stream failed to play: yt-dlp's turn.
+    native_failed: Mutex<HashSet<String>>,
 }
 
 pub fn now() -> u64 {
@@ -241,6 +247,17 @@ impl Resolver {
             backlog: Mutex::default(),
             saving: Mutex::default(),
             runs: AtomicU64::new(0),
+            native: OnceLock::new(),
+            native_failed: Mutex::default(),
+        }
+    }
+
+    /// Resolves through InnerTube in Rust first (`crate::streams`), with
+    /// yt-dlp as the fallback, when `YTFAST_RESOLVER=rust`.
+    pub fn use_innertube(&self, client: Arc<crate::innertube::Client>, cache: &std::path::Path) {
+        if crate::streams::enabled() {
+            log::info!("resolving streams in Rust first (YTFAST_RESOLVER=rust)");
+            let _ = self.native.set(crate::streams::Native::new(client, cache));
         }
     }
 
@@ -269,6 +286,13 @@ impl Resolver {
     }
 
     pub fn forget(&self, video_id: &str) {
+        if self.native.get().is_some() {
+            let mut failed = self.native_failed.lock().expect("native lock");
+            if failed.len() > 256 {
+                failed.clear();
+            }
+            failed.insert(video_id.to_owned());
+        }
         self.cache.lock().expect("cache lock").remove(video_id);
         self.save();
     }
@@ -461,7 +485,7 @@ impl Resolver {
             };
             let waited = queued.elapsed();
             let started = Instant::now();
-            let result = this.run_ytdlp(&id, speculative).await;
+            let result = this.run(&id, speculative).await;
             let kind = if speculative { "ahead" } else { "for playback" };
             match &result {
                 Ok((stream, _)) => log::info!(
@@ -531,6 +555,36 @@ impl Resolver {
         if let Err(error) = written {
             log::warn!("couldn't save resolved streams: {error}");
         }
+    }
+
+    /// The Rust resolver when it is on and succeeds, else yt-dlp (also for
+    /// a song whose Rust-resolved stream failed to play).
+    async fn run(&self, video_id: &str, speculative: bool) -> Result<(Stream, bool)> {
+        let failed = self
+            .native_failed
+            .lock()
+            .expect("native lock")
+            .contains(video_id);
+        if let Some(native) = self.native.get().filter(|_| !failed) {
+            let signed_in = self.signed_in();
+            let started = Instant::now();
+            match native.resolve(video_id, signed_in).await {
+                Ok(stream) => {
+                    log::info!(
+                        "resolved {video_id} in Rust as {}: itag {} in {:.2}s",
+                        native.last_client(),
+                        stream.itag,
+                        started.elapsed().as_secs_f64()
+                    );
+                    return Ok((stream, signed_in));
+                }
+                Err(error) => log::warn!(
+                    "the Rust resolver failed for {video_id} after {:.2}s ({error:#}); trying yt-dlp",
+                    started.elapsed().as_secs_f64()
+                ),
+            }
+        }
+        self.run_ytdlp(video_id, speculative).await
     }
 
     /// One yt-dlp run; also says whether it had the account's cookies.

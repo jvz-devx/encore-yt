@@ -13,7 +13,8 @@ import json, sys
 player, root = sys.argv[1], sys.argv[2]
 lib = open(f"{root}/src/jsc/ejs-lib.min.js").read()
 core = open(f"{root}/src/jsc/ejs-core.min.js").read()
-n = ["_Kid_vJQOB_4Tt4Mq", "ZdT9Xk3PqFwl0aB1c", "abcdefghijklmnop", "aAbBcCdDeEfFgG1234", "0123456789abcdefgh_-"]
+# Real challenges: the web SABR URL and WEB_CREATOR cipher of 2026-10-07.
+n = ["_Kid_vJQOB_4Tt4Mq", "OREtw4lFskWoJnTXr", "ZdT9Xk3PqFwl0aB1c", "abcdefghijklmnop", "aAbBcCdDeEfFgG1234", "0123456789abcdefgh_-"]
 lengths = list(range(90, 121))
 data = {"type": "player", "player": open(player).read(), "output_preprocessed": False,
         "requests": [{"type": "n", "challenges": n},

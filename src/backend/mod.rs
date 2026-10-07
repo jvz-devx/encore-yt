@@ -248,6 +248,7 @@ impl Backend {
         let client = Arc::new(Client::new());
         let http = client.http().clone();
         let resolver = Arc::new(Resolver::new(paths.runtime.clone()));
+        resolver.use_innertube(client.clone(), &paths.cache);
         let worker = Worker::new(client, resolver.clone(), paths, sink);
         runtime.spawn(worker.run(command_rx, shutdown_rx));
         Ok(Self {

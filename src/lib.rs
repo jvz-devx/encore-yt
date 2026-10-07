@@ -35,6 +35,7 @@ pub mod resolver;
 pub mod searches;
 pub mod settings;
 pub mod single_instance;
+pub mod streams;
 #[cfg(feature = "egui")]
 pub mod theme;
 pub mod tray;

@@ -105,3 +105,50 @@ fn quickjs_solves_like_ytdlp() {
         assert_eq!(decipher(&s, spec).map(|d| d.len()), Some(spec.len()));
     }
 }
+
+fn capture(name: &str) -> Option<String> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("artifacts/resolver")
+        .join(name);
+    std::fs::read_to_string(path).ok()
+}
+
+/// The saved player responses: VISIONOS's plain URLs, the web client's
+/// SABR-only formats, WEB_CREATOR's ciphered ones and a bot check.
+#[test]
+fn picks_audio_from_saved_player_responses() {
+    let json = |name: &str| {
+        capture(name).map(|t| serde_json::from_str::<serde_json::Value>(&t).expect(name))
+    };
+    if let Some(visionos) = json("player-visionos-ok-wU26xVT_vBU.json") {
+        let format = ytfast::streams::best_audio(&visionos).expect("an audio format");
+        assert_eq!(format.itag, 251);
+        assert!(format.url.is_some_and(|u| !u.contains("&n=")));
+    }
+    if let Some(web) = json("player-web-initial-wU26xVT_vBU.json") {
+        let error = ytfast::streams::best_audio(&web).unwrap_err().to_string();
+        assert!(error.contains("no audio format with a URL"), "{error}");
+    }
+    if let Some(creator) = json("dump/WEB_CREATOR-qXI87eMP-bs.json") {
+        let format = ytfast::streams::best_audio(&creator).expect("an audio format");
+        assert_eq!(format.itag, 251);
+        assert!(format.url.is_none() && format.cipher.is_some());
+    }
+    if let Some(bot) = json("player-visionos-wU26xVT_vBU.json") {
+        let error = ytfast::streams::best_audio(&bot).unwrap_err().to_string();
+        assert!(error.contains("LOGIN_REQUIRED"), "{error}");
+    }
+}
+
+#[test]
+fn reads_player_version_and_timestamp() {
+    if let Some(iframe) = capture("iframe_api.js") {
+        assert_eq!(
+            ytfast::streams::player_id(&iframe).as_deref(),
+            Some("1b3be681")
+        );
+    }
+    if let Some(player) = capture("1b3be681.js") {
+        assert_eq!(ytfast::streams::signature_timestamp(&player), Some(20728));
+    }
+}

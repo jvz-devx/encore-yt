@@ -459,8 +459,10 @@ fn ambient(p: vec2<f32>) -> Ink {
     let s = params.extra.x;
     let uv = p / size;
     let light = params.look.w > 0.5;
+    // White shows less on the light look's pale backdrop: twice as much.
+    let boost = select(1.0, 2.0, light);
     var ink = Ink(vec3<f32>(1.0), 0.0);
-    let wave = params.wave.x;
+    let wave = params.wave.x * boost;
     if wave > 0.0 {
         for (var i = 0; i < ribbons(); i++) {
             let k = f32(i);
@@ -510,10 +512,11 @@ fn ambient(p: vec2<f32>) -> Ink {
         let twinkle = mix(1.0, 0.2 + 0.8 * smoothstep(-1.0, 1.0, sin(phase)), params.ambient3.x);
         let at = ((c + centre) * cell + heading * params.ambient2.y * drift) * s / size;
         let gather = mix(0.3, 1.0, near_wave(at.x, at.y));
-        let bright = (0.28 + 0.4 * near) * twinkle * gather * lift * params.ambient2.x;
+        let bright = (0.28 + 0.4 * near) * twinkle * gather * lift * params.ambient2.x * boost;
         let tint = params.ambient3.w * select(0.3, 0.15, light);
         let color = mix(vec3<f32>(1.0), gradient(h.x), tint);
-        ink = over(ink, color, core * bright);
+        // Never a solid dot, however bright the settings.
+        ink = over(ink, color, min(core * bright, 0.8));
     }
     return ink;
 }

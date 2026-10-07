@@ -74,6 +74,9 @@ pub struct PlayerClient {
     pub user_agent: Option<&'static str>,
     /// More `context.client` fields (device and OS).
     pub extra: &'static [(&'static str, &'static str)],
+    /// Where its requests go: `https://www.youtube.com`, or YouTube
+    /// Music's own host for `WEB_REMIX`.
+    pub host: &'static str,
 }
 
 impl Default for Client {
@@ -215,7 +218,7 @@ impl Client {
         Ok(value)
     }
 
-    /// A `player` request on www.youtube.com as another client, for its
+    /// A `player` request on the client's host as that client, for its
     /// stream URLs: `sts` is the player script's signature timestamp for
     /// clients whose URLs need its challenges solved, `authed` sends the
     /// session's cookies.
@@ -226,7 +229,7 @@ impl Client {
         sts: Option<u32>,
         authed: bool,
     ) -> Result<Value> {
-        const WWW: &str = "https://www.youtube.com";
+        let host = client.host;
         let visitor = self.visitor_data();
         let mut context = json!({
             "clientName": client.name,
@@ -256,9 +259,9 @@ impl Client {
         });
         let mut request = self
             .http
-            .post(format!("{WWW}/youtubei/v1/player?prettyPrint=false"))
+            .post(format!("{host}/youtubei/v1/player?prettyPrint=false"))
             .header("Content-Type", "application/json")
-            .header("Origin", WWW)
+            .header("Origin", host)
             .header("X-YouTube-Client-Name", client.number.to_string())
             .header("X-YouTube-Client-Version", client.version)
             .header("User-Agent", client.user_agent.unwrap_or(USER_AGENT))
@@ -268,8 +271,8 @@ impl Client {
         }
         if authed && self.signed_in() {
             request = self
-                .auth_headers_for(request, WWW)
-                .header("X-Origin", WWW)
+                .auth_headers_for(request, host)
+                .header("X-Origin", host)
                 .header("X-Youtube-Bootstrap-Logged-In", "true");
         }
         let response = request.send().await.map_err(offline)?;

@@ -9,10 +9,10 @@
 //!
 //! Nothing is reported to the account's history: nothing here sends
 //! YouTube's playback tracking. Signed out by default (VISIONOS);
-//! `--signed-in` asks as the account, as the app does (the TV client with
-//! the session's page config, then WEB_CREATOR, then VISIONOS), for the
-//! Premium formats, so use it only when that is wanted. The client that
-//! answered is printed, and why the ones before it failed.
+//! `--signed-in` asks as the account, as the app does (WEB_REMIX, then
+//! WEB_CREATOR, then VISIONOS signed out), for the Premium formats, so use
+//! it only when that is wanted. The client that answered is printed, and
+//! why the ones before it failed.
 //!
 //! cargo run --example stream_check --no-default-features --
 //!     [--signed-in] [--formats 251,250,249,140] VIDEO_ID

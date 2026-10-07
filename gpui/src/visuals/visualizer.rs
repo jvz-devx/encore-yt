@@ -7,15 +7,20 @@
 //! spectrum and the scope take a band (Now Playing's strip above the title;
 //! in Stage and the full window a band along the bottom, or through the
 //! cover for mirrored bars), the ring goes round the cover, and particles fill the
-//! space round the cover (Now Playing) or the whole scene. Frames come only
-//! with the paced frames while music plays; paused, hidden or under reduced
-//! motion it draws nothing.
+//! space round the cover (Now Playing) or the whole scene. The 3D scenes
+//! (M30: XMB, Ridges, Aurora) fill Now Playing's panel or the whole scene,
+//! opaque, in place of the backdrop; behind text (Now Playing, Stage) they
+//! are toned like it, full strength only in the full-window visualiser.
+//! Frames come only with the paced frames while music plays; paused,
+//! hidden or under reduced motion it draws nothing.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use gpui_kit::*;
 use ytfast_visuals::{
-    BANDS, BarSettings, Bars, Look, SPAN, Scope, Visualizer, VisualizerParams, color,
+    BANDS, BarSettings, Bars, Look, Pace, SPAN, Scene, SceneKind, SceneParams, Scope, Visualizer,
+    VisualizerParams, color, seed,
 };
 
 use super::config::{self, Palette, Spacing, Style};
@@ -36,6 +41,13 @@ pub enum Place {
 #[derive(Default)]
 pub struct Vis {
     renderer: Option<Visualizer>,
+    /// The 3D scenes' renderer, and what moves them with the music.
+    scene: Option<Scene>,
+    pace: Pace,
+    stats: super::frames::Stats,
+    /// When the scene last drew (its pace and clocks move by the time
+    /// since).
+    scene_at: Option<Instant>,
     frames: Frames,
     bars: Bars,
     scope: Scope,
@@ -43,16 +55,18 @@ pub struct Vis {
     samples: Vec<[f32; 2]>,
     /// The particles' clock.
     travel: f32,
-    /// Where the frame on screen goes, in window coordinates.
-    region: Option<Bounds<Pixels>>,
+    /// Where the frame on screen goes, in window coordinates, and its
+    /// corners.
+    region: Option<(Bounds<Pixels>, Corners<Pixels>)>,
     /// The region the frame in flight was rendered for.
-    pending_region: Option<Bounds<Pixels>>,
+    pending_region: Option<(Bounds<Pixels>, Corners<Pixels>)>,
 }
 
 impl Vis {
-    /// The frame to paint and where, while one shows.
-    pub fn image(&self) -> Option<(Arc<RenderImage>, Bounds<Pixels>)> {
-        self.frames.image().zip(self.region)
+    /// The frame to paint, where and with what corners, while one shows.
+    pub fn image(&self) -> Option<(Arc<RenderImage>, Bounds<Pixels>, Corners<Pixels>)> {
+        let (bounds, corners) = self.region?;
+        Some((self.frames.image()?, bounds, corners))
     }
 
     /// Stops showing (hidden, paused): the next start begins from silence.
@@ -65,6 +79,10 @@ impl Vis {
             if let Some(r) = &mut self.renderer {
                 r.discard();
             }
+            if let Some(s) = &mut self.scene {
+                s.discard();
+            }
+            self.scene_at = None;
             self.frames.clear(cx);
         }
     }
@@ -78,15 +96,18 @@ impl Vis {
     /// Drops the renderer (the GPU is going).
     pub fn release(&mut self, cx: &mut App) {
         self.renderer = None;
+        self.scene = None;
         self.hide(cx);
     }
 
-    /// Draws the next frame at `place` when one is due.
+    /// Draws the next frame at `place` when one is due. `video_id` seeds
+    /// the 3D scenes.
     pub fn update(
         &mut self,
         tick: &Tick,
         place: Place,
         palette: &[[f32; 4]; 4],
+        video_id: Option<&str>,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -95,6 +116,10 @@ impl Vis {
         }
         let config = config::get();
         let v = &config.visualizer;
+        if let Some(kind) = v.style.scene() {
+            self.update_scene(tick, place, kind, palette, video_id, window, cx);
+            return;
+        }
         let Some(region) = region(place, v.style, cx) else {
             return;
         };
@@ -180,7 +205,90 @@ impl Vis {
             Ok(None) => {}
             Err(e) => log::warn!("visuals: visualiser frame: {e:#}"),
         }
-        self.pending_region = Some(region);
+        self.pending_region = Some((region, Corners::default()));
+    }
+
+    /// A 3D scene's next frame, filling Now Playing's panel or the scene.
+    #[allow(clippy::too_many_arguments)]
+    fn update_scene(
+        &mut self,
+        tick: &Tick,
+        place: Place,
+        kind: SceneKind,
+        palette: &[[f32; 4]; 4],
+        video_id: Option<&str>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        // Behind text (Now Playing, Stage) a scene draws at most 60 times
+        // a second, every other frame on a 120 Hz display: dimmed and
+        // moving slowly there, like the backdrop (which draws at half the
+        // window's rate). The full window draws every frame.
+        let now = Instant::now();
+        let since = self.scene_at.map(|at| now.duration_since(at).as_secs_f32());
+        if place != Place::Full && since.is_some_and(|s| s < 0.8 / BEHIND_TEXT_FPS) {
+            return;
+        }
+        let Some((region, corners)) = scene_region(place, cx) else {
+            return;
+        };
+        self.scene_at = Some(now);
+        let dt = since.unwrap_or(tick.dt).clamp(1. / 240., 0.1);
+        let region = whole_pixels(region, window.scale_factor());
+        let (w, h) = (
+            f32::from(region.size.width) * window.scale_factor(),
+            f32::from(region.size.height) * window.scale_factor(),
+        );
+        let scenes = &config::get().scenes;
+        // Scaled down evenly, never past the readback's 2048 pixels.
+        let scale = (scene_scale(kind) * scenes.resolution)
+            .min(1.)
+            .min(2048. / w.max(h).max(1.));
+        let size = (
+            (w * scale).round().max(1.) as u32,
+            (h * scale).round().max(1.) as u32,
+        );
+        self.pace.update(dt, &tick.levels, tick.bass, tick.level);
+        let renderer = self.scene.get_or_insert_with(|| {
+            let started = std::time::Instant::now();
+            let r = Scene::new(tick.gpu, size.0, size.1);
+            super::timing::setup(started);
+            r
+        });
+        if renderer.size() != size {
+            renderer.resize(size.0, size.1);
+        }
+        let params = SceneParams {
+            kind,
+            look: tick.look,
+            visualiser: place == Place::Full,
+            seconds: tick.seconds,
+            bass: tick.bass,
+            kick: tick.kick,
+            level: tick.level,
+            levels: &tick.levels,
+            palette: *palette,
+            seed: seed(video_id.unwrap_or_default()),
+            pace: &self.pace,
+            strength: scenes.strength,
+            quality: scenes.detail,
+            reaction: scenes.reaction,
+        };
+        match renderer.frame(&params) {
+            Ok(Some(frame)) => {
+                self.stats.record(scene_label(kind), frame.cost, size);
+                self.frames.push(frame, window);
+                self.region = self.pending_region;
+            }
+            Ok(None) => {}
+            Err(e) => log::warn!("visuals: scene frame: {e:#}"),
+        }
+        self.pending_region = Some((region, corners));
+    }
+
+    /// Whether a 3D scene shows now, filling the backdrop's place.
+    pub fn fills(&self) -> bool {
+        config::get().visualizer.style.scene().is_some() && self.image().is_some()
     }
 
     /// Moves the scope to the newest samples, with a point every 2.5
@@ -212,6 +320,37 @@ fn render_scale(style: Style) -> f32 {
     match style {
         Style::Particles => 0.5,
         _ => 1.,
+    }
+}
+
+/// The most frames a second a scene draws behind text.
+const BEHIND_TEXT_FPS: f32 = 60.;
+
+/// The scale a 3D scene renders at, of device pixels: the XMB's thin lines
+/// and sparkles want full size (and it costs little); the raymarched scenes
+/// are soft and cost per pixel.
+fn scene_scale(kind: SceneKind) -> f32 {
+    match kind {
+        SceneKind::Xmb => 1.,
+        SceneKind::Ridges => 0.6,
+        SceneKind::Aurora => 0.5,
+    }
+}
+
+fn scene_label(kind: SceneKind) -> &'static str {
+    match kind {
+        SceneKind::Xmb => "scene xmb",
+        SceneKind::Ridges => "scene ridges",
+        SceneKind::Aurora => "scene aurora",
+    }
+}
+
+/// Where a 3D scene draws: Now Playing's panel (with its rounded corners)
+/// or the whole scene.
+fn scene_region(place: Place, cx: &App) -> Option<(Bounds<Pixels>, Corners<Pixels>)> {
+    match place {
+        Place::NowPlaying => super::slots::panel(cx).map(|p| (p, Corners::all(theme::radius::LG))),
+        Place::Stage | Place::Full => Slots::get(cx, Slot::Stage).map(|s| (s, Corners::default())),
     }
 }
 
@@ -281,7 +420,9 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
             let kept = super::stage_band(f32::from(body.size.height));
             match style {
                 Style::Ring => cover.map(|c| around(c, reach(place, cx) + px(32.))),
-                Style::Particles => Slots::get(cx, Slot::Stage),
+                Style::Particles | Style::Xmb | Style::Ridges | Style::Aurora => {
+                    Slots::get(cx, Slot::Stage)
+                }
                 Style::Bars | Style::Line | Style::Mirrored | Style::Scope => {
                     // Mirrored bars stand on a floor with their reflection
                     // under it: a taller band.

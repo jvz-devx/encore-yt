@@ -1,11 +1,9 @@
 //! The animated cover backdrop over the page panel while Now Playing shows
 //! (M8): `ytfast_visuals::Renderer` frames, painted under the app.
 
-use std::time::{Duration, Instant};
-
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer, Tune};
+use ytfast_visuals::{Cover, CoverShadow, FrameParams, Renderer, Tune};
 
 use super::effects::Tick;
 use super::frames::Frames;
@@ -39,7 +37,7 @@ pub struct Backdrop {
     /// under reduced motion or while paused; the first frame shows a frame
     /// late).
     pending: u8,
-    stats: Stats,
+    stats: super::frames::Stats,
 }
 
 impl Backdrop {
@@ -159,7 +157,7 @@ impl Backdrop {
                 self.pending = self.pending.saturating_sub(1);
                 let cost = frame.cost;
                 self.frames.push(frame, window);
-                self.stats.record(cost, size);
+                self.stats.record("backdrop", cost, size);
             }
             Ok(None) => {}
             Err(e) => log::warn!("visuals: frame: {e:#}"),
@@ -234,40 +232,4 @@ fn render_size(panel: Bounds<Pixels>) -> (u32, u32) {
     let scale = (MAX_WIDTH / w).min(SCALE);
     let round = |v: f32| ((v * scale / 16.).round().max(1.) * 16.) as u32;
     (round(w), round(h))
-}
-
-/// Frame costs, logged every five seconds while animating.
-#[derive(Default)]
-struct Stats {
-    frames: u32,
-    cost: FrameCost,
-    since: Option<Instant>,
-}
-
-impl Stats {
-    fn record(&mut self, cost: FrameCost, size: (u32, u32)) {
-        let since = *self.since.get_or_insert_with(Instant::now);
-        self.frames += 1;
-        self.cost.submit += cost.submit;
-        self.cost.wait += cost.wait;
-        self.cost.copy += cost.copy;
-        if since.elapsed() < Duration::from_secs(5) {
-            return;
-        }
-        let n = self.frames as f32;
-        log::info!(
-            "visuals: {}x{}: {:.0} fps; submit {:.2} ms, wait {:.2} ms, copy {:.2} ms",
-            size.0,
-            size.1,
-            n / since.elapsed().as_secs_f32(),
-            self.cost.submit / n,
-            self.cost.wait / n,
-            self.cost.copy / n,
-        );
-        *self = Self {
-            frames: 0,
-            cost: FrameCost::default(),
-            since: None,
-        };
-    }
 }

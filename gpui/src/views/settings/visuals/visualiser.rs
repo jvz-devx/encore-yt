@@ -1,6 +1,7 @@
 //! The Visualiser tab: style, where it shows, how the bars move (or, for
 //! the scope, which channels it shows), the stroke, the colours, and a
-//! button to open the full-window visualiser.
+//! button to open the full-window visualiser. The 3D scenes (XMB, Ridges,
+//! Aurora) have only the style and where it shows.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::h_flex;
@@ -62,22 +63,26 @@ pub fn rows(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<An
             |s, v| s.stage.visualizer = v,
         ),
     ];
-    if v.style.spectral() {
-        rows.extend(bar_rows(s, c, cx));
-    } else {
-        rows.push(labelled("Channels", channels(s, c, cx)));
-        rows.push(knobs::row(Knob::Sensitivity, true, c, cx));
+    // The scenes take their colours from the cover and their motion from
+    // the music: none of the bars' settings apply.
+    if v.style.scene().is_none() {
+        if v.style.spectral() {
+            rows.extend(bar_rows(s, c, cx));
+        } else {
+            rows.push(labelled("Channels", channels(s, c, cx)));
+            rows.push(knobs::row(Knob::Sensitivity, true, c, cx));
+        }
+        if v.style.stroked() {
+            rows.push(knobs::row(Knob::Thickness, true, c, cx));
+        }
+        rows.push(labelled("Colours", palettes));
+        if v.palette == Palette::Custom {
+            rows.push(swatches(0, "From", v.custom[0], c, cx));
+            rows.push(swatches(1, "To", v.custom[1], c, cx));
+        }
+        rows.push(knobs::row(Knob::Opacity, true, c, cx));
+        rows.push(knobs::row(Knob::VisGlow, true, c, cx));
     }
-    if v.style.stroked() {
-        rows.push(knobs::row(Knob::Thickness, true, c, cx));
-    }
-    rows.push(labelled("Colours", palettes));
-    if v.palette == Palette::Custom {
-        rows.push(swatches(0, "From", v.custom[0], c, cx));
-        rows.push(swatches(1, "To", v.custom[1], c, cx));
-    }
-    rows.push(knobs::row(Knob::Opacity, true, c, cx));
-    rows.push(knobs::row(Knob::VisGlow, true, c, cx));
     rows.push(open_button(c, cx));
     rows
 }

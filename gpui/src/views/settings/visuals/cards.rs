@@ -10,7 +10,7 @@ use super::knobs::{self, Knob};
 use super::{change, labelled, toggle};
 use crate::app::MusicApp;
 use crate::theme::{Colors, Type, radius, space};
-use crate::visuals::config::{ParticleColour, VisualsConfig};
+use crate::visuals::config::{ParticleColour, Placement, Style, VisualsConfig};
 
 /// An effect's card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +23,7 @@ pub enum Card {
     Halos,
     Seek,
     Visualizer,
+    Scenes,
     Dissolve,
     Flight,
 }
@@ -81,6 +82,7 @@ fn title(k: Card) -> &'static str {
         Card::Halos => "Beat halos",
         Card::Seek => "Seek bar",
         Card::Visualizer => "Visualiser",
+        Card::Scenes => "3D scenes",
         Card::Dissolve => "Cover dissolve",
         Card::Flight => "Cover flight",
     }
@@ -91,7 +93,7 @@ fn title(k: Card) -> &'static str {
 fn keys(k: Card) -> Option<&'static [&'static str]> {
     match k {
         Card::Stage => Some(&["F"]),
-        Card::Visualizer => Some(&["V"]),
+        Card::Visualizer | Card::Scenes => Some(&["V"]),
         _ => None,
     }
 }
@@ -106,6 +108,7 @@ fn switched(k: Card, s: &VisualsConfig) -> Option<bool> {
         Card::Halos => Some(s.halos.on),
         Card::Dissolve => Some(s.dissolve.on),
         Card::Flight => Some(s.flight.on),
+        Card::Scenes => Some(s.visualizer.style.scene().is_some()),
         Card::Stage | Card::Seek | Card::Visualizer => None,
     }
 }
@@ -119,6 +122,15 @@ fn set_switch(k: Card, s: &mut VisualsConfig, on: bool) {
         Card::Halos => s.halos.on = on,
         Card::Dissolve => s.dissolve.on = on,
         Card::Flight => s.flight.on = on,
+        // A scene is the visualiser's style: on picks the XMB, off goes
+        // back to the bars.
+        Card::Scenes => {
+            if on && s.visualizer.style.scene().is_none() {
+                s.visualizer.style = Style::Xmb;
+            } else if !on && s.visualizer.style.scene().is_some() {
+                s.visualizer.style = Style::Bars;
+            }
+        }
         Card::Stage | Card::Seek | Card::Visualizer => {}
     }
 }
@@ -165,6 +177,7 @@ fn summary(k: Card, s: &VisualsConfig) -> String {
             (false, false) => "A plain line".into(),
         },
         Card::Visualizer => visualizer_summary(s),
+        Card::Scenes => off(s.visualizer.style.scene().is_some(), visualizer_summary(s)),
         Card::Dissolve => off(
             s.dissolve.on,
             format!(
@@ -282,7 +295,70 @@ fn body(
             ),
         ],
         Card::Visualizer => super::visualiser::rows(s, c, cx),
+        Card::Scenes => {
+            let mut rows = vec![scenes(s, c, cx), places(s, on, c, cx)];
+            rows.push(toggle(
+                "visuals-scene-stage",
+                "In Stage",
+                "Fills Stage behind its cover and lyrics",
+                s.stage.visualizer,
+                on,
+                c,
+                cx,
+                |s, v| s.stage.visualizer = v,
+            ));
+            rows.extend(sliders(
+                &[
+                    Knob::SceneStrength,
+                    Knob::SceneDetail,
+                    Knob::SceneResolution,
+                    Knob::SceneReaction,
+                ],
+                cx,
+            ));
+            rows
+        }
     }
+}
+
+/// The scene: picking one turns the scenes on (it becomes the
+/// visualiser's style).
+fn scenes(s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let chips = [Style::Xmb, Style::Ridges, Style::Aurora].map(|style| {
+        super::super::choice(
+            ("visuals-scene", style as usize),
+            style.label(),
+            s.visualizer.style == style,
+            c,
+        )
+        .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.style = style)))
+    });
+    labelled("Scene", super::super::choices(chips))
+}
+
+/// Whether the scene fills Now Playing (the visualiser's place there).
+fn places(s: &VisualsConfig, on: bool, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let chips = [
+        (Placement::Visualizer, "Fills it"),
+        (Placement::Spectrum, "Spectrum"),
+        (Placement::Nothing, "Nothing"),
+    ]
+    .map(|(p, label)| {
+        let chip = super::super::choice(
+            ("visuals-scene-place", p as usize),
+            label,
+            s.visualizer.now_playing == p,
+            c,
+        );
+        if on {
+            chip.on_click(
+                cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.now_playing = p)),
+            )
+        } else {
+            chip.opacity(0.5)
+        }
+    });
+    labelled("In Now Playing", super::super::choices(chips))
 }
 
 /// The particles' colour: white, or tinted by the cover or the accent.

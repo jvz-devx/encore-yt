@@ -48,10 +48,14 @@ pub enum Knob {
     WaveStrength,
     WaveSpeed,
     WaveHeight,
+    SceneStrength,
+    SceneDetail,
+    SceneResolution,
+    SceneReaction,
 }
 
 impl Knob {
-    const ALL: [Knob; 31] = [
+    const ALL: [Knob; 35] = [
         Knob::Blur,
         Knob::Swirl,
         Knob::Bloom,
@@ -83,6 +87,10 @@ impl Knob {
         Knob::WaveStrength,
         Knob::WaveSpeed,
         Knob::WaveHeight,
+        Knob::SceneStrength,
+        Knob::SceneDetail,
+        Knob::SceneResolution,
+        Knob::SceneReaction,
     ];
 
     pub fn label(self) -> &'static str {
@@ -98,8 +106,10 @@ impl Knob {
             Knob::Twinkle => "Twinkle",
             Knob::TwinkleSpeed => "Twinkle speed",
             Knob::Direction => "Direction",
-            Knob::Reaction => "Music reaction",
-            Knob::WaveStrength => "Strength",
+            Knob::Reaction | Knob::SceneReaction => "Music reaction",
+            Knob::WaveStrength | Knob::SceneStrength => "Strength",
+            Knob::SceneDetail => "Detail",
+            Knob::SceneResolution => "Resolution",
             Knob::WaveHeight => "Height",
             Knob::Bloom => "Bloom",
             Knob::BassPulse => "Bass pulse",
@@ -137,6 +147,9 @@ impl Knob {
             Knob::PeakFall => (0.1, 4., 0.05, false),
             Knob::Opacity => (0.1, 1., 0.05, false),
             Knob::Thickness => (config::THICKNESS.0, config::THICKNESS.1, 0.25, false),
+            Knob::SceneStrength => (0.4, 1.5, 0.05, false),
+            Knob::SceneDetail | Knob::SceneResolution => (0.5, 1.5, 0.05, false),
+            Knob::SceneReaction => (0., 1., 0.05, false),
             _ => (0., 2., 0.05, false),
         }
     }
@@ -175,6 +188,10 @@ impl Knob {
             Knob::Opacity => v.opacity,
             Knob::VisGlow => v.glow,
             Knob::Thickness => v.thickness,
+            Knob::SceneStrength => c.scenes.strength,
+            Knob::SceneDetail => c.scenes.detail,
+            Knob::SceneResolution => c.scenes.resolution,
+            Knob::SceneReaction => c.scenes.reaction,
         })
     }
 
@@ -218,6 +235,10 @@ impl Knob {
             Knob::Opacity => v.opacity = x,
             Knob::VisGlow => v.glow = x,
             Knob::Thickness => v.thickness = x,
+            Knob::SceneStrength => c.scenes.strength = x,
+            Knob::SceneDetail => c.scenes.detail = x,
+            Knob::SceneResolution => c.scenes.resolution = x,
+            Knob::SceneReaction => c.scenes.reaction = x,
         }
     }
 

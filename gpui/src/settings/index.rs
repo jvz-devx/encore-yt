@@ -193,12 +193,18 @@ const VISUALS: &[Line] = &[
     (
         Category::Visuals,
         Some(5),
+        "3D scenes",
+        "XMB, Ridges or Aurora filling the visualiser: strength, detail, resolution, music reaction",
+    ),
+    (
+        Category::Visuals,
+        Some(6),
         "Cover dissolve",
         "The next cover dissolving in when the song changes",
     ),
     (
         Category::Visuals,
-        Some(5),
+        Some(6),
         "Cover flight",
         "The cover flying into Now Playing",
     ),

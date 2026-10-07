@@ -328,7 +328,8 @@ fn visualizer_strip(strip: Bounds<Pixels>) -> Bounds<Pixels> {
 fn strip_band() -> bool {
     let config = config::get();
     let v = &config.visualizer;
-    let banded = !matches!(v.style, config::Style::Ring | config::Style::Particles);
+    let banded = !matches!(v.style, config::Style::Ring | config::Style::Particles)
+        && v.style.scene().is_none();
     enabled() && v.now_playing.visualizer() && banded
 }
 

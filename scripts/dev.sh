@@ -67,10 +67,20 @@ fmt() {
 
 shaders() {
     step "validate shaders"
-    local found=0 file
+    local found=0 file joined
     while IFS= read -r -d '' file; do
         found=1
-        naga "$file" >/dev/null && echo "ok  $file"
+        case "$file" in
+            # The 3D scenes compile after their shared part (scene.rs).
+            */scene_*.wgsl)
+                [ "${file##*/}" = scene_common.wgsl ] && continue
+                joined="$(mktemp -t scene.XXXXXX).wgsl"
+                cat "$(dirname "$file")/scene_common.wgsl" "$file" >"$joined"
+                naga "$joined" >/dev/null && echo "ok  $file"
+                rm -f "$joined"
+                ;;
+            *) naga "$file" >/dev/null && echo "ok  $file" ;;
+        esac
     done < <(find crates -name '*.wgsl' -print0)
     [ "$found" = 1 ] || echo "no .wgsl files"
 }

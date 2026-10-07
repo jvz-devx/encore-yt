@@ -72,8 +72,14 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOut {
     return out;
 }
 
+// Sine-free hash (Dave Hoskins, "Hash without Sine", MIT). The usual
+// `fract(sin(dot(p, k)) * 43758.5)` needs a precise sin for large arguments;
+// NVIDIA's fast sin isn't, and the noise built on it turned into flat
+// squares there once the flow clock had run a while.
 fn hash(p: vec2<f32>) -> f32 {
-    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
 fn noise(p: vec2<f32>) -> f32 {
@@ -248,7 +254,7 @@ fn seek_bar(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
     let r = 3.0 * s;
 
     // Coverage of the rounded silhouette.
-    let cx = clamp(p.x, x0 + r, x1 - r);
+    let cx = clamp(p.x, x0 + r, max(x1 - r, x0 + r));
     let cy = clamp(p.y, top + r, max(bottom - r, top + r));
     let corner = clamp(r - length(p - vec2<f32>(cx, cy)) + 0.5, 0.0, 1.0);
     let rows = clamp(p.y - top + 0.5, 0.0, 1.0) * clamp(bottom - p.y + 0.5, 0.0, 1.0);

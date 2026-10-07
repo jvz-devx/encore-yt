@@ -108,6 +108,7 @@ impl Category {
                 "Particles",
                 "Player bar",
                 "Visualiser",
+                "3D",
                 "Transitions",
             ],
             Category::Motion => &["Motion", "Lyrics"],

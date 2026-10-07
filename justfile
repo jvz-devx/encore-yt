@@ -37,3 +37,11 @@ shaders:
 # A release-speed build for measurements and effect checks (no LTO).
 profiling:
     cargo build -p encore-yt --profile profiling
+
+# The M30 3D spike in the browser: http://127.0.0.1:8137/spikes/3d-web/ (?mp3=<path in repo>).
+spike-3d:
+    python3 -m http.server 8137 --bind 127.0.0.1
+
+# The spike's scenes headless (Deno WebGPU): validate, capture, time.
+spike-3d-render *args:
+    deno run --unstable-webgpu -A spikes/3d-web/render.ts {{args}}

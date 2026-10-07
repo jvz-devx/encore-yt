@@ -1,6 +1,6 @@
 //! Settings → Visuals, a self-contained view in tabs: General (the look's
 //! preset, effects on or off, the frame rate), Backdrop, Particles, Player
-//! bar, Visualiser and Transitions. Each tab shows a card per effect (its
+//! bar, Visualiser, 3D (the 3D scenes) and Transitions. Each tab shows a card per effect (its
 //! switch, sliders and choices) and a Reset once it differs from its
 //! preset. Changes show at once (`visuals::config`); sliders save when let
 //! go. The Settings frame draws the tabs (`Category::tabs`, in [`Tab`]'s
@@ -29,16 +29,18 @@ pub enum Tab {
     Particles,
     PlayerBar,
     Visualiser,
+    Scenes,
     Transitions,
 }
 
 impl Tab {
-    const ALL: [Tab; 6] = [
+    const ALL: [Tab; 7] = [
         Tab::General,
         Tab::Backdrop,
         Tab::Particles,
         Tab::PlayerBar,
         Tab::Visualiser,
+        Tab::Scenes,
         Tab::Transitions,
     ];
 
@@ -49,6 +51,7 @@ impl Tab {
             Tab::Particles => &[Card::Particles, Card::Wave],
             Tab::PlayerBar => &[Card::Glow, Card::Halos, Card::Seek],
             Tab::Visualiser => &[Card::Visualizer],
+            Tab::Scenes => &[Card::Scenes],
             Tab::Transitions => &[Card::Dissolve, Card::Flight],
         }
     }
@@ -207,6 +210,7 @@ fn reset(tab: Tab, s: &VisualsConfig) -> VisualsConfig {
             out.visualizer = r.visualizer;
             out.stage.visualizer = r.stage.visualizer;
         }
+        Tab::Scenes => out.scenes = r.scenes,
         Tab::Transitions => {
             out.dissolve = r.dissolve;
             out.flight = r.flight;

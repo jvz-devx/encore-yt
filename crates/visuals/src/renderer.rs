@@ -230,7 +230,7 @@ impl Renderer {
 /// colourful cover, little for a sepia or black-and-white one, whose tint
 /// pushed to full saturation turns the whole window muddy. From the
 /// palette's strongest OKLab chroma between 0.05 and 0.12.
-fn colour_kept(palette: &[[f32; 4]; 4]) -> f32 {
+pub(crate) fn colour_kept(palette: &[[f32; 4]; 4]) -> f32 {
     let chroma = palette
         .iter()
         .map(|c| {

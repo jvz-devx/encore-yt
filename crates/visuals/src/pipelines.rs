@@ -28,11 +28,24 @@ pub(crate) struct Pipelines {
     pub strip: Effect,
     pub dissolve: Effect,
     pub visualizer: Effect,
+    pub scenes: Scenes,
+}
+
+/// The 3D scenes (M30, [`crate::Scene`]): one bind group layout (the
+/// uniforms, read by vertex and fragment stages), and each scene's draws in
+/// order.
+#[derive(Clone)]
+pub(crate) struct Scenes {
+    pub layout: wgpu::BindGroupLayout,
+    /// The gradient, the wave mesh (alpha blended), the sparkles (added).
+    pub xmb: [wgpu::RenderPipeline; 3],
+    pub ridges: wgpu::RenderPipeline,
+    pub aurora: wgpu::RenderPipeline,
 }
 
 impl Pipelines {
-    /// Compiles the four effects on `device`, through `cache` when there
-    /// is one.
+    /// Compiles every effect on `device`, through `cache` when there is
+    /// one.
     pub fn new(device: &wgpu::Device, cache: Option<&wgpu::PipelineCache>) -> Self {
         let effect = |label, source, textures| {
             let module = shader(device, label, source);
@@ -46,11 +59,63 @@ impl Pipelines {
             dissolve: effect("dissolve", include_str!("../shaders/dissolve.wgsl"), 2),
             // The spectrum is in its uniforms: no textures.
             visualizer: effect("visualizer", include_str!("../shaders/visualizer.wgsl"), 0),
+            scenes: Scenes::new(device, cache),
         }
     }
 }
 
-fn shader(device: &wgpu::Device, label: &str, source: &'static str) -> wgpu::ShaderModule {
+impl Scenes {
+    fn new(device: &wgpu::Device, cache: Option<&wgpu::PipelineCache>) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("scenes"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        // Each scene follows the shared part (parameters, noise, tone
+        // mapping) in one module.
+        let common = include_str!("../shaders/scene_common.wgsl");
+        let module = |label, scene: &str| shader(device, label, format!("{common}\n{scene}"));
+        let xmb = module("scene xmb", include_str!("../shaders/scene_xmb.wgsl"));
+        let ridges = module("scene ridges", include_str!("../shaders/scene_ridges.wgsl"));
+        let aurora = module("scene aurora", include_str!("../shaders/scene_aurora.wgsl"));
+        let draw = |label, module, vs, fs, blend| {
+            pass(device, label, module, &layout, cache, vs, fs, blend)
+        };
+        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
+        let add = Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent::OVER,
+        });
+        Self {
+            xmb: [
+                draw("scene xmb", &xmb, "vs_main", "fs_main", None),
+                draw("scene xmb wave", &xmb, "vs_wave", "fs_wave", alpha),
+                draw("scene xmb sparkles", &xmb, "vs_sparkle", "fs_sparkle", add),
+            ],
+            ridges: draw("scene ridges", &ridges, "vs_main", "fs_main", None),
+            aurora: draw("scene aurora", &aurora, "vs_main", "fs_main", None),
+            layout,
+        }
+    }
+}
+
+fn shader(
+    device: &wgpu::Device,
+    label: &str,
+    source: impl Into<std::borrow::Cow<'static, str>>,
+) -> wgpu::ShaderModule {
     let started = Instant::now();
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
@@ -103,6 +168,24 @@ fn pipeline(
     layout: &wgpu::BindGroupLayout,
     cache: Option<&wgpu::PipelineCache>,
 ) -> wgpu::RenderPipeline {
+    pass(
+        device, label, module, layout, cache, "vs_main", "fs_main", None,
+    )
+}
+
+/// A pipeline drawing with `vertex` and `fragment` (vertices from the
+/// vertex index alone, no buffers), blended by `blend`.
+#[allow(clippy::too_many_arguments)]
+fn pass(
+    device: &wgpu::Device,
+    label: &str,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::BindGroupLayout,
+    cache: Option<&wgpu::PipelineCache>,
+    vertex: &str,
+    fragment: &str,
+    blend: Option<wgpu::BlendState>,
+) -> wgpu::RenderPipeline {
     let started = Instant::now();
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
@@ -114,16 +197,16 @@ fn pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module,
-            entry_point: Some("vs_main"),
+            entry_point: Some(vertex),
             buffers: &[],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fragment),
             targets: &[Some(wgpu::ColorTargetState {
                 format: FORMAT,
-                blend: None,
+                blend,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),

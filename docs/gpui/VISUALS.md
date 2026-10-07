@@ -562,6 +562,106 @@ figures are ±3 points. The spike ran with `ENCORE_VISUALS_SPIKE=1`
 (removed since) and drew everything into the page area; its file names
 below (`gpu.rs`, `spike.rs`) are now `renderer.rs` and `effects.rs`.
 
+## The 3D scenes (M30, 2026-10-07)
+
+From the browser spike (docs/gpui/SPIKE-3D.md), the three the maintainer kept:
+XMB (the PS3's wave, ported from linkev/PlayStation-3-XMB, MIT, its notice
+in the shader), Ridges (a flight over land whose ridges are the spectrum)
+and Aurora (curtains of the cover's colours over a lake).
+
+Code: `crates/visuals/src/scene.rs` (`Scene`, `Pace`, `seed`) and
+`shaders/scene_*.wgsl`; app side `src/visuals/visualizer.rs`
+(`update_scene`), the visualiser's styles in `config.rs`, Settings →
+Visuals → 3D (`views/settings/visuals/cards.rs`, `Card::Scenes`).
+
+- **Styles of the visualiser.** XMB, Ridges and Aurora are styles beside
+  the bars; they fill the whole scene (Stage, the full window) or Now
+  Playing's panel (with its corners), opaque, where the visualiser shows.
+  Behind text (Now Playing, Stage) they are toned like the backdrop
+  (`tone_dark`/`tone_light`, so text keeps 4.5:1); in the full window at
+  full strength. While one shows, the backdrop and its sparkles rest (no
+  frames, nothing painted under it) and the views draw the cover's shadow.
+- **Shaders.** `scene_common.wgsl` (the spike's parameters, 19 vec4s,
+  noise and tone mapping) goes in front of each scene in one module. The
+  spike's integer hashes became Dave Hoskins' float hashes (integer
+  multiplies are slow on the UHD 630, above); the scenes are otherwise the
+  spike's. XMB is three passes (the gradient, a 100x100 grid mesh blended
+  over it with a fresnel alpha, 2000 instanced sparkles added); Ridges and
+  Aurora are one raymarched pass each. The pipelines compile with the
+  others when the device is made (about 150 ms more on Metal, which has no
+  pipeline cache; in the background).
+- **Music.** `Pace` keeps slow envelopes (bass, mids, highs, level) and
+  two fast ones (energy and highs: 0.08 s up, 0.7 s down), and clocks
+  whose speed follows them (integrated, never time times an envelope).
+  XMB's wave flows 0.6x to ~2.8x with the energy and its sparkles with the
+  highs; its shape never changes with the music. Settings → Visuals → 3D's
+  Music reaction sets how much a scene behind text follows (0.5 as
+  designed); the full window follows all of it.
+- **Pace.** Behind text (Now Playing, Stage) a scene draws at most 60
+  frames a second, every other frame on a 120 Hz display (dimmed and slow
+  there, like the backdrop, which draws at half the window's rate, 10-30);
+  its clocks move by the time since its last frame. The full-window
+  visualiser draws every frame.
+- **Ridges' edges.** The spike's Ridges had no anti-aliasing: the ridges'
+  outlines were stairs of whole pixels, crawling in motion (worse
+  upscaled from 0.6). The march samples exactly the ridge tops, so it
+  knows how close the ray passes over each one; a crest within a pixel
+  covers that much of it and is blended in (one more shading, on edge
+  pixels only; the frame time didn't change). Flicker over 24 frames (the
+  mean of |f(t+1) - 2f(t) + f(t-1)|): 0.37 to 0.21, pixels over 4 from
+  2.5% to 0.86%; what is left is the near ridges' bright lines moving.
+  `examples/scene_shot.rs` writes a scene's frames as the app renders them,
+  for looking at them closely.
+- **Resolution.** XMB renders at full size (its lines and sparkles are a
+  pixel or two), Ridges at 0.6 and Aurora at 0.5 of device pixels, times
+  the Resolution setting, at most full size and 2048 wide.
+- **Settings → Visuals → 3D.** The scene (it is the visualiser's style),
+  where it fills (Now Playing, Stage), Strength, Detail (the raymarch's
+  steps), Resolution and Music reaction. Presets keep them.
+
+Measured 2026-10-07, Apple M5 Pro, profiling build, test audio
+(`ENCORE_FAKE_STREAM`), the full-window visualiser in a 1280x852 window at
+2x, 120 frames a second, `macmon` (no sudo) over 8 s per state, back to
+back:
+
+| State | Total | CPU | GPU | GPU busy | Scene's frame |
+|---|---|---|---|---|---|
+| Home, playing (visualiser closed) | 0.98 W | 0.85 W | 0.13 W | 3% | |
+| Bars | 1.82 W | 1.25 W | 0.57 W | 10% | |
+| Particles | 1.83 W | 1.19 W | 0.64 W | 8% | |
+| XMB, 2048x1312 | 2.39 W | 1.86 W | 0.53 W | 7% | submit 0.09 ms, copy 0.25 ms |
+| Ridges, 1536x984 | 3.30 W | 1.38 W | 1.92 W | 20% | submit 0.15 ms, copy 0.20 ms |
+| Aurora, 1280x820 | 2.80 W | 1.24 W | 1.56 W | 16% | submit 0.16 ms, copy 0.16 ms |
+
+Now Playing with a scene, after the scenes there were held to 60 frames
+a second (below; two runs each, the window at 120 on a 120 Hz display):
+XMB 1.97-2.07 W, Ridges 2.11-2.13 W (GPU 1.05-1.08 W), Aurora 1.76-1.99
+W, against 1.61-1.75 W for the plain backdrop. Before, drawing every
+frame: XMB 2.98 W, Ridges 3.06 W (GPU 1.59 W).
+
+XMB costs the GPU less than the bars over the backdrop; its extra is CPU,
+the upload of a 2048x1312 frame 120 times a second (the readback path; the
+zero-copy question in SPIKE-3D.md is what would remove it). Ridges and
+Aurora cost the GPU 1-1.5 W more than the bars at 120 fps. Tried and
+dropped: Ridges' spectrum transform out of the pixel shader (no change,
+1.49 ms either way: the march is the cost). The levers are the frame rate,
+Resolution and Detail.
+
+`cargo run -p encore-visuals --release --example scene_bench` times each
+scene with its readback at the sizes the app uses (one window at 2x), to
+run on the UHD 630 and a MacBook with the app closed. On the M5 Pro:
+XMB 0.74 ms a frame (2560x1600) and 0.58 ms (Now Playing's panel), Ridges
+1.35 / 0.89 ms, Aurora 1.06 / 0.88 ms. Not measured yet: the UHD 630
+(Linux) and Windows.
+
+Now Playing with a scene (captured on the Mac, dark and light; the scenes
+run at Now Playing's pace, about 90 frames a second there): the cover,
+title, waveform and Up next read over all three in both looks. In the
+light look the scenes nearly vanish (XMB a faint wave, Ridges and Aurora a
+pale haze): `tone_light` presses them into luminance 0.645-0.8. Keeping
+them there needs a scrim behind the text instead of the whole-panel
+squeeze (SPIKE-3D.md).
+
 ## 1. wgpu output inside the GPUI window
 
 **Chosen: our own wgpu device renders offscreen; each frame is read back and

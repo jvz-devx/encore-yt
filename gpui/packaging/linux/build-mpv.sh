@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Builds the mpv the Linux AppImage bundles: mpv, FFmpeg and libplacebo from
 # source, LGPL only (no GPL parts), audio only (PulseAudio and ALSA output),
-# with GnuTLS for https streams. Distribution mpv packages on older systems
+# with GnuTLS for https streams and LuaJIT (--ytdl, which the app sets, is
+# an option of mpv's Lua scripts). Distribution mpv packages on older systems
 # (Ubuntu 22.04 has 0.34) lack options the app sets (volume-gain needs 0.38).
 #
 # Usage: build-mpv.sh <prefix>   (installs into <prefix>, binary in bin/mpv)
 # Needs (Ubuntu 22.04): build-essential nasm pkg-config python3-pip git curl
-#   libass-dev libgnutls28-dev zlib1g-dev libpulse-dev libasound2-dev,
+#   libass-dev libgnutls28-dev zlib1g-dev libpulse-dev libasound2-dev
+#   libluajit-5.1-dev,
 #   and `pip install meson ninja jinja2`.
 # The versions below also key the CI cache; change them here only.
 set -euo pipefail
@@ -51,14 +53,16 @@ if [[ ! -e "$prefix/lib/libplacebo.so" ]]; then (
     meson install -C build
 ); fi
 
-# mpv: the player only, every optional feature off except audio output.
+# mpv: the player only, every optional feature off except audio output and
+# Lua.
 (
     curl -fsSL "https://github.com/mpv-player/mpv/archive/refs/tags/$MPV_VERSION.tar.gz" | tar xz -C "$work"
     cd "$work/mpv-${MPV_VERSION#v}"
     meson setup build --prefix="$prefix" --libdir=lib --buildtype=release \
         -Dauto_features=disabled -Dgpl=false -Dcplayer=true -Dlibmpv=false \
         -Dgl=disabled -Dvulkan=disabled \
-        -Dpulse=enabled -Dalsa=enabled -Diconv=enabled -Dzlib=enabled
+        -Dpulse=enabled -Dalsa=enabled -Diconv=enabled -Dzlib=enabled \
+        -Dlua=luajit
     meson install -C build
 )
 

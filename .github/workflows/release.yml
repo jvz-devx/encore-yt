@@ -82,7 +82,7 @@ jobs:
             libxcb1-dev libx11-xcb-dev libwayland-dev libvulkan-dev \
             libfontconfig-dev libfreetype-dev libasound2-dev libssl-dev \
             desktop-file-utils file \
-            nasm libass-dev libgnutls28-dev zlib1g-dev libpulse-dev
+            nasm libass-dev libgnutls28-dev zlib1g-dev libpulse-dev libluajit-5.1-dev
           python3 -m pip install --user meson ninja jinja2
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 

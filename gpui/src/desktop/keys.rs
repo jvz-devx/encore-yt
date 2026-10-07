@@ -37,8 +37,9 @@ actions!(
     ]
 );
 
-/// Where single-key shortcuts apply: not while typing, not in a menu.
-const SINGLE: &str = "Music && !Input && !MusicMenu";
+/// Where single-key shortcuts apply: not while typing, not in a menu or
+/// an account dialog or Settings (M3).
+const SINGLE: &str = "Music && !Input && !MusicMenu && !MusicDialog";
 /// Chords that work from a field as well.
 const ANYWHERE: &str = "Music";
 
@@ -205,7 +206,7 @@ pub fn on_actions(root: Div, cx: &mut Context<MusicApp>) -> Div {
         this.show_shortcuts(open, window, cx);
     }))
     .on_action(cx.listener(|this, _: &Like, _, cx| this.like_playing(cx)))
-    .on_action(cx.listener(|this, _: &Settings, _, cx| this.open_settings(cx)))
+    .on_action(cx.listener(|this, _: &Settings, window, cx| this.open_settings(true, window, cx)))
     .on_action(|_: &Quit, _, cx| {
         log::info!("quitting");
         cx.quit();

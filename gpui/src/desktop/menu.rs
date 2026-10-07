@@ -11,8 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use gpui_kit::assets::IconName;
 use gpui_kit::*;
+use ytfast::account::AccountAction;
 use ytfast::backend::Command;
-use ytfast::model::{Header, Item, ItemKind, Run, Target, Track};
+use ytfast::model::{Header, Item, ItemKind, LikeStatus, Run, Target, Track};
 
 use super::control::{self, FromPage};
 use crate::app::MusicApp;
@@ -41,6 +42,11 @@ pub enum Place {
     List,
     /// Up next, at this queue position: Remove from queue.
     UpNext(usize),
+    /// The account's own playlist, as this entry: Remove from playlist.
+    Own {
+        playlist_id: String,
+        set_video_id: String,
+    },
 }
 
 /// What a menu is about.
@@ -148,6 +154,10 @@ pub enum Does {
     Open(Target),
     Copy(String),
     RemoveQueued(usize),
+    /// A change to the account (M3).
+    Account(AccountAction),
+    /// The Save to playlist dialog for the song (M3).
+    AddToPlaylist,
 }
 
 /// One entry: its icon, label and section (a line separates sections).
@@ -159,7 +169,6 @@ pub struct Entry {
 }
 
 const QUEUE: u8 = 0;
-#[allow(dead_code, reason = "M3's entries go here")]
 const ACCOUNT: u8 = 1;
 const GO: u8 = 2;
 const SHARE: u8 = 3;
@@ -218,6 +227,22 @@ pub fn entries(app: &MusicApp, subject: &Subject) -> Vec<Entry> {
                     IconName::ListX,
                     "Remove from queue",
                     Does::RemoveQueued(*i),
+                    EDIT,
+                ));
+            }
+            if let Place::Own {
+                playlist_id,
+                set_video_id,
+            } = place
+                && app.account.signed_in()
+            {
+                out.push(entry(
+                    IconName::Trash,
+                    "Remove from playlist",
+                    Does::Account(AccountAction::Remove {
+                        playlist_id: playlist_id.clone(),
+                        set_video_id: set_video_id.clone(),
+                    }),
                     EDIT,
                 ));
             }
@@ -291,12 +316,79 @@ pub fn entries(app: &MusicApp, subject: &Subject) -> Vec<Entry> {
     out
 }
 
-/// TODO(M3): the account's entries, in the `ACCOUNT` section, once M3's
-/// API is on main: for a song Like/Unlike and Add to playlist, for an album
-/// or playlist Save to library/Remove from library (from its page header's
-/// `library`), for an artist Subscribe/Unsubscribe. Signed out: none.
-fn account_entries(_app: &MusicApp, _subject: &Subject) -> Vec<Entry> {
-    Vec::new()
+/// The account's entries, in the `ACCOUNT` section: for a song Like or
+/// Unlike and Add to playlist, for an album or playlist Save to library or
+/// Remove from library (from its page header, once loaded), for an artist
+/// Subscribe or Unsubscribe. Signed out: none.
+fn account_entries(app: &MusicApp, subject: &Subject) -> Vec<Entry> {
+    if !app.account.signed_in() {
+        return Vec::new();
+    }
+    let marks = &app.account.state.marks;
+    let header = subject.page().and_then(|t| {
+        app.pages
+            .states
+            .get(&t.key())?
+            .page
+            .as_ref()?
+            .header
+            .as_ref()
+    });
+    let mut out = Vec::new();
+    match subject {
+        Subject::Song { track, .. } => {
+            let liked = marks.like(track) == LikeStatus::Like;
+            let status = if liked {
+                LikeStatus::Indifferent
+            } else {
+                LikeStatus::Like
+            };
+            let rate = Does::Account(AccountAction::Rate {
+                track: track.clone(),
+                status,
+            });
+            let label = if liked { "Unlike" } else { "Like" };
+            out.push(entry(IconName::ThumbsUp, label, rate, ACCOUNT));
+            out.push(entry(
+                IconName::ListPlus,
+                "Add to playlist",
+                Does::AddToPlaylist,
+                ACCOUNT,
+            ));
+        }
+        Subject::Collection { .. } => {
+            if let Some((h, library)) = header.and_then(|h| Some((h, h.library.as_ref()?))) {
+                let saved = marks.saved(library);
+                let save = Does::Account(AccountAction::Save {
+                    playlist_id: library.playlist_id.clone(),
+                    title: h.title.clone(),
+                    save: !saved,
+                });
+                out.push(if saved {
+                    entry(IconName::Check, "Remove from library", save, ACCOUNT)
+                } else {
+                    entry(IconName::Plus, "Save to library", save, ACCOUNT)
+                });
+            }
+        }
+        Subject::Artist { .. } => {
+            if let Some((h, sub)) = header.and_then(|h| Some((h, h.subscription.as_ref()?))) {
+                let subscribed = marks.subscribed(sub);
+                let does = Does::Account(AccountAction::Subscribe {
+                    channel_id: sub.channel_id.clone(),
+                    name: h.title.clone(),
+                    subscribe: !subscribed,
+                });
+                let label = if subscribed {
+                    "Unsubscribe"
+                } else {
+                    "Subscribe"
+                };
+                out.push(entry(IconName::Bell, label, does, ACCOUNT));
+            }
+        }
+    }
+    out
 }
 
 static SERIAL: AtomicU64 = AtomicU64::new(0);
@@ -384,10 +476,16 @@ impl MusicApp {
         };
         self.close_menu(window, cx);
         log::info!("menu: {} for {}", chosen.label, describe(&subject));
-        self.perform(&subject, chosen.does, cx);
+        self.perform(&subject, chosen.does, window, cx);
     }
 
-    fn perform(&mut self, subject: &Subject, does: Does, cx: &mut Context<Self>) {
+    fn perform(
+        &mut self,
+        subject: &Subject,
+        does: Does,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match (does, subject) {
             (Does::PlayNext, Subject::Song { track, .. }) => {
                 self.send(Command::PlayNext(vec![track.clone()]));
@@ -418,6 +516,10 @@ impl MusicApp {
             (Does::Open(target), _) => self.open_link(target, cx),
             (Does::Copy(link), _) => self.copy_link(link, cx),
             (Does::RemoveQueued(i), _) => self.edit_queue(Command::RemoveFromQueue(i), cx),
+            (Does::Account(action), _) => self.account_act(action, cx),
+            (Does::AddToPlaylist, Subject::Song { track, .. }) => {
+                crate::account::add_to_playlist(self, vec![track.clone()], window, cx);
+            }
             _ => {}
         }
         cx.notify();

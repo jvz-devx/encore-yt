@@ -5,10 +5,11 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::h_flex;
+use gpui_kit::component::switch::Switch;
 use gpui_kit::*;
 
 use crate::assets::Glyph;
-use crate::theme::{Colors, Type, radius, size, space};
+use crate::theme::{Colors, Type, elevation, motion, radius, size, space};
 
 /// A Lucide icon at `px` size in `color`.
 pub fn icon(name: IconName, px: Pixels, color: Hsla) -> Icon {
@@ -53,6 +54,8 @@ pub enum Pill {
     Primary,
     /// Actions next to it: Shuffle, Radio, Try again.
     Secondary,
+    /// Confirms something that can't be undone: Delete.
+    Danger,
 }
 
 /// A pill button with an optional leading icon (36 px tall).
@@ -66,6 +69,7 @@ pub fn pill_button(
     let (bg, hover, fg) = match kind {
         Pill::Primary => (c.primary, c.primary_hover, c.primary_foreground),
         Pill::Secondary => (c.raised, c.overlay, c.text),
+        Pill::Danger => (c.danger, c.danger.opacity(0.88), c.primary_foreground),
     };
     h_flex()
         .id(id)
@@ -86,6 +90,37 @@ pub fn pill_button(
         .hover(move |s| s.bg(hover))
         .active(move |s| s.opacity(0.9))
         .children(leading.map(|i| i.text_color(fg)))
+        .child(label.into())
+}
+
+/// A secondary pill that is a toggle (Save to library, Subscribe): its
+/// icon is `signal` while on.
+pub fn toggle_pill(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    leading: IconName,
+    on: bool,
+    c: &Colors,
+) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .flex_none()
+        .h(size::CHIP)
+        .pl(space::MD)
+        .pr(space::LG)
+        .gap(space::SM)
+        .rounded(radius::FULL)
+        .bg(c.raised)
+        .text_color(c.text)
+        .type_label()
+        .cursor_pointer()
+        .hover(|s| s.bg(c.overlay))
+        .active(|s| s.opacity(0.9))
+        .child(icon(
+            leading,
+            size::ICON_SM,
+            if on { c.signal } else { c.text },
+        ))
         .child(label.into())
 }
 
@@ -163,6 +198,69 @@ pub fn muted_line(text: impl Into<SharedString>, c: &Colors) -> Div {
         .type_small()
         .text_color(c.text_muted)
         .child(text.into())
+}
+
+/// An on/off switch; on is `signal` (DESIGN.md: a toggle that is on is live).
+pub fn switch(id: impl Into<ElementId>, on: bool, c: &Colors) -> Switch {
+    Switch::new(id).checked(on).color(c.signal)
+}
+
+/// A row in a menu or popover: 40 tall, an 18 px icon and a label. The
+/// menu's padding is `XS`, so its `LG` corners stay concentric with these.
+pub fn menu_item(
+    id: impl Into<ElementId>,
+    icon_name: IconName,
+    label: impl Into<SharedString>,
+    c: &Colors,
+) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .h(size::NAV_ITEM)
+        .px(space::MD)
+        .gap(space::MD)
+        .rounded(radius::MD)
+        .type_label()
+        .cursor_pointer()
+        .hover(|s| s.bg(c.hover))
+        .active(|s| s.bg(c.pressed))
+        .child(icon(icon_name, size::ICON, c.text_muted))
+        .child(label.into())
+}
+
+/// A floating panel (menus, popovers, dialogs): `overlay` fill, `LG`
+/// corners, high elevation.
+pub fn floating(c: &Colors) -> Div {
+    div()
+        .bg(c.overlay)
+        .rounded(radius::LG)
+        .shadow(elevation::high(c))
+}
+
+/// The layer behind a dialog: a `scrim` over the window that centres its
+/// child. Clicks on it close the dialog (`on_click`); the dialog's panel
+/// stops them.
+pub fn scrim(id: impl Into<ElementId>, c: &Colors) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(c.scrim)
+        .occlude()
+}
+
+/// A panel's entrance: it fades in and settles up from 8 px below.
+pub fn settle_in<E: Styled + IntoElement + 'static>(
+    id: impl Into<ElementId>,
+    el: E,
+) -> AnimationElement<E> {
+    el.with_animation(
+        id,
+        Animation::new(motion::BASE).with_easing(motion::ease_out),
+        |el, t| el.opacity(t).mt(px(8.) * (1. - t)),
+    )
 }
 
 /// A tooltip builder for `.tooltip(..)`: a short label in the kit's

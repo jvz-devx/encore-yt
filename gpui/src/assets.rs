@@ -53,7 +53,21 @@ gpui_kit::assets::icon_assets!(
         ListEnd,
         Link,
         Command,
-        Check
+        Check,
+        ThumbsUp,
+        ThumbsDown,
+        ListPlus,
+        Plus,
+        Pencil,
+        Trash,
+        Settings,
+        LogIn,
+        RefreshCcw,
+        Bell,
+        AudioWaveform,
+        WifiOff,
+        CircleUserRound,
+        Lock
     ]
 );
 
@@ -76,6 +90,14 @@ const GLYPHS: &[(&str, &[u8])] = &[
         "icons/fill/skip-forward.svg",
         include_bytes!("../assets/icons/fill/skip-forward.svg"),
     ),
+    (
+        "icons/fill/thumbs-up.svg",
+        include_bytes!("../assets/icons/fill/thumbs-up.svg"),
+    ),
+    (
+        "icons/fill/thumbs-down.svg",
+        include_bytes!("../assets/icons/fill/thumbs-down.svg"),
+    ),
 ];
 
 /// A filled glyph from [`GLYPHS`].
@@ -85,6 +107,10 @@ pub enum Glyph {
     Pause,
     SkipBack,
     SkipForward,
+    /// A song that is liked.
+    ThumbsUp,
+    /// A song that is disliked.
+    ThumbsDown,
 }
 
 impl Glyph {
@@ -94,6 +120,8 @@ impl Glyph {
             Glyph::Pause => "icons/fill/pause.svg",
             Glyph::SkipBack => "icons/fill/skip-back.svg",
             Glyph::SkipForward => "icons/fill/skip-forward.svg",
+            Glyph::ThumbsUp => "icons/fill/thumbs-up.svg",
+            Glyph::ThumbsDown => "icons/fill/thumbs-down.svg",
         }
     }
 }

@@ -60,8 +60,8 @@ pub enum Cmd {
     Sleep(String),
     Eq(String),
     Mini,
-    /// Answered by another area that isn't here yet: the note to show.
-    Elsewhere(&'static str),
+    /// Like the playing song, or remove its like.
+    Like,
 }
 
 /// What choosing a result does.
@@ -365,12 +365,6 @@ impl MusicApp {
                 }
                 return;
             }
-            Go::Command(Cmd::Elsewhere(note)) => {
-                if let Some(pa) = &mut self.desktop.layers.palette {
-                    pa.note = Some(note);
-                }
-                return;
-            }
             go => {
                 self.close_play_anything(window, cx);
                 self.run_hit(go, songs, open, window, cx);
@@ -433,7 +427,7 @@ impl MusicApp {
                 self.eq_command(&words, cx);
             }
             Cmd::Mini => self.toggle_mini(cx),
-            Cmd::Elsewhere(_) => {}
+            Cmd::Like => self.toggle_like_current(cx),
         }
     }
 }
@@ -538,9 +532,6 @@ fn command_hit(key: &str, title: impl Into<String>, detail: &str, go: Go) -> Hit
     }
 }
 
-/// Commands answered by another area (M6, M3) until it lands here.
-const LATER: &str = "Not available yet";
-
 /// Commands for what's typed: exact ones (and their arguments) rank first,
 /// ones the text only begins are offered after the music.
 fn commands(query: &str, out: &mut Vec<Ranked>) {
@@ -554,7 +545,6 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
             order,
         });
     };
-    let elsewhere = |what| Go::Command(Cmd::Elsewhere(what));
     match word.as_str() {
         "sleep" if !rest.is_empty() => {
             let (title, words) = match rest.parse::<u32>() {
@@ -611,9 +601,8 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
         (
             "like",
             "Like",
-            LATER,
-            // TODO(M3): like the playing song through M3's API.
-            elsewhere("Liking isn't available yet."),
+            "Like or unlike the playing song",
+            Go::Command(Cmd::Like),
         ),
         (
             "next",

@@ -1,55 +1,67 @@
-//! M3: the account chip in the top bar, and account dialogs.
+//! M3: the account chip and its menu, the like buttons, a page header's
+//! account actions, Up next's Save, and the playlist dialogs.
+//!
+//! Other areas place these slots: the player bar and Now Playing
+//! [`like_button`] (M2), the page header [`header_actions`], Library's
+//! [`library_actions`] (M1) and Up next's [`save_queue_button`]. Context
+//! menus open the playlist picker with `crate::account::add_to_playlist`.
 
-use gpui_kit::assets::IconName;
-use gpui_kit::component::h_flex;
+mod chip;
+mod controls;
+mod dialogs;
+mod menu;
+
 use gpui_kit::*;
-use ytfast::model::Account;
 
-use super::widgets;
 use crate::app::MusicApp;
-use crate::theme::{self, Type, radius, size, space};
 
-pub fn chip(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) -> impl IntoElement {
-    let c = theme::colors(cx);
-    let label = match &app.account.account {
-        Account::Checking => "Checking your account…".to_string(),
-        Account::SignedIn { name, .. } => name.clone(),
-        Account::SignedOut { .. } => "Signed out of YouTube Music".to_string(),
-        Account::Unverified { .. } => "Offline".to_string(),
-    };
-    h_flex()
-        .h(px(32.))
-        .pl(space::SM)
-        .pr(space::MD)
-        .gap(space::SM)
+pub use chip::chip;
+pub use controls::{header_actions, library_actions, like_button, save_queue_button};
+
+/// The layer over the window: an open playlist dialog, else Settings.
+pub fn layer(
+    app: &MusicApp,
+    window: &mut Window,
+    cx: &mut Context<MusicApp>,
+) -> Option<AnyElement> {
+    dialogs::dialog(app, window, cx).or_else(|| super::settings::settings(app, window, cx))
+}
+
+/// A person's photo as a disc, with their initial underneath while it loads
+/// (or when there is none).
+pub(super) fn avatar(photo: Option<&str>, name: &str, side: Pixels, cx: &App) -> Div {
+    let c = crate::theme::colors(cx);
+    let initial = name
+        .chars()
+        .next()
+        .map(|ch| ch.to_uppercase().to_string())
+        .unwrap_or_default();
+    use crate::theme::{Type, radius};
+    gpui_kit::component::h_flex()
+        .relative()
+        .flex_none()
+        .size(side)
+        .justify_center()
         .rounded(radius::FULL)
-        .bg(c.raised)
-        .type_small()
+        .bg(c.overlay)
+        .type_label()
         .text_color(c.text_muted)
-        .child(widgets::icon(
-            IconName::UserRound,
-            size::ICON_SM,
-            c.text_muted,
-        ))
-        .child(label)
-}
-
-/// M3: the like/dislike control for `track`, placed by the player bar and
-/// Now Playing (M2). `None` until M3 fills it in or while signed out.
-pub fn like_button(
-    _app: &MusicApp,
-    _track: &ytfast::model::Track,
-    _cx: &mut Context<MusicApp>,
-) -> Option<AnyElement> {
-    None
-}
-
-/// M3: a page header's account actions (save to library, subscribe, edit
-/// playlist), placed by the page header (M1). `None` when there are none.
-pub fn header_actions(
-    _app: &MusicApp,
-    _header: &ytfast::model::Header,
-    _cx: &mut Context<MusicApp>,
-) -> Option<AnyElement> {
-    None
+        .child(initial)
+        .children(photo.map(|url| {
+            img(SharedString::from(url.to_string()))
+                .absolute()
+                .top_0()
+                .left_0()
+                .size(side)
+                .rounded(radius::FULL)
+                .object_fit(ObjectFit::Cover)
+        }))
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .rounded(radius::FULL)
+                .border_1()
+                .border_color(c.outline),
+        )
 }

@@ -239,8 +239,11 @@ impl MusicApp {
             Err(error) => {
                 state.loading = false;
                 state.error = Some(error);
+                return;
             }
         }
+        // The account's changes still in force apply to the new copy (M3).
+        self.account_page_arrived(&key, cached);
     }
 
     /// Loads the next part of page `key`: its own continuation (more
@@ -357,8 +360,11 @@ impl MusicApp {
                 // Stop asking for this part; a page refresh starts over.
                 *slot = None;
                 self.error = Some(format!("Couldn't load more: {error}"));
+                return;
             }
         }
+        // Account changes waiting for these rows apply to them (M3).
+        self.account_more_arrived(&key);
     }
 
     /// Chip `i` of page `key` chosen. A selected one goes back where it came

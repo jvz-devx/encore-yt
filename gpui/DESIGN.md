@@ -193,10 +193,19 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   subtitle and description `type_small` muted, then a row of pills.
 - **Player bar**: cover 56 + title `type_label` / artists `type_small` muted
   ("Nothing playing" in `text_faint` when empty). Transport: shuffle, previous,
-  the 40 px `primary` play disc (spinner while loading), next, repeat. Seek:
-  kit `Slider` with `.bg(c.signal)`, times `type_caption().tabular()` in
-  `text_faint`, max 600 wide. Volume: icon by level and a 112 px slider in
-  `text_muted`.
+  the 40 px `primary` play disc (spinner while loading), next, repeat.
+  Volume: icon by level and a 112 px slider in `text_muted`.
+- **Seek bar**: at most 600 wide between the elapsed time and the length
+  (`type_caption().tabular()` in `text_faint`). The effects layer draws it
+  (M9, `visuals::bar`, over the cover's palette glow): the played part is a
+  `signal` fill with a soft bloom that keeps the track's top edge and hangs
+  below it as deep as the song is loud (its waveform, lit along the top),
+  the rest `text` at 16-20%, and a `text` playhead that swells on the kick
+  with a `signal` ring pulsing out of it (larger under the pointer). The
+  kit `Slider` stays on top, see-through, for clicks and drags; the
+  most-replayed ridge rises from the same edge over it. Without effects
+  (`YTFAST_GPUI_VISUALS=0`, no GPU, Stage) it is the plain kit slider in
+  `signal` with a `text` thumb.
 - **Panels** (Up next, settings, dialogs): `overlay` (dialogs) or `surface`
   (side panel, `radius LG`, inset like the page panel), `elevation::high` when
   floating, padding `LG`–`XL`, headings `type_heading`.

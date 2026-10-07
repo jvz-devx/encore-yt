@@ -1,5 +1,8 @@
-//! The player bar: the song, transport controls, position and volume.
+//! The player bar: the song, transport controls, position and volume. It is
+//! its own view ([`layer::PlayerBar`]), so the position can move without
+//! re-rendering the rest of the app.
 
+pub(crate) mod layer;
 pub(super) mod links;
 mod side;
 
@@ -25,6 +28,12 @@ use crate::visuals::{self, Slot};
 const SIDE: Pixels = px(300.);
 /// The seek bar's widest.
 const SEEK_MAX: Pixels = px(600.);
+
+/// The room the player bar takes at the bottom of the app's views; the bar
+/// itself is drawn by [`layer::PlayerBar`], under them.
+pub fn space() -> impl IntoElement {
+    div().h(size::PLAYER_BAR).flex_none()
+}
 
 pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let c = theme::colors(cx);

@@ -280,6 +280,15 @@ impl Effects {
         (bands.kick - kick).abs() > BEAT_STEP || (bands.bass - bass).abs() > BEAT_STEP
     }
 
+    /// The song's position moved: while the ticker runs, its next frame
+    /// shows it; otherwise this draws one (a still frame if the playhead
+    /// moved).
+    pub fn wake(&mut self, cx: &mut Context<Self>) {
+        if self.ticker.is_none() {
+            cx.notify();
+        }
+    }
+
     /// Checks every `KEEP` whether the backdrop or the GPU can go.
     fn keep_reaping(&mut self, cx: &mut Context<Self>) {
         if self.reaper.is_some() || self.gpu.is_none() {

@@ -52,8 +52,14 @@ pub struct LyricsScroll {
     pub wake: Option<(usize, Task<()>)>,
 }
 
+/// Notified when only the song's position moved. The views that show the
+/// position outside the page (the player bar, the mini player) observe it,
+/// so a playback report or a clock tick doesn't re-render the whole window.
+pub struct Clock;
+
 pub struct Player {
     pub queue: Vec<Track>,
+    pub clock: Entity<Clock>,
     pub playback: Playback,
     /// When `playback` arrived; the shown position moves on from there.
     playback_at: Instant,
@@ -68,6 +74,8 @@ pub struct Player {
     volume_synced: bool,
     /// The volume before Mute, to go back to.
     pub muted_from: Option<f64>,
+    /// What the player bar last drew of the position ([`MusicApp::bar_shows`]).
+    pub bar_shown: Option<(u64, Option<i64>)>,
     /// Now Playing fills the page area.
     pub now_playing: bool,
     /// The page view when Now Playing opened: navigating away closes it.
@@ -105,6 +113,7 @@ impl Player {
         (
             Self {
                 queue: Vec::new(),
+                clock: cx.new(|_| Clock),
                 playback: Playback::default(),
                 playback_at: Instant::now(),
                 seek,
@@ -113,6 +122,7 @@ impl Player {
                 pending_seek: None,
                 volume_synced: false,
                 muted_from: None,
+                bar_shown: None,
                 now_playing: false,
                 now_playing_over: None,
                 tab: Tab::default(),
@@ -157,12 +167,14 @@ impl MusicApp {
         self.player.queue = queue;
     }
 
+    /// Takes in a playback report; whether anything but the position
+    /// changed (else only [`MusicApp::position_moved`] is due).
     pub(crate) fn on_playback(
         &mut self,
         mut playback: Playback,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let player = &mut self.player;
         let song_changed = playback.index != player.playback.index
             || player.current().map(|t| &t.video_id)
@@ -178,12 +190,6 @@ impl MusicApp {
                 playback.position = to;
             }
         }
-        if !player.seeking && playback.duration > 0.0 {
-            let at = (playback.position / playback.duration) as f32 * SEEK_SCALE;
-            player
-                .seek
-                .update(cx, |slider, cx| slider.set_value(at, window, cx));
-        }
         if !player.volume_synced {
             player.volume_synced = true;
             let volume = playback.volume as f32;
@@ -197,9 +203,57 @@ impl MusicApp {
                 log::info!("now playing {} (queue {})", track.video_id, i + 1);
             }
         }
+        let changed = !same_but_position(&player.playback, &playback);
         player.playback = playback;
         player.playback_at = Instant::now();
+        // Stage draws the seek slider inside the app's views.
+        if self.extras.stage.open {
+            self.sync_seek(window, cx);
+        }
         self.prefetch_lyrics();
+        changed
+    }
+
+    /// Moves the seek slider to the position. The player bar does this as
+    /// it renders: a slider change asks for a window frame of its own, so a
+    /// playback report doesn't move it.
+    pub(crate) fn sync_seek(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let player = &self.player;
+        let duration = player.playback.duration;
+        if player.seeking || duration <= 0.0 {
+            return;
+        }
+        let at = (player.position() / duration) as f32 * SEEK_SCALE;
+        player
+            .seek
+            .update(cx, |slider, cx| slider.set_value(at, window, cx));
+    }
+
+    /// Redraws what shows the position. Stage and Now Playing (its
+    /// waveform) draw it inside the app's views; otherwise only the player
+    /// bar and the mini player do, and they watch [`Clock`]. While the
+    /// effects layer draws the seek bar, its frames show the position, and
+    /// the shell redraws the bar in one of them once what the bar shows
+    /// changed ([`MusicApp::bar_shows`]): a tick needs no frame of its own.
+    pub(crate) fn position_moved(&mut self, cx: &mut Context<Self>) {
+        if self.player.now_playing || self.extras.stage.open {
+            cx.notify();
+        } else if self.extras.mini_open() || !crate::visuals::position_moved(cx) {
+            self.player.clock.update(cx, |_, cx| cx.notify());
+        }
+    }
+
+    /// What the player bar draws of the position itself: the elapsed time's
+    /// second and, with the ridge, its playhead to the pixel.
+    pub(crate) fn bar_shows(&self, cx: &App) -> (u64, Option<i64>) {
+        let position = self.player.position();
+        let duration = self.player.playback.duration;
+        let ridge = self
+            .current_heat()
+            .filter(|_| duration > 0.0)
+            .and_then(|_| crate::visuals::seek_width(cx))
+            .map(|width| (position / duration * f64::from(f32::from(width))) as i64);
+        (position as u64, ridge)
     }
 
     pub(crate) fn on_lyrics(&mut self, id: String, result: Result<Option<Lyrics>, String>) {
@@ -363,6 +417,50 @@ impl MusicApp {
             self.request_current_lyrics();
         }
     }
+}
+
+/// Whether two playback reports differ only in the position. The fields
+/// are listed out, so a new one has to be placed here.
+fn same_but_position(a: &Playback, b: &Playback) -> bool {
+    let Playback {
+        index,
+        playing,
+        loading,
+        position: _,
+        duration,
+        volume,
+        shuffle,
+        repeat,
+        autoplay,
+        format,
+        lyrics,
+        related,
+        next_ready,
+        sleep,
+        normalize,
+        gain,
+        equalizer,
+        audition,
+        mixes,
+    } = a;
+    *index == b.index
+        && *playing == b.playing
+        && *loading == b.loading
+        && *duration == b.duration
+        && *volume == b.volume
+        && *shuffle == b.shuffle
+        && *repeat == b.repeat
+        && *autoplay == b.autoplay
+        && *format == b.format
+        && *lyrics == b.lyrics
+        && *related == b.related
+        && *next_ready == b.next_ready
+        && *sleep == b.sleep
+        && *normalize == b.normalize
+        && *gain == b.gain
+        && *equalizer == b.equalizer
+        && *audition == b.audition
+        && *mixes == b.mixes
 }
 
 /// A queue edit, for the log.

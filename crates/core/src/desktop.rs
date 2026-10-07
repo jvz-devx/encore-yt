@@ -58,6 +58,8 @@ pub struct Flags {
     pub focused: AtomicBool,
     /// Settings: "Show a notification when the song changes".
     pub notifications: AtomicBool,
+    /// Settings: Discord Rich Presence, and how the connection stands.
+    pub discord: crate::discord::Handle,
     /// A window is open; the tray icon shows while none is.
     pub window_open: watch::Sender<bool>,
 }
@@ -67,6 +69,7 @@ impl Default for Flags {
         Self {
             focused: AtomicBool::new(false),
             notifications: AtomicBool::new(false),
+            discord: crate::discord::Handle::default(),
             window_open: watch::Sender::new(true),
         }
     }

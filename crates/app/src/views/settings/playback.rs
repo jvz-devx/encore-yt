@@ -1,5 +1,5 @@
 //! Settings → Playback: loudness levelling, smooth mixes (`mixes`), the
-//! sleep timer (`sleep`), notifications and loading pages on hover (M28),
+//! sleep timer (`sleep`), notifications, Discord Rich Presence (M34) and loading pages on hover (M28),
 //! and their Reset.
 
 use encore_core::model::Mixes;
@@ -20,6 +20,7 @@ pub fn page(
         super::mixes::section(app, c, window, cx),
         super::sleep::section(app, c, cx),
         notifications(app, c, cx),
+        discord(app, c, cx),
         prefetch(app, c, cx),
     ]
 }
@@ -29,6 +30,7 @@ pub fn changed(app: &MusicApp) -> bool {
     !app.player.playback.normalize
         || app.player.playback.mixes != Mixes::default()
         || app.notifications()
+        || app.discord()
         || !app.pages.prefetch.on
 }
 
@@ -36,6 +38,7 @@ pub fn reset(app: &mut MusicApp, cx: &mut Context<MusicApp>) {
     app.set_normalize(true, cx);
     app.set_mixes(Mixes::default(), cx);
     app.set_notifications(false, cx);
+    app.set_discord(false, cx);
     app.set_prefetch(true, cx);
 }
 
@@ -69,6 +72,36 @@ fn notifications(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyE
         [super::row(
             "Show a notification when the song changes",
             Some("Only while Encore's window isn't in front".into()),
+            control,
+            c,
+        )],
+    )
+}
+
+/// What the Discord row says under its name: only claims a state that was
+/// checked (Discord answered, or wasn't found).
+fn discord_detail(app: &MusicApp) -> &'static str {
+    use encore_core::discord::{Status, configured};
+    if !configured() {
+        return "Discord isn't set up in this build";
+    }
+    match (app.discord(), app.desktop.flags.discord.status()) {
+        (false, _) => "Only talks to the Discord app on this computer",
+        (true, Status::Connected) => "Connected to Discord on this computer",
+        (true, Status::Waiting) => "Discord isn't running. Encore looks again every 30 seconds",
+        (true, _) => "Shows while a song plays. Only talks to the Discord app on this computer",
+    }
+}
+
+fn discord(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let control = widgets::switch("discord", app.discord(), c)
+        .on_click(cx.listener(|this, on: &bool, _, cx| this.set_discord(*on, cx)));
+    super::section(
+        "Discord",
+        c,
+        [super::row(
+            "Show what you're playing in Discord",
+            Some(discord_detail(app).into()),
             control,
             c,
         )],

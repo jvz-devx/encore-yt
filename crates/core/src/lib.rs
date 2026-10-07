@@ -10,6 +10,7 @@ pub mod account;
 pub mod auth;
 pub mod backend;
 pub mod desktop;
+pub mod discord;
 pub mod equalizer;
 pub mod heat;
 pub mod innertube;

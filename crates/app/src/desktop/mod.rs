@@ -73,6 +73,9 @@ impl Desktop {
             encore_core::settings::Settings::load(paths).notifications,
             std::sync::atomic::Ordering::Relaxed,
         );
+        flags
+            .discord
+            .set_enabled(encore_core::settings::Settings::load(paths).discord);
         let (request_tx, requests) = mpsc::channel();
         let (wake_tx, wake_rx) = smol::channel::bounded::<()>(1);
         let remote = Remote::new(
@@ -152,7 +155,9 @@ fn start_services(backend: &Backend, paths: &Paths, remote: &Remote, flags: &Arc
         );
     }
     #[cfg(not(target_os = "linux"))]
-    let _ = (backend, flags);
+    let _ = &backend;
+    // Discord Rich Presence (M34): every platform.
+    encore_core::discord::start(&backend.runtime, backend.now.clone(), flags.clone());
     signals::watch(&backend.runtime, remote.clone());
 }
 

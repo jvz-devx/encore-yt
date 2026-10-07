@@ -99,6 +99,8 @@ pub enum Command {
     ScanBrowsers,
     /// Settings: song-change notifications on or off (saved for next time).
     Notifications(bool),
+    /// Settings: Discord Rich Presence on or off (saved for next time).
+    Discord(bool),
     /// A change to the signed-in account; `op` stamps the answer. On success
     /// the `refresh` pages are asked for again once YouTube Music shows it.
     AccountEdit {
@@ -760,6 +762,15 @@ impl Worker {
                 if let Err(error) = settings.save(&self.paths) {
                     self.sink.send(Event::Error(format!(
                         "Couldn't save the notification setting: {error}"
+                    )));
+                }
+            }
+            Command::Discord(on) => {
+                let mut settings = crate::settings::Settings::load(&self.paths);
+                settings.discord = on;
+                if let Err(error) = settings.save(&self.paths) {
+                    self.sink.send(Event::Error(format!(
+                        "Couldn't save the Discord setting: {error}"
                     )));
                 }
             }

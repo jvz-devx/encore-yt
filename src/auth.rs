@@ -1,12 +1,15 @@
 //! Reads the YouTube session from the desktop's Chromium-family or Firefox
 //! browser, or from cookie files exported elsewhere
-//! (`~/.config/ytfast/*cookies*.txt`).
+//! (`~/.config/ytfast/*cookies*.txt`), and saves imported or pasted
+//! cookies as such a file.
 //!
 //! The browser keeps its cookie store open, so the database is copied first.
 //! Chromium values are encrypted with a key derived from the browser's "Safe
 //! Storage" password, kept in the Secret Service or, on KDE, in KWallet (see
-//! docs/integration.md); Firefox stores them in the clear. Cookie values and
-//! that password are secrets: nothing here logs them.
+//! docs/integration.md), and on macOS in the Keychain; Firefox stores them
+//! in the clear (read on every OS). Chromium on Windows (DPAPI and an
+//! app-bound key) is not read. Cookie values and that password are secrets:
+//! nothing here logs them.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,51 +20,111 @@ use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use anyhow::{Context, Result, anyhow, bail};
 use sha2::Digest;
 
-/// One browser installation ytfast can read: its name, its config directory
-/// under `~/.config`, the `application` its Safe Storage password is filed
-/// under in the Secret Service, and its name in KWallet (folder "<name> Keys",
-/// entry "<name> Safe Storage", as yt-dlp reads them).
+/// One Chromium-family installation ytfast can read: its name and its
+/// profiles directory under the config directory (`~/.config` on Linux,
+/// `~/Library/Application Support` on macOS). On Linux its Safe Storage
+/// password is filed under `keyring` (the Secret Service's `application`)
+/// or, on KDE, in KWallet (folder "<vendor> Keys", entry "<vendor> Safe
+/// Storage", as yt-dlp reads them). On macOS it is the Keychain item
+/// `keychain` with the account `vendor`.
 struct Browser {
     name: &'static str,
     dir: &'static str,
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     keyring: &'static str,
-    kwallet: &'static str,
+    vendor: &'static str,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    keychain: &'static str,
 }
 
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+const fn browser(
+    name: &'static str,
+    dir: &'static str,
+    keyring: &'static str,
+    vendor: &'static str,
+    keychain: &'static str,
+) -> Browser {
+    Browser {
+        name,
+        dir,
+        keyring,
+        vendor,
+        keychain,
+    }
+}
+
+#[cfg(target_os = "linux")]
 const BROWSERS: &[Browser] = &[
-    Browser {
-        name: "Brave Origin",
-        dir: "BraveSoftware/Brave-Origin",
-        keyring: "brave",
-        kwallet: "Brave",
-    },
-    Browser {
-        name: "Brave",
-        dir: "BraveSoftware/Brave-Browser",
-        keyring: "brave",
-        kwallet: "Brave",
-    },
-    Browser {
-        name: "Google Chrome",
-        dir: "google-chrome",
-        keyring: "chrome",
-        kwallet: "Chrome",
-    },
-    Browser {
-        name: "Chromium",
-        dir: "chromium",
-        keyring: "chromium",
-        kwallet: "Chromium",
-    },
+    browser(
+        "Brave Origin",
+        "BraveSoftware/Brave-Origin",
+        "brave",
+        "Brave",
+        "",
+    ),
+    browser("Brave", "BraveSoftware/Brave-Browser", "brave", "Brave", ""),
+    browser("Google Chrome", "google-chrome", "chrome", "Chrome", ""),
+    browser("Chromium", "chromium", "chromium", "Chromium", ""),
 ];
 
+/// Helium files its key as "Helium Storage Key" (imputnet/helium-macos,
+/// `change-keychain-name.patch`); the others as yt-dlp reads them.
+#[cfg(target_os = "macos")]
+const BROWSERS: &[Browser] = &[
+    browser(
+        "Helium",
+        "net.imput.helium",
+        "",
+        "Helium",
+        "Helium Storage Key",
+    ),
+    browser(
+        "Google Chrome",
+        "Google/Chrome",
+        "",
+        "Chrome",
+        "Chrome Safe Storage",
+    ),
+    browser(
+        "Brave",
+        "BraveSoftware/Brave-Browser",
+        "",
+        "Brave",
+        "Brave Safe Storage",
+    ),
+    browser(
+        "Microsoft Edge",
+        "Microsoft Edge",
+        "",
+        "Microsoft Edge",
+        "Microsoft Edge Safe Storage",
+    ),
+    browser("Arc", "Arc/User Data", "", "Arc", "Arc Safe Storage"),
+    browser(
+        "Chromium",
+        "Chromium",
+        "",
+        "Chromium",
+        "Chromium Safe Storage",
+    ),
+];
+
+/// Windows encrypts Chromium cookies with DPAPI and, since Chrome 127, an
+/// app-bound key only the browser can open: not read here.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+const BROWSERS: &[Browser] = &[];
+
 /// One Firefox-family installation: its name and its profiles directory
-/// (the one holding `profiles.ini`) under the home directory.
+/// (the one holding `profiles.ini`), under the home directory on Linux and
+/// under the config directory elsewhere (`~/Library/Application Support`,
+/// `%APPDATA%`).
 struct Gecko {
     name: &'static str,
     dir: &'static str,
 }
 
+#[cfg(target_os = "linux")]
 const GECKOS: &[Gecko] = &[
     Gecko {
         name: "Firefox",
@@ -84,6 +147,56 @@ const GECKOS: &[Gecko] = &[
         dir: ".var/app/io.gitlab.librewolf-community/.librewolf",
     },
 ];
+
+#[cfg(target_os = "macos")]
+const GECKOS: &[Gecko] = &[
+    Gecko {
+        name: "Firefox",
+        dir: "Firefox",
+    },
+    Gecko {
+        name: "LibreWolf",
+        dir: "librewolf",
+    },
+];
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+const GECKOS: &[Gecko] = &[
+    Gecko {
+        name: "Firefox",
+        dir: "Mozilla/Firefox",
+    },
+    Gecko {
+        name: "LibreWolf",
+        dir: "librewolf",
+    },
+];
+
+/// Where a Firefox-family `dir` is: the home directory on Linux, the config
+/// directory elsewhere.
+fn gecko_base(base: &directories::BaseDirs) -> &Path {
+    if cfg!(target_os = "linux") {
+        base.home_dir()
+    } else {
+        base.config_dir()
+    }
+}
+
+/// The browsers ytfast looks for on this system, for the sign-in sheet.
+pub fn supported_browsers() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = GECKOS
+        .iter()
+        .map(|g| g.name.trim_end_matches(" Flatpak"))
+        .chain(BROWSERS.iter().map(|b| b.name))
+        .collect();
+    let mut seen = Vec::new();
+    names.retain(|n| {
+        let new = !seen.contains(n);
+        seen.push(*n);
+        new
+    });
+    names
+}
 
 #[derive(Clone)]
 pub struct Cookie {
@@ -226,26 +339,16 @@ fn candidates() -> Result<Vec<Candidate>> {
     let base = directories::BaseDirs::new().context("no home directory")?;
     let config = base.config_dir().to_path_buf();
     let mut candidates = Vec::new();
-    // Browser profiles are read on Linux only for now: Windows and macOS
-    // keep their cookie keys elsewhere (DPAPI, the Keychain). There, sign-in
-    // takes a cookie file.
-    let browsers: &[Browser] = if cfg!(target_os = "linux") {
-        BROWSERS
-    } else {
-        &[]
-    };
-    let geckos: &[Gecko] = if cfg!(target_os = "linux") {
-        GECKOS
-    } else {
-        &[]
-    };
-    for browser in browsers {
+    for browser in BROWSERS {
         let Ok(entries) = std::fs::read_dir(config.join(browser.dir)) else {
             continue;
         };
         for entry in entries.flatten() {
-            let cookies = entry.path().join("Cookies");
-            let Ok(meta) = std::fs::metadata(&cookies) else {
+            // Newer Chromium keeps it under Network/ (as on Windows).
+            let Some((cookies, meta)) = ["Cookies", "Network/Cookies"].iter().find_map(|name| {
+                let path = entry.path().join(name);
+                std::fs::metadata(&path).ok().map(|meta| (path, meta))
+            }) else {
                 continue;
             };
             let profile = entry.file_name().to_string_lossy().into_owned();
@@ -259,8 +362,8 @@ fn candidates() -> Result<Vec<Candidate>> {
             });
         }
     }
-    for gecko in geckos {
-        firefox_candidates(gecko, &base.home_dir().join(gecko.dir), &mut candidates);
+    for gecko in GECKOS {
+        firefox_candidates(gecko, &gecko_base(&base).join(gecko.dir), &mut candidates);
     }
     cookie_file_candidates(&config.join(COOKIE_DIR), &mut candidates);
     candidates.sort_by_key(|c| std::cmp::Reverse((c.modified, c.default)));
@@ -384,6 +487,156 @@ pub fn profiles(scratch: &Path) -> Vec<Profile> {
         .collect()
 }
 
+/// What a look through the installed browsers found, for "Sign in with
+/// your browser": every browser profile checked and the ones signed in.
+/// Cookie files are left out.
+#[derive(Clone, Debug, Default)]
+pub struct BrowserScan {
+    /// "Firefox (default-release)", "Google Chrome (Default)".
+    pub checked: Vec<String>,
+    pub signed_in: Vec<Profile>,
+}
+
+/// Looks through the browser profiles (not cookie files) for a YouTube
+/// sign-in. Cheap enough to repeat every few seconds: a profile's Safe
+/// Storage password is asked for only once it holds a sign-in cookie.
+pub fn scan_browsers(scratch: &Path) -> BrowserScan {
+    let mut scan = BrowserScan::default();
+    for candidate in candidates().unwrap_or_default() {
+        if matches!(candidate.store, Store::CookieFile) {
+            continue;
+        }
+        if matches!(read_profile(&candidate, scratch), Ok(Some(_))) {
+            scan.signed_in.push(Profile {
+                id: candidate.id.clone(),
+                label: candidate.label.clone(),
+            });
+        }
+        scan.checked.push(candidate.label);
+    }
+    scan
+}
+
+/// Where imported and pasted cookies go (the directory cookie files are
+/// read from): `~/.config/ytfast`, `~/Library/Application Support/ytfast`,
+/// `%APPDATA%\ytfast`.
+fn cookie_dir() -> Result<PathBuf> {
+    let base = directories::BaseDirs::new().context("no home directory")?;
+    Ok(base.config_dir().join(COOKIE_DIR))
+}
+
+/// The file "Import a cookies file" saves to, and the one "Paste cookies"
+/// saves to. Both are ordinary cookie files afterwards.
+const IMPORTED: &str = "imported-cookies.txt";
+const PASTED: &str = "pasted-cookies.txt";
+
+/// Copies the YouTube and Google lines of a Netscape cookie file (from a
+/// browser extension or yt-dlp) into the config directory, private to this
+/// user (0600 on Unix; `%APPDATA%` is the user's own on Windows), and
+/// returns it as a profile to sign in with. The source may be readable by
+/// others; the copy is not.
+pub fn import_cookie_file(source: &Path) -> Result<Profile> {
+    let text = std::fs::read(source)
+        .map_err(|error| anyhow!("Couldn't open that file ({})", error.kind()))?;
+    let text = String::from_utf8_lossy(&text);
+    let cookies = parse_netscape(&text);
+    if cookies.is_empty() {
+        bail!(
+            "That file has no YouTube cookies. Export a cookies.txt from a browser signed in to YouTube Music."
+        );
+    }
+    store(IMPORTED, cookies)
+}
+
+/// Saves a pasted `Cookie` header (or a pasted cookies.txt) as a cookie
+/// file in the config directory, like [`import_cookie_file`].
+pub fn store_cookie_header(text: &str) -> Result<Profile> {
+    let cookies = if text.contains('\t') {
+        parse_netscape(text)
+    } else {
+        parse_cookie_header(text)
+    };
+    // Counts only, never the text.
+    log::info!(
+        "pasted {} characters, {} cookies",
+        text.chars().count(),
+        cookies.len()
+    );
+    if cookies.is_empty() {
+        bail!(
+            "That doesn't look like a Cookie header. Copy the value of the Cookie request header, then paste it again."
+        );
+    }
+    store(PASTED, cookies)
+}
+
+/// Writes `cookies` as `name` in the cookie directory once they hold a
+/// sign-in.
+fn store(name: &str, cookies: Vec<Cookie>) -> Result<Profile> {
+    if !cookies.iter().any(|c| signs_in(&c.host, &c.name)) {
+        bail!(
+            "Those cookies aren't signed in to YouTube. Sign in to YouTube Music in the browser, then copy them again."
+        );
+    }
+    let dir = cookie_dir()?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder
+        .create(&dir)
+        .map_err(|error| anyhow!("Couldn't create the settings folder ({})", error.kind()))?;
+    let label = format!("Cookie file ({name})");
+    let session = Session {
+        source: label.clone(),
+        profile: format!("{COOKIE_DIR}/{name}"),
+        cookies,
+    };
+    session
+        .write_netscape(&dir.join(name))
+        .map_err(|error| anyhow!("Couldn't save the cookies ({error})"))?;
+    log::info!("saved {} cookies as {label}", session.cookies.len());
+    Ok(Profile {
+        id: session.profile,
+        label,
+    })
+}
+
+/// The cookies of a `Cookie` request header, `name=value; name=value`, as
+/// youtube.com cookies. Tolerates a leading `Cookie:` and quotes around it
+/// (from "Copy as cURL"). They are session cookies: a header carries no
+/// expiry.
+fn parse_cookie_header(text: &str) -> Vec<Cookie> {
+    let mut text = text.trim();
+    let lower = text.to_ascii_lowercase();
+    if let Some(at) = lower.find("cookie:") {
+        text = &text[at + "cookie:".len()..];
+    }
+    let text = text
+        .trim()
+        .trim_start_matches(['\'', '"'])
+        .split(['\'', '"', '\n', '\r'])
+        .next()
+        .unwrap_or_default();
+    text.split(';')
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            let name = name.trim();
+            if name.is_empty() || name.contains(char::is_whitespace) {
+                return None;
+            }
+            Some(Cookie {
+                host: ".youtube.com".into(),
+                name: name.into(),
+                value: value.trim().into(),
+                path: "/".into(),
+                secure: true,
+                expires: 0,
+            })
+        })
+        .collect()
+}
+
 /// Reads the YouTube sign-in from `preferred` (a [`Profile::id`]) when it
 /// has one, else from the most recently used signed-in browser profile.
 ///
@@ -431,7 +684,10 @@ fn with_copy<T>(
     if matches!(candidate.store, Store::CookieFile) {
         return read(&candidate.cookies);
     }
-    let copy = scratch.join(format!("cookies-{}.sqlite", std::process::id()));
+    // Unique per read: a sign-in scan can run while the app connects.
+    static READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let read_no = READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let copy = scratch.join(format!("cookies-{}-{read_no}.sqlite", std::process::id()));
     let copy_wal = wal_of(&copy);
     std::fs::copy(&candidate.cookies, &copy).context("copying the cookie database")?;
     let wal = wal_of(&candidate.cookies);
@@ -561,21 +817,51 @@ struct Decrypted {
     password: Option<&'static str>,
 }
 
-fn decrypt_rows(browser: &Browser, version: i64, rows: Vec<Row>) -> Result<Decrypted> {
+/// The keys for a profile's rows on Linux: `v10` with Chromium's fixed
+/// password, `v11` with the Safe Storage one (asked for only when a row
+/// needs it), and where that came from.
+#[cfg(not(target_os = "macos"))]
+fn keys_for(browser: &Browser, rows: &[Row]) -> Result<(Keys, Option<&'static str>)> {
     let needs_password = rows.iter().any(|r| r.3.starts_with(b"v11"));
     let (v11, password) = if needs_password {
         match safe_storage_password(browser)? {
-            Some((password, source)) => (Some(derive_key(&password)), Some(source)),
+            Some((password, source)) => (Some(derive_key(&password, 1)), Some(source)),
             None => (None, None),
         }
     } else {
         (None, None)
     };
     let keys = Keys {
-        // Chromium's fixed password without a keyring (`v10`).
-        v10: derive_key(b"peanuts"),
+        v10: Some(derive_key(b"peanuts", 1)),
         v11,
     };
+    Ok((keys, password))
+}
+
+/// The keys for a profile's rows on macOS: `v10` with the Keychain's Safe
+/// Storage password (macOS asks the person to allow it once).
+#[cfg(target_os = "macos")]
+fn keys_for(browser: &Browser, rows: &[Row]) -> Result<(Keys, Option<&'static str>)> {
+    let needs_password = rows.iter().any(|r| r.3.starts_with(b"v10"));
+    let (v10, password) = match needs_password.then(|| keychain_password(browser)).flatten() {
+        Some(password) => (
+            Some(derive_key(&password, MAC_ITERATIONS)),
+            Some("the Keychain"),
+        ),
+        None => (None, None),
+    };
+    Ok((Keys { v10, v11: None }, password))
+}
+
+/// Where the Safe Storage password should have been, for the error.
+const PASSWORD_HOME: &str = if cfg!(target_os = "macos") {
+    "isn't in the Keychain, or access to it was denied"
+} else {
+    "is in neither the Secret Service nor KWallet"
+};
+
+fn decrypt_rows(browser: &Browser, version: i64, rows: Vec<Row>) -> Result<Decrypted> {
+    let (keys, password) = keys_for(browser, &rows)?;
     let mut decrypted = Decrypted {
         cookies: Vec::with_capacity(rows.len()),
         failed: 0,
@@ -638,7 +924,7 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
             if password.is_some() {
                 "did not match"
             } else {
-                "is in neither the Secret Service nor KWallet"
+                PASSWORD_HOME
             }
         );
     }
@@ -789,11 +1075,12 @@ fn parse_netscape(text: &str) -> Vec<Cookie> {
 
 /// The browser's "Safe Storage" password and where it came from: the Secret
 /// Service (libsecret), else KWallet. `None` when neither has one.
+#[cfg(not(target_os = "macos"))]
 fn safe_storage_password(browser: &Browser) -> Result<Option<(Vec<u8>, &'static str)>> {
     if let Some(password) = secret_service_password(browser.keyring) {
         return Ok(Some((password, "the Secret Service")));
     }
-    match kwallet::password(browser.kwallet) {
+    match kwallet::password(browser.vendor) {
         Ok(Some(password)) => Ok(Some((password, "KWallet"))),
         Ok(None) => Ok(None),
         Err(error) => Err(error.context("reading KWallet")),
@@ -802,6 +1089,7 @@ fn safe_storage_password(browser: &Browser) -> Result<Option<(Vec<u8>, &'static 
 
 /// `secret-tool lookup application <application>`, without the trailing
 /// newline. `None` when it is empty or `secret-tool` is missing.
+#[cfg(not(target_os = "macos"))]
 fn secret_service_password(application: &str) -> Option<Vec<u8>> {
     let output = Command::new("secret-tool")
         .args(["lookup", "application", application])
@@ -814,7 +1102,36 @@ fn secret_service_password(application: &str) -> Option<Vec<u8>> {
     Some(password).filter(|p| !p.is_empty())
 }
 
+/// PBKDF2 rounds Chromium uses for its macOS key (1 on Linux).
+#[cfg(any(target_os = "macos", test))]
+const MAC_ITERATIONS: u32 = 1003;
+
+/// The Keychain's Safe Storage password for `browser`:
+/// `security find-generic-password -w -a <vendor> -s <keychain>`, without
+/// the trailing newline. `None` when there is none or access was denied.
+#[cfg(target_os = "macos")]
+fn keychain_password(browser: &Browser) -> Option<Vec<u8>> {
+    let output = Command::new("security")
+        .args([
+            "find-generic-password",
+            "-w",
+            "-a",
+            browser.vendor,
+            "-s",
+            browser.keychain,
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let mut password = output.stdout;
+    while password.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+        password.pop();
+    }
+    Some(password).filter(|p| !p.is_empty())
+}
+
 /// KDE's wallet over D-Bus (`org.kde.KWallet`), as Chromium uses it on KDE.
+#[cfg(not(target_os = "macos"))]
 mod kwallet {
     use anyhow::{Result, bail};
     use zbus::blocking::{Connection, Proxy};
@@ -883,22 +1200,23 @@ mod kwallet {
     }
 }
 
-/// The keys a Chromium profile's values are encrypted with: `v10` with the
-/// fixed password, `v11` with the Safe Storage one.
+/// The keys a Chromium profile's values are encrypted with. Linux: `v10`
+/// with the fixed password, `v11` with the Safe Storage one. macOS: `v10`
+/// with the Keychain's.
 struct Keys {
-    v10: [u8; 16],
+    v10: Option<[u8; 16]>,
     v11: Option<[u8; 16]>,
 }
 
-fn derive_key(password: &[u8]) -> [u8; 16] {
+fn derive_key(password: &[u8], iterations: u32) -> [u8; 16] {
     let mut key = [0u8; 16];
-    pbkdf2::pbkdf2_hmac::<sha1::Sha1>(password, b"saltysalt", 1, &mut key);
+    pbkdf2::pbkdf2_hmac::<sha1::Sha1>(password, b"saltysalt", iterations, &mut key);
     key
 }
 
 fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -> Option<String> {
     let key = match encrypted.get(..3)? {
-        b"v10" => &keys.v10,
+        b"v10" => keys.v10.as_ref()?,
         b"v11" => keys.v11.as_ref()?,
         _ => return None,
     };
@@ -915,4 +1233,58 @@ fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -> Option<St
         &plain[..]
     };
     String::from_utf8(plain.to_vec()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aes::cipher::BlockEncryptMut;
+
+    /// A value encrypted the way Chrome does on macOS (schema 24): the
+    /// Keychain password through PBKDF2 (1003 rounds), AES-128-CBC with an
+    /// IV of spaces, `v10`, the host's SHA-256 in front. Synthetic password
+    /// and value.
+    #[test]
+    fn decrypts_a_macos_value() {
+        let key = derive_key(b"synthetic keychain password", MAC_ITERATIONS);
+        let host = ".youtube.com";
+        let mut plain = sha2::Sha256::digest(host.as_bytes()).to_vec();
+        plain.extend_from_slice(b"synthetic-value");
+        let body = cbc::Encryptor::<aes::Aes128>::new(&key.into(), &[b' '; 16].into())
+            .encrypt_padded_vec_mut::<Pkcs7>(&plain);
+        let encrypted = [b"v10".as_slice(), &body].concat();
+        let keys = Keys {
+            v10: Some(key),
+            v11: None,
+        };
+        assert_eq!(
+            decrypt(&encrypted, &keys, host, 24).as_deref(),
+            Some("synthetic-value")
+        );
+        let wrong = Keys {
+            v10: Some(derive_key(b"synthetic keychain password", 1)),
+            v11: None,
+        };
+        assert_ne!(
+            decrypt(&encrypted, &wrong, host, 24).as_deref(),
+            Some("synthetic-value")
+        );
+    }
+
+    #[test]
+    fn reads_a_pasted_cookie_header() {
+        let cookies = parse_cookie_header("Cookie: PREF=f6=1; SAPISID=abc/def; HSID=x=y\n");
+        let pairs: Vec<_> = cookies
+            .iter()
+            .map(|c| (c.name.as_str(), c.value.as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            [("PREF", "f6=1"), ("SAPISID", "abc/def"), ("HSID", "x=y")]
+        );
+        assert!(cookies.iter().any(|c| signs_in(&c.host, &c.name)));
+        let curl = parse_cookie_header("-H 'cookie: SAPISID=a; SID=b' \\");
+        assert_eq!(curl.len(), 2);
+        assert!(parse_cookie_header("hello there").is_empty());
+    }
 }

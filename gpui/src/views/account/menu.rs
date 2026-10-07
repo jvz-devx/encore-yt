@@ -30,6 +30,15 @@ pub fn menu(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
                 .children(channels.into_iter().map(|row| row.px(space::MD)))
         })
         .child(divider())
+        .when(
+            matches!(app.account.account, Account::SignedOut { .. }),
+            |menu| {
+                menu.child(
+                    widgets::menu_item("menu-sign-in", IconName::LogIn, "Sign in", &c)
+                        .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(window, cx))),
+                )
+            },
+        )
         .child(
             widgets::menu_item("menu-reconnect", IconName::RefreshCw, "Reconnect", &c)
                 .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx))),

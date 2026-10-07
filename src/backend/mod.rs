@@ -89,6 +89,14 @@ pub enum Command {
     /// [`Event::Channels`]; `None` for the account's own channel), and
     /// reconnect.
     UseChannel(Option<String>),
+    /// Sign in with a Netscape cookie file: copied into the config
+    /// directory (answered with [`Event::CookiesSaved`]), then used.
+    ImportCookies(std::path::PathBuf),
+    /// Sign in with a pasted `Cookie` header, saved like an imported file.
+    PasteCookies(String),
+    /// Look through the browser profiles for a YouTube sign-in, answered
+    /// with [`Event::BrowserScan`]. No request goes to YouTube.
+    ScanBrowsers,
     /// Settings: song-change notifications on or off (saved for next time).
     Notifications(bool),
     /// A change to the signed-in account; `op` stamps the answer. On success
@@ -186,6 +194,11 @@ pub enum Event {
     /// The signed-in account's YouTube channels, the one requests act as
     /// marked `current`; empty while signed out.
     Channels(Vec<crate::model::Channel>),
+    /// The answer to `Command::ImportCookies` or `PasteCookies`: the saved
+    /// cookie file, which the backend then connects with, or why not.
+    CookiesSaved(Result<crate::auth::Profile, String>),
+    /// The answer to `Command::ScanBrowsers`.
+    BrowserScan(crate::auth::BrowserScan),
     /// The answer to `Command::AccountEdit` number `op`.
     AccountEdited {
         op: u64,
@@ -737,6 +750,13 @@ impl Worker {
                 }
                 self.connect();
             }
+            Command::ImportCookies(path) => {
+                self.save_cookies(crate::auth::import_cookie_file(&path))
+            }
+            Command::PasteCookies(text) => {
+                self.save_cookies(crate::auth::store_cookie_header(&text))
+            }
+            Command::ScanBrowsers => self.scan_browsers(),
             Command::Notifications(on) => {
                 let mut settings = crate::settings::Settings::load(&self.paths);
                 settings.notifications = on;

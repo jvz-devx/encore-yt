@@ -49,12 +49,13 @@ ytfast-gpui quit
 
 ## Signing in
 
-Without a sign-in source the app runs signed out and plays public YouTube Music. To use your account it reads a session it can find:
+Without a sign-in the app plays public YouTube Music. While signed out, **Sign in** (top right, in the sidebar and in Settings) offers three ways in:
 
-- **A browser on the same computer** (Linux): Firefox or LibreWolf, or a Chromium-family browser (Chrome, Chromium, Brave) whose key it gets from the Secret Service or KWallet. It reads the cookie store without changing it.
-- **A cookie file**: a Netscape-format export in the config folder (`~/.config/ytfast/` on Linux, `%APPDATA%\ytfast\` on Windows, `~/Library/Application Support/ytfast/` on macOS) whose name contains `cookies` and ends in `.txt`, readable only by you (`chmod 600`). Export it from a private window you then close: YouTube rotates the cookies of a session that stays in use. The details, including exporting from Chromium browsers like Helium on a Mac with yt-dlp, are in [docs/integration.md](docs/integration.md).
+- **Sign in with your browser:** it opens music.youtube.com in your default browser and connects as soon as a browser profile on this computer is signed in. It reads Firefox and LibreWolf on every system; Chromium-family browsers on Linux (Chrome, Chromium, Brave, with the key from the Secret Service or KWallet) and on macOS (Helium, Chrome, Brave, Edge, Arc, Chromium, with the key from the Keychain, which asks you once). It reads the cookie store without changing it. Chromium browsers on Windows aren't supported; use Firefox or a cookie file there.
+- **Import a cookies file:** pick a Netscape-format `cookies.txt`; the app copies it into its config folder, readable only by you.
+- **Paste cookies:** paste the `Cookie` header of a music.youtube.com request from your browser's developer tools.
 
-Settings lists the sources it found; pick one if there are several. Cookie values are never logged or written anywhere others can read.
+YouTube rotates the cookies of a session that stays in use, so an exported file or pasted header works best from a private window you then close; [docs/integration.md](docs/integration.md) has the export details. Settings lists every sign-in source it found and, if your Google account has several YouTube channels, lets you pick the channel to act as. Cookie values are never logged or written anywhere others can read.
 
 ## Build from source
 

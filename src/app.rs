@@ -582,6 +582,8 @@ impl App {
                 self.heat.insert(id, heat.map(Arc::new));
             }
             Event::QuickResults { query, result } => self.quick_results(query, result),
+            // The GPUI app's sign-in sheet; this interface signs in from Settings.
+            Event::CookiesSaved(_) | Event::BrowserScan(_) => {}
         }
     }
 

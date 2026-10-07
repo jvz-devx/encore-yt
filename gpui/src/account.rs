@@ -376,7 +376,9 @@ impl MusicApp {
     /// Escape: closes the account's dialog, else Settings, else the account
     /// menu. False when none is open.
     pub fn close_account_layer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.account.state.dialog.is_some() {
+        if self.sign_in.open {
+            self.close_sign_in(window, cx);
+        } else if self.account.state.dialog.is_some() {
             self.close_account_dialog(window, cx);
         } else if self.account.settings {
             self.open_settings(false, window, cx);

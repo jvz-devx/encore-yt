@@ -16,6 +16,7 @@ mod nav;
 mod pages;
 mod playback;
 mod sidebar;
+mod sign_in;
 mod theme;
 mod views;
 mod visuals;

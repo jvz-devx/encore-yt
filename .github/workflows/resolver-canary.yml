@@ -1,0 +1,119 @@
+# Checks every day, from GitHub's IPs and signed out, that the Rust stream
+# resolver still works: QuickJS solves the current player's challenges like
+# yt-dlp's EJS, and public songs resolve with YTFAST_RESOLVER=rust and answer
+# a range request (scripts/resolver-canary.sh). Never uses cookies or
+# secrets. A failing scheduled or manual run on the default branch opens an
+# issue labelled resolver-canary, or comments on the open one. It also runs
+# on pull requests that touch the resolver, and the EJS bump workflow
+# dispatches it on its branch.
+name: Resolver canary
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      songs:
+        description: "Video ids to resolve, space separated (default: two public songs)"
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - src/jsc.rs
+      - src/jsc/**
+      - src/streams.rs
+      - src/innertube.rs
+      - src/resolver.rs
+      - examples/resolve_rust.rs
+      - tests/resolver_offline.rs
+      - scripts/resolver-canary.sh
+      - scripts/ejs-expected.sh
+      - .github/workflows/resolver-canary.yml
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: resolver-canary-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTC_WRAPPER: ""
+
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: resolver-canary
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev
+
+      - name: Build the test and the resolver
+        run: |
+          cargo test --locked --no-default-features --test resolver_offline --no-run
+          cargo build --locked --no-default-features --example resolve_rust
+
+      - name: Canary
+        env:
+          SONGS: ${{ inputs.songs }}
+        run: |
+          set -o pipefail
+          # shellcheck disable=SC2086 # the ids are space separated
+          scripts/resolver-canary.sh $SONGS 2>&1 | tee canary.log
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resolver-canary-log
+          path: canary.log
+          if-no-files-found: ignore
+
+      - name: Open or update the issue
+        if: >-
+          failure() && (github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' &&
+          github.ref_name == github.event.repository.default_branch))
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "The resolver canary failed on $(date -u +%Y-%m-%d) at ${GITHUB_SHA::7}: $RUN_URL"
+            echo
+            echo "Until it is fixed, \`YTFAST_RESOLVER=rust\` falls back to yt-dlp. If yt-dlp-ejs has a newer release, run the EJS bump workflow."
+            echo
+            echo '```'
+            if [[ -f canary.log ]]; then
+              grep -vE '^\s+(Compiling|Downloaded|Checking) ' canary.log | tail -n 80
+            else
+              echo "(no log: the job failed before the canary ran)"
+            fi
+            echo '```'
+          } > issue.md
+          gh label create resolver-canary --color B60205 \
+            --description "The daily Rust resolver canary failed" 2>/dev/null || true
+          number=$(gh issue list --label resolver-canary --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --body-file issue.md
+          else
+            gh issue create --title "Resolver canary failed" --label resolver-canary --body-file issue.md
+          fi

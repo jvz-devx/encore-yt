@@ -546,7 +546,7 @@ impl Render for Effects {
             let covers = Slots::covers(cx);
             let accent = self.bar.accent();
             let in_flight = super::cover_in_flight(cx);
-            let dissolve = super::config::get().dissolve.on;
+            let dissolve = super::config::get().dissolve.on && dissolve::duration().is_some();
             let ons = [
                 input.bar.is_some() && !input.now_playing && moving && dissolve,
                 input.showing && !in_flight && moving && dissolve,

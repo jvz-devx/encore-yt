@@ -101,7 +101,7 @@ impl Backdrop {
             kick: tick.kick,
             level: tick.level,
             look: tick.look,
-            particles: !tick.reduce,
+            particles: !tick.reduce && !super::effects::skip("particles"),
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {

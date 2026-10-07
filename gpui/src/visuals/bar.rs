@@ -102,6 +102,8 @@ pub struct Bar {
     pub hover: Rc<Cell<bool>>,
     drawn: Option<Still>,
     pending: u8,
+    /// When the last paced frame was drawn (the breath decays over time).
+    paced_at: Option<Instant>,
 }
 
 impl Bar {
@@ -122,6 +124,7 @@ impl Bar {
             hover: Rc::new(Cell::new(false)),
             drawn: None,
             pending: 0,
+            paced_at: None,
         }
     }
 
@@ -239,12 +242,19 @@ impl Bar {
         self.drawn = Some(still);
     }
 
+    /// Follows the beat: quick to swell, slow to settle. Paced frames come
+    /// unevenly, so the decay uses the time since the last one.
     fn breathe(&mut self, tick: &Tick) {
+        let now = Instant::now();
+        let dt = self
+            .paced_at
+            .map_or(tick.dt, |at| (now - at).as_secs_f32().min(0.3));
+        self.paced_at = Some(now);
         let target = tick.kick.max(tick.bass * 0.6);
         self.breath = if target > self.breath {
             self.breath + (target - self.breath) * 0.3
         } else {
-            (self.breath - tick.dt * 0.9).max(target)
+            (self.breath - dt * 0.9).max(target)
         };
     }
 

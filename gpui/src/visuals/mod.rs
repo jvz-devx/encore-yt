@@ -23,17 +23,20 @@
 //! effects frame re-renders `MusicApp`; with the app's views and the bar in
 //! cached views beside the effects, that is only this small shell, and a
 //! position tick re-renders only the bar. Each frame still redraws the
-//! whole window (about 2 ms of CPU), so while only the player bar moves,
-//! frames come when it would look different.
+//! whole window (about 2 ms of CPU and 8-12 ms of GPU time on an Intel UHD
+//! 630), so while only the player bar moves, frames come when it would look
+//! different, and Now Playing draws at 20 frames a second.
 //!
 //! The views place the effects with [`slot`] (empty boxes whose bounds the
 //! layers read); Now Playing draws the song's waveform with [`waveform`].
 //! Settings: `YTFAST_GPUI_VISUALS=0` turns the effects off,
-//! `YTFAST_GPUI_VISUALS_FPS` sets the highest frame rate (default 30),
+//! `YTFAST_GPUI_VISUALS_FPS` sets the highest frame rate (default 20),
 //! `YTFAST_GPUI_REDUCED_MOTION=1` (or the desktop's reduced motion) freezes
 //! them, `YTFAST_GPUI_VISUALS_UNCACHED=1` turns the cached view off (to
-//! measure it) and `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover
-//! down (to look at it).
+//! measure it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
+//! leaves single effects out (to measure them) and
+//! `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover down (to look at
+//! it).
 
 mod backdrop;
 mod bar;

@@ -49,7 +49,6 @@ pub enum Request {
     Open(String),
     /// Like or unlike the playing song (`ytfast like`).
     Like,
-    ReloadThemes,
 }
 
 /// Flags the interface sets and the backend's desktop tasks read.
@@ -139,7 +138,6 @@ impl Remote {
     pub fn deliver(&self, message: Message) {
         match message {
             Message::Show => self.request(Request::Show),
-            Message::ReloadThemes => self.request(Request::ReloadThemes),
             Message::Toggle => self.toggle(),
             Message::Play => self.play(),
             Message::Pause => self.pause(),

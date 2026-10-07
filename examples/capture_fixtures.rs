@@ -3,8 +3,8 @@
 //! the tracking and session parts the parser never reads removed, and song
 //! lyrics cut to their first lines.
 //!
-//! `cargo run --example capture_fixtures --no-default-features`, then
-//! `cargo test --no-default-features --test parse_fixtures`.
+//! `cargo run --example capture_fixtures`, then
+//! `cargo test --test parse_fixtures`.
 
 use std::path::{Path, PathBuf};
 

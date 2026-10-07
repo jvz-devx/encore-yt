@@ -309,8 +309,8 @@ app side in `gpui/src/visuals/`.
   pre-blurred upload and a four-colour palette), `AudioTap` (PipeWire tap,
   FFT, 32 bands plus bass, kick and level) and `waveform` (ffmpeg decode of
   the URL mpv plays, 400 values, cached per video id in the cache
-  directory). `scripts/check.sh visuals` checks and tests it, `shaders`
-  validates the WGSL with naga.
+  directory). `just check visuals` and `just test visuals` check and test
+  it, `just shaders` validates the WGSL with naga.
 - **Layers** (`visuals::shell`, what `MusicApp` renders): `Effects` under
   the app (backdrop over the page panel and the spectrum strip), `Content`
   (the app's views, an `AnyView::cached` entity while Now Playing shows) and
@@ -644,4 +644,4 @@ engine's decoder, cache), `audio/src/tap.rs` (the ring); app side `gpui/src/visu
   `.w` of a `vec4` and unpack them in the shader, as every `Params` struct
   here already does. For particle data in a storage buffer, use a packed
   struct of `vec4f`s with `pack_`/`unpack_` helpers at the point of access.
-- Every `.wgsl` validates with naga (`scripts/check.sh shaders`).
+- Every `.wgsl` validates with naga (`just shaders`).

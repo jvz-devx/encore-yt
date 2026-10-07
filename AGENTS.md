@@ -1,17 +1,15 @@
-# ytfast agent guide
+# ytfast-gpui agent guide
 
-ytfast is a native YouTube Music client for Omarchy (Linux): Rust + egui on [fastframe](https://github.com/crmne/fastframe), modelled on ZapFast and Spotifast. It has no browser engine, no telemetry and no server of its own. Shown to people as "Music".
+ytfast-gpui is a native YouTube Music client for Linux, Windows and macOS, written in Rust with [GPUI](https://www.gpui.rs). It has no browser engine, no telemetry and no server of its own. Shown to people as "Music". The repository is jvz-devx/ytfast-gpui; it started from ytfast (see README), and nothing is merged from there any more.
 
-## This fork: the GPUI frontend
+## The project
 
-This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `upstream`). It adds a GPUI interface in `gpui/` on the same backend. Read [docs/gpui/PLAN.md](docs/gpui/PLAN.md) first: it holds the milestones, how each is verified, and the log.
-
-- The root crate's egui interface sits behind the default `egui` feature. The backend must keep building with `--no-default-features`, and the egui app must keep building too. Keep root-crate changes small and upstream-shaped so `git merge upstream/main` stays easy.
-- `gpui/` is its own Cargo workspace (own `Cargo.lock`, own `target/`). It depends on the root crate with `default-features = false`.
-- Platform for the GPUI app: Fedora, KDE Plasma on Wayland. The Omarchy rules below apply to the egui app; the GPUI app takes its colours from its own theme module, never hard-coded in views.
-- Fixture-based parser tests (saved signed-out InnerTube responses) are allowed in this fork, as an exception to the "no unit tests" rule below.
-- Verify UI work visually: run the app on the Wayland session and capture it with `spectacle` (see PLAN.md). Don't claim a view works without looking at a capture.
-- Commit in small topical commits on `main` and push to `origin`. Never push to `upstream`.
+- The root crate (`ytfast`, a library) is the backend: InnerTube, sign-in, playback, the queue and the desktop services (MPRIS, tray, notifications). `gpui/` is the app (`ytfast-gpui`) with its crates `gpui/crates/visuals` (wgpu effects) and `gpui/crates/audio` (the Rust playback engine).
+- [docs/gpui/PLAN.md](docs/gpui/PLAN.md) holds the milestones, how each is verified, and the log. Read it first.
+- `gpui/` is its own Cargo workspace for now (own `Cargo.lock`, own `target/`); one workspace is planned in M23.
+- Main platform: Fedora, KDE Plasma on Wayland. Colours, radii, spacing and type come from the app's theme module (`gpui/src/theme.rs`), never hard-coded in views.
+- Verify UI work visually: run the app on the Wayland session and capture it (see PLAN.md). Don't claim a view works without looking at a capture.
+- Commit in small topical commits on `main` and push to `origin`.
 - After each release, the release workflow commits the updated Homebrew cask (`Casks/ytfast-gpui.rb`) to `main`, so pull before pushing once a release is out.
 - Build speed numbers and the reasoning behind these rules: docs/gpui/BUILD-SPEED.md.
 - Startup time, how to measure it and what the first second goes to: docs/gpui/STARTUP.md.
@@ -20,12 +18,12 @@ This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `up
 
 ## Rust builds (fast loop, reliable finish)
 
-Crates: `gpui` (the GPUI app), `visuals` (wgpu effects), `audio` (the pure Rust playback spike, M11), `backend` (root crate without egui), `egui` (root crate with the egui app). The root crate and `gpui/` are separate Cargo workspaces on purpose.
+Crates: `gpui` (the app), `visuals` (wgpu effects), `audio` (the Rust playback engine), `backend` (the root crate).
 
 - Never run `cargo build` to validate an edit; use `cargo check`. Build only when you need to run the binary (debug builds are incremental, ~5 s), and use `just profiling` (no LTO) instead of `--release` for measurements.
 - Make a coherent batch of edits, then check once: `just check <crate>` (= `cargo check -p <crate>`). Read diagnostics you already have (bacon, rust-analyzer) before starting a new check.
 - Don't run `cargo check --workspace`, `--all-targets`, `--all-features` or clippy after every change; don't start a second cargo command while one is running in the same worktree.
-- Tests: `just test <crate> [filter]` for what you touched.
+- Tests: `just test <crate> [filter]` for what you touched. Tests check behaviour the app relies on (the parser fixtures, the headless UI tests, the audio and visuals crates); no tautological tests.
 - Before finishing: `just verify <crate>` for each crate you changed (fmt, check, tests, clippy). `just verify-workspace` (or `just gate`, which adds the release build) only at the very end or when a change spans both workspaces; CI builds the release installers.
 - Shader-only changes: `just shaders` (naga), no app build.
 - Bacon is for a human terminal (`cd gpui && bacon`); agents don't start it.
@@ -33,19 +31,18 @@ Crates: `gpui` (the GPUI app), `visuals` (wgpu effects), `audio` (the pure Rust 
 
 ## Start here
 
-1. [docs/SPEC.md](docs/SPEC.md): the product: journeys, decisions, exclusions. Don't redefine it from the code.
-2. [docs/integration.md](docs/integration.md): verified cookie, InnerTube and stream facts, the chosen design, and how the E2E runs work. Read it before touching sign-in, playback or the build.
-3. If a `notes/` directory exists, it's the maintainer's private notes (gitignored). Read `notes/AGENTS.md` first and follow it as well.
+1. [docs/gpui/PLAN.md](docs/gpui/PLAN.md): milestones, decisions and the log.
+2. [docs/integration.md](docs/integration.md): verified cookie, InnerTube and stream facts and the chosen design. Read it before touching sign-in, playback or the build.
+3. [gpui/DESIGN.md](gpui/DESIGN.md) for the look, and [gpui/NOTES.md](gpui/NOTES.md) for GPUI API notes and pitfalls.
+4. If a `notes/` directory exists, it's the maintainer's private notes (gitignored). Read `notes/AGENTS.md` first and follow it as well.
 
 ## Rules
 
 - Cookie values and the Chromium cookie key are secrets. Never log, print or commit them; derived cookie files are 0600 and short-lived. Read the browser's cookie store read-only and never restart or modify the browser.
-- The app acts as the maintainer's main YouTube channel (M12). Checks never change that account or play real streams signed in: use `YTFAST_FAKE_STREAM` for playback and a fresh `XDG_CONFIG_HOME`/`XDG_CACHE_HOME` (signed out) for anything else.
-- Nothing from a real account goes into the repository: no captured responses, screenshots or logs with account data. E2E artifacts stay in the gitignored `artifacts/`. Public screenshots come from the signed-out `showcase` scenario, public videos from `scripts/demo.sh` (also signed out).
-- Colours come only from the Omarchy theme palette. Never hard-code colours.
-- Don't vendor or patch upstream crates here. Keep the egui/winit fork pins and the fastframe tag aligned with ZapFast/Spotifast and move them together.
-- Tests: prefer E2E through the real app (`scripts/e2e.sh`), producing a repeatable artifact under `artifacts/`. No unit tests written after the code, and no tautological tests.
-- `cargo fmt --all --check` and `cargo clippy --all-targets --features e2e -- -D warnings` must pass. Release builds are heavy (several minutes, a few GB of memory); cap them on small machines.
+- The app acts as the maintainer's main YouTube channel (M12). Checks never change that account or play real streams signed in: use `YTFAST_FAKE_STREAM` for playback and a fresh `XDG_CONFIG_HOME`/`XDG_CACHE_HOME` (signed out) for anything else. Keep YouTube requests few (the account has been rate limited).
+- Nothing from a real account goes into the repository: no captured responses, screenshots or logs with account data. Captures and logs stay in the gitignored `artifacts/`. Public screenshots come from signed-out runs.
+- Don't vendor or patch third-party crates here.
+- `cargo fmt --all --check` and `just lint <crate>` (clippy `-D warnings`) must pass. Release builds are heavy (several minutes, a few GB of memory); cap them on small machines.
 
 ## UI copy
 

@@ -2,7 +2,7 @@
 //! session it would use with YouTube Music. Prints counts and sources only,
 //! never a cookie value, password or account name.
 //!
-//! `cargo run --example sign_in --no-default-features [-- <profile id> [<video id>]]`
+//! `cargo run --example sign_in [-- <profile id> [<video id>]]`
 //!
 //! Signed in, it also browses Home and, given a video id, resolves that song
 //! with the session and prints the format it got.

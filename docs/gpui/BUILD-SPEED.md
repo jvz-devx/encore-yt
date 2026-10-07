@@ -14,7 +14,6 @@ rough. Commands are from the justfile (`scripts/dev.sh`).
 | Check the GPUI workspace, all targets | `cd gpui && cargo check --workspace --all-targets` | 2.6 s |
 | Check after editing the backend | `just check backend` | 3.6 s |
 | The app after that backend edit | `just check gpui` | 1.9 s |
-| The egui app after a backend edit | `just check egui` | 5.8 s |
 | Backend tests (parser fixtures) | `just test backend` | 3.1 s |
 | Visuals tests | `just test visuals` | 0.4 s (54 s the first time) |
 | Verify the app before finishing | `just verify gpui` | 4.0 s |
@@ -46,12 +45,10 @@ main`) instead of making new worktrees: a warm slot skips all of it.
   is too slow to use at opt-level 0. Kept.
 - **One 17k-line `ytfast-gpui` crate**: an edit checks in ~1 s, so splitting
   it would gain little. Not worth it now.
-- **Root crate holds the backend and the egui app**: an egui-only edit also
-  rechecks the backend (~6 s). Splitting it would diverge from upstream for a
-  few seconds; not worth it.
-- **One Cargo workspace for both apps**: rejected. Feature unification on
-  workspace-wide builds would turn on zbus's tokio feature for the egui app,
-  which breaks AccessKit (see Cargo.toml).
+- **Two Cargo workspaces** (the root crate and `gpui/`): kept apart while
+  the egui app lived in the root crate, because unifying features would have
+  turned on zbus's tokio feature for it and broken its AccessKit. That app is
+  gone (M23), so the reason is too; one workspace is planned in M23.
 - **cargo-nextest**: 16 tests that run in under a second; no gain.
 - **mold**: Rust 1.99 already links with rust-lld on Linux; a debug build
   after an edit is under 4 s in total.

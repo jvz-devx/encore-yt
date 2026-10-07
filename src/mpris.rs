@@ -1,5 +1,5 @@
 //! ytfast as an MPRIS player (`org.mpris.MediaPlayer2.ytfast`): media keys,
-//! `playerctl` and the Omarchy bar's media widget see the song, cover,
+//! `playerctl` and the desktop's media widgets see the song, cover,
 //! position and controls.
 //!
 //! The service runs on the backend's tokio runtime, fed by the backend's

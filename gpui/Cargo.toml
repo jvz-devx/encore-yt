@@ -12,16 +12,14 @@ publish = false
 name = "ytfast-gpui"
 path = "src/main.rs"
 
-# Its own workspace, separate from the root crate's (whose egui/winit
-# patches don't apply here and whose features must not unify with ours).
-# crates/visuals holds the wgpu and audio code without GPUI, so it checks
+# Its own workspace, separate from the root crate's for now (one workspace
+# is planned in PLAN M23). crates/visuals holds the wgpu and audio code without GPUI, so it checks
 # and tests without building the app.
 [workspace]
 members = [".", "crates/visuals", "crates/audio"]
 
 [dependencies]
-# The backend (InnerTube, stream resolver, audio engine, sign-in, MPRIS)
-# without the egui interface.
+# The backend (InnerTube, stream resolver, audio engine, sign-in, MPRIS).
 ytfast = { path = "..", default-features = false }
 # GPUI with gpui-component, pinned as one set: gpui-kit pins gpui-pre and
 # gpui-pre-platform (wayland, x11). Move these together.
@@ -37,7 +35,7 @@ anyhow = "1"
 log = "0.4"
 # Recently played in the sidebar (already in the tree).
 serde_json = "1"
-# Same log file and panic log setup as the egui app.
+# The log file and the panic log.
 fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
 # M8 effects behind Now Playing (wgpu backdrop, the spectrum and waveform
 # from the audio engine), without GPUI; gpui/src/visuals wraps it in views.

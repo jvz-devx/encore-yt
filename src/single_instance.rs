@@ -4,7 +4,7 @@
 //! until it has been taken in, and exits.
 //!
 //! The protocol is one line per connection, a word and, for `open`, the link:
-//! `show`, `reload-themes`, `toggle`, `play`, `pause`, `next`, `previous`,
+//! `show`, `toggle`, `play`, `pause`, `next`, `previous`,
 //! `like`, `quit`, `open <link>`. The instance closes the connection once the
 //! message is handed on, so the sender knows it arrived.
 //!
@@ -22,8 +22,6 @@ use std::time::Duration;
 pub enum Message {
     /// Bring the window back (a relaunch, `ytfast show`).
     Show,
-    /// The Omarchy theme hook's call.
-    ReloadThemes,
     Toggle,
     Play,
     Pause,
@@ -42,7 +40,6 @@ impl Message {
     pub fn parse(word: &str, argument: Option<&str>) -> Option<Self> {
         Some(match word {
             "show" => Message::Show,
-            "reload-themes" => Message::ReloadThemes,
             "toggle" => Message::Toggle,
             "play" => Message::Play,
             "pause" => Message::Pause,
@@ -63,7 +60,6 @@ impl Message {
     fn line(&self) -> String {
         let word = match self {
             Message::Show => "show",
-            Message::ReloadThemes => "reload-themes",
             Message::Toggle => "toggle",
             Message::Play => "play",
             Message::Pause => "pause",

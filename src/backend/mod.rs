@@ -27,8 +27,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "e2e")]
-use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::equalizer::Equalizer;
@@ -129,14 +127,9 @@ pub enum Command {
     Equalizer(Equalizer),
     /// Turn loudness levelling between songs on or off.
     Normalize(bool),
-    /// Resolve songs likely to be played next (on screen when a page
-    /// loads), most likely first, without delaying playback.
-    PrepareMany(Vec<String>),
     /// Most-replayed heat for a song (by video id), asked once per song;
     /// answered with [`Event::Heat`].
     Heat(String),
-    /// Settings: theme-painted covers on or off (saved for next time).
-    PaintCovers(bool),
     /// Audition: preview `track` over the ducked current song, from `start`
     /// seconds in (its best part; `None` plays from a third of the way in),
     /// until [`Command::EndAudition`]. Holding another song switches to it.
@@ -149,9 +142,6 @@ pub enum Command {
     EndAudition,
     /// Settings: Smooth mixes on radios and mixes, and their length.
     Mixes(crate::model::Mixes),
-    /// E2E: read every deck's volume and position back five times a second.
-    #[cfg(feature = "e2e")]
-    SampleDecks(bool),
     /// Search YouTube Music for Play anything (Ctrl+K): answered with
     /// [`Event::QuickResults`], never saved to disk.
     QuickSearch(String),
@@ -305,12 +295,6 @@ impl Backend {
     /// it is valid: the waveform decodes it.
     pub fn stream_url(&self, video_id: &str) -> Option<String> {
         self.resolver.cached(video_id).map(|stream| stream.url)
-    }
-
-    /// E2E: drops a song's resolved stream; true if a click on it is now cold.
-    #[cfg(feature = "e2e")]
-    pub fn make_cold(&self, video_id: &str) -> bool {
-        self.resolver.make_cold(video_id)
     }
 
     /// Saves the session and stops playback. Runs when the backend is
@@ -793,19 +777,9 @@ impl Worker {
                     sink.send(Event::Heat { id: video_id, heat });
                 });
             }
-            Command::PaintCovers(on) => {
-                let mut settings = crate::settings::Settings::load(&self.paths);
-                settings.paint_covers = on;
-                if let Err(error) = settings.save(&self.paths) {
-                    self.sink.send(Event::Error(format!(
-                        "Couldn't save the cover painting setting: {error}"
-                    )));
-                }
-            }
             Command::AccountEdit { op, edit, refresh } => self.account_edit(op, edit, refresh),
             Command::LikeStatus(video_id) => self.like_status(video_id),
             Command::Prepare(video_id) => self.resolver.prepare(&video_id),
-            Command::PrepareMany(video_ids) => self.resolver.prepare_many(video_ids),
             Command::PlayNext(tracks) => self.add(tracks, true).await,
             Command::AddToQueue(tracks) => self.add(tracks, false).await,
             Command::RemoveFromQueue(at) => {
@@ -840,8 +814,6 @@ impl Worker {
             Command::Audition { track, start } => self.audition(track, start).await,
             Command::EndAudition => self.end_audition().await,
             Command::Mixes(mixes) => self.set_mixes(mixes).await,
-            #[cfg(feature = "e2e")]
-            Command::SampleDecks(on) => self.sample_decks(on),
             Command::QuickSearch(query) => {
                 let client = self.client.clone();
                 let sink = self.sink.clone();

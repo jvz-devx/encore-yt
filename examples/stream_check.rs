@@ -12,7 +12,7 @@
 //! `--signed-in` asks as the account (WEB_CREATOR, as the app does) for the
 //! Premium formats, so use it only when that is wanted.
 //!
-//! cargo run --example stream_check --no-default-features --
+//! cargo run --example stream_check --
 //!     [--signed-in] [--formats 251,250,249,140] VIDEO_ID
 //!
 //! (Premium: `--signed-in --formats 774,141`.) The resolved formats are kept

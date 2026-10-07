@@ -383,12 +383,3 @@ pub fn parse_duration(text: &str) -> Option<u32> {
     }
     Some(total)
 }
-
-pub fn format_time(seconds: f64) -> String {
-    let s = seconds.max(0.0) as u64;
-    if s >= 3600 {
-        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
-    } else {
-        format!("{}:{:02}", s / 60, s % 60)
-    }
-}

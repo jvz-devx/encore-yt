@@ -1,23 +1,12 @@
-//! ytfast: a native YouTube Music client. See docs/SPEC.md.
+//! The backend of ytfast-gpui, a native YouTube Music client: InnerTube,
+//! sign-in, playback and the desktop services. The app is in gpui/.
 
 pub mod account;
-#[cfg(feature = "egui")]
-pub mod app;
 pub mod auth;
 pub mod backend;
-#[cfg(feature = "egui")]
-pub mod control;
-#[cfg(feature = "egui")]
-pub mod covers;
-#[cfg(feature = "egui")]
-pub mod derived;
 pub mod desktop;
-#[cfg(feature = "e2e")]
-pub mod e2e;
 pub mod equalizer;
 pub mod heat;
-#[cfg(feature = "egui")]
-pub mod icons;
 pub mod innertube;
 pub mod jsc;
 pub mod links;
@@ -25,8 +14,6 @@ pub mod lyrics;
 pub mod model;
 pub mod mpris;
 pub mod notify;
-#[cfg(feature = "egui")]
-pub mod palette;
 pub mod parse;
 pub mod paths;
 pub mod player;
@@ -35,8 +22,4 @@ pub mod searches;
 pub mod settings;
 pub mod single_instance;
 pub mod streams;
-#[cfg(feature = "egui")]
-pub mod theme;
 pub mod tray;
-#[cfg(feature = "egui")]
-pub mod ui;

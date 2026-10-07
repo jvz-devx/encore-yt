@@ -98,10 +98,10 @@ cargo run --release
 
 ## Development
 
-The repository has two Cargo workspaces: the root crate (the backend, plus the original egui app behind its default feature) and `gpui/` (the GPUI app, the `ytfast-visuals` effects crate and the `ytfast-audio` player). Common commands, via [just](https://github.com/casey/just):
+The repository has two Cargo workspaces: the root crate (the backend library) and `gpui/` (the GPUI app, the `ytfast-visuals` effects crate and the `ytfast-audio` player). Common commands, via [just](https://github.com/casey/just):
 
 ```sh
-just check gpui          # cargo check of one crate (gpui, visuals, audio, backend, egui)
+just check gpui          # cargo check of one crate (gpui, visuals, audio, backend)
 just test backend        # one crate's tests (the parser runs against saved YouTube responses)
 just verify gpui         # fmt, check, tests and clippy for a crate, before you finish
 just verify-workspace    # everything, at the end
@@ -114,13 +114,11 @@ cd gpui && bacon         # background checks while you edit
 
 Further reading: [docs/gpui/PLAN.md](docs/gpui/PLAN.md) (milestones and their evidence), [gpui/DESIGN.md](gpui/DESIGN.md) (the design system), [gpui/NOTES-visuals.md](gpui/NOTES-visuals.md) (effects and their costs), [docs/gpui/BUILD-SPEED.md](docs/gpui/BUILD-SPEED.md), [AGENTS.md](AGENTS.md) (rules for coding agents, and people).
 
-## Where it comes from
+## Credits
 
-ytfast-gpui is a fork of [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry (MIT), a YouTube Music player for Omarchy written with egui. This fork keeps ytfast's backend (YouTube Music's API and parser, sign-in, MPRIS) and adds the GPUI interface, the wgpu effects, a Rust audio engine and stream resolver in place of mpv and yt-dlp, self-updates, and Windows and macOS builds and installers. The original egui app still builds from the root crate (`cargo run --release`); see [docs/SPEC.md](docs/SPEC.md) for its product spec.
+ytfast-gpui started from [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry (MIT), whose backend it still builds on.
 
-Credits:
-
-- [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry, and through it [fastframe](https://github.com/crmne/fastframe), [ZapFast](https://github.com/crmne/zapfast) and [Spotifast](https://github.com/crmne/spotifast) by Carmine Paolino (MIT). The self-updater is adapted from fastframe's `fastframe-update`.
+- [fastframe](https://github.com/crmne/fastframe) by Carmine Paolino (MIT): the log setup, and the self-updater is adapted from its `fastframe-update`.
 - [GPUI](https://github.com/zed-industries/zed) by Zed Industries and [gpui-kit](https://github.com/longbridge/gpui-kit) (gpui-component) by Longbridge (both Apache-2.0).
 - The player: [Symphonia](https://github.com/pdeljanov/Symphonia) (MPL-2.0) and [libopus](https://opus-codec.org) (BSD) decode, [cpal](https://github.com/RustAudio/cpal) (Apache-2.0) plays, [rubato](https://github.com/HEnquist/rubato) (MIT) resamples.
 - The streams: the built-in resolver runs the challenge solver scripts of [yt-dlp-ejs](https://github.com/yt-dlp/ejs) (Unlicense) in QuickJS through [rquickjs](https://github.com/DelSkayn/rquickjs) (MIT); it follows what [yt-dlp](https://github.com/yt-dlp/yt-dlp) learned about YouTube's clients.

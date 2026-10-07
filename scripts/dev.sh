@@ -11,14 +11,12 @@
 # CRATE is one of:
 #   gpui      the GPUI app (gpui/, package ytfast-gpui)
 #   visuals   the wgpu effects crate (gpui/crates/visuals, ytfast-visuals)
-#   audio     the pure Rust playback spike (gpui/crates/audio, ytfast-audio)
-#   backend   the root crate without the egui interface, with the Rust
-#             audio engine (what gpui uses)
-#   egui      the root crate with the egui interface (the upstream app)
+#   audio     the Rust playback engine (gpui/crates/audio, ytfast-audio)
+#   backend   the root crate (the library gpui uses), with the Rust audio
+#             engine
 #
-# The root crate and gpui/ are separate Cargo workspaces on purpose (one
-# workspace would unify features across both apps; zbus's tokio feature
-# breaks AccessKit in the egui app), so "workspace" here means both.
+# The root crate and gpui/ are still separate Cargo workspaces (one is
+# planned, PLAN M23), so "workspace" here means both.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 jobs="${JOBS:-4}"
@@ -29,8 +27,8 @@ step() { printf '== %s\n' "$*" >&2; }
 crate_dir() {
     case "$1" in
         gpui | visuals | audio) echo gpui ;;
-        backend | egui) echo . ;;
-        *) echo "unknown crate '$1' (gpui, visuals, audio, backend, egui)" >&2; exit 2 ;;
+        backend) echo . ;;
+        *) echo "unknown crate '$1' (gpui, visuals, audio, backend)" >&2; exit 2 ;;
     esac
 }
 crate_args() {
@@ -38,8 +36,7 @@ crate_args() {
         gpui) echo "-p ytfast-gpui" ;;
         visuals) echo "-p ytfast-visuals" ;;
         audio) echo "-p ytfast-audio" ;;
-        backend) echo "--lib --no-default-features" ;;
-        egui) echo "--features e2e" ;;
+        backend) echo "--lib" ;;
     esac
 }
 in_crate() {
@@ -64,10 +61,10 @@ test_crate() {
         gpui) step "test gpui"; in_crate gpui cargo test -j "$jobs" -p ytfast-gpui -- $filter ;;
         visuals) step "test visuals"; in_crate gpui cargo test -j "$jobs" -p ytfast-visuals -- $filter ;;
         audio) step "test audio"; in_crate gpui cargo test -j "$jobs" -p ytfast-audio -- $filter ;;
-        backend | egui)
-            # The parser fixture tests (tests/) and unit tests, without egui.
+        backend)
+            # The parser fixture tests (tests/) and unit tests.
             step "test backend"
-            cargo test -j "$jobs" --lib --tests --no-default-features -- $filter
+            cargo test -j "$jobs" --lib --tests -- $filter
             ;;
     esac
 }
@@ -75,8 +72,7 @@ test_crate() {
 lint() {
     step "clippy $1"
     case "$1" in
-        egui) cargo clippy -j "$jobs" --all-targets --features e2e -- -D warnings ;;
-        backend) cargo clippy -j "$jobs" --lib --tests --examples --no-default-features -- -D warnings ;;
+        backend) cargo clippy -j "$jobs" --lib --tests --examples -- -D warnings ;;
         *) in_crate "$1" cargo clippy -j "$jobs" $(crate_args "$1") --all-targets -- -D warnings ;;
     esac
 }
@@ -109,7 +105,6 @@ verify_workspace() {
     step "fmt (check, both workspaces)"
     cargo fmt --all --check
     (cd gpui && cargo fmt --all --check)
-    lint egui
     lint backend
     test_crate backend
     step "clippy gpui workspace"

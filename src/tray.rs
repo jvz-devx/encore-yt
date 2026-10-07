@@ -1,5 +1,5 @@
 //! The tray icon: while the window is closed and Music plays on, an item in
-//! the bar's tray (a StatusNotifierItem, which Omarchy's bar hosts) shows the
+//! the panel's tray (a StatusNotifierItem) shows the
 //! song, brings the window back, plays or pauses, and quits. While a window is
 //! open the item stays registered but Passive, which trays hide.
 //!

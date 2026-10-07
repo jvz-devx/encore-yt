@@ -1,6 +1,6 @@
 # Build settings for the GPUI workspace (gpui/), committed so every
 # worktree gets them. The root crate's /.cargo/config.toml stays
-# machine-local as upstream intends.
+# machine-local.
 
 [build]
 # sccache when installed, plain rustc otherwise (see the script). Every

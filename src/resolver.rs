@@ -278,24 +278,6 @@ impl Resolver {
         self.save();
     }
 
-    /// E2E: forgets `video_id`'s stream; true if nothing is resolving it or
-    /// waiting to, so a click on it is a cold one.
-    #[cfg(feature = "e2e")]
-    pub fn make_cold(&self, video_id: &str) -> bool {
-        self.forget(video_id);
-        !self
-            .flights
-            .lock()
-            .expect("flights lock")
-            .contains_key(video_id)
-            && !self
-                .backlog
-                .lock()
-                .expect("backlog lock")
-                .iter()
-                .any(|id| id == video_id)
-    }
-
     /// The best stream the account can get, for playback.
     pub async fn resolve(self: &Arc<Self>, video_id: &str) -> Result<Stream> {
         self.request(video_id).wait().await
@@ -304,19 +286,6 @@ impl Resolver {
     /// Asks for a stream for playback. The share is taken at once, so a run
     /// handed from one waiter to the next is never stopped in between.
     pub fn request(self: &Arc<Self>, video_id: &str) -> Request {
-        #[cfg(feature = "e2e")]
-        if crate::e2e::sabotaged(video_id) {
-            return Request::Ready(Ok(Stream {
-                itag: 251,
-                url: "http://127.0.0.1:9/ytfast-e2e-broken".into(),
-                user_agent: None,
-                expires: now() + 3600,
-            }));
-        }
-        #[cfg(feature = "e2e")]
-        if crate::e2e::offline() {
-            return Request::Ready(Err(anyhow!("Unable to reach YouTube (simulated offline)")));
-        }
         let mut flights = self.flights.lock().expect("flights lock");
         if let Some(stream) = self.cached(video_id) {
             return Request::Ready(Ok(stream));
@@ -336,10 +305,6 @@ impl Resolver {
     /// Resolves likely songs ahead of a click, most likely first, without
     /// taking a playback slot.
     pub fn prepare_many(self: &Arc<Self>, mut video_ids: Vec<String>) {
-        #[cfg(feature = "e2e")]
-        if crate::e2e::offline() {
-            return;
-        }
         video_ids.retain(|id| self.cached(id).is_none());
         if video_ids.is_empty() {
             return;
@@ -372,10 +337,6 @@ impl Resolver {
     /// likely first), sharing a run already under way, never taking a
     /// playback slot. For previews (Audition), which must not delay playback.
     pub async fn prepared(self: &Arc<Self>, video_id: &str) -> Result<Stream> {
-        #[cfg(feature = "e2e")]
-        if crate::e2e::offline() {
-            bail!("Unable to reach YouTube (simulated offline)");
-        }
         let deadline = Instant::now() + std::time::Duration::from_secs(90);
         loop {
             if let Some(stream) = self.cached(video_id) {

@@ -4,7 +4,7 @@
 //! call first gives the visitor id; the player script is fetched only when
 //! `<cache>/player` has no current one. Mind YouTube's rate limits.
 //!
-//! `cargo run --example resolve_rust --no-default-features -- [--signed-in]
+//! `cargo run --example resolve_rust -- [--signed-in]
 //! [--client visionos|tv|creator] [--cache DIR] VIDEO_ID...` (`--client`
 //! asks only that client, so a failure costs no second request; `--no-fetch`
 //! skips the range fetch; `--dump DIR` saves the player responses). Exits

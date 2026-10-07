@@ -1,7 +1,7 @@
 //! Runs saved signed-out InnerTube responses (`tests/fixtures/innertube/`,
-//! refreshed with `cargo run --example capture_fixtures
-//! --no-default-features`) through the real parser, so a change in YouTube
-//! Music's responses shows up as a failing test. The assertions check the
+//! refreshed with `cargo run --example capture_fixtures`) through the real
+//! parser, so a change in YouTube Music's responses shows up as a failing
+//! test. The assertions check the
 //! structure the interface relies on, not the catalogue's current content.
 
 use serde_json::Value;

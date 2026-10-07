@@ -18,6 +18,10 @@ pub const FONT: &str = "Inter";
 /// Inter's display cut, for page and shelf titles (22 px and up).
 pub const FONT_DISPLAY: &str = "Inter Display";
 
+#[cfg(target_os = "linux")]
+mod portal;
+#[cfg(not(target_os = "linux"))]
+#[path = "theme/no_portal.rs"]
 mod portal;
 
 /// Which palette the window uses. It follows the desktop's light or dark

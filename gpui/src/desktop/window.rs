@@ -105,15 +105,18 @@ pub fn open_link(app: &Entity<MusicApp>, link: &str, cx: &mut App) {
     }
 }
 
-/// A closed main window plays on, unless nothing is queued.
+/// A closed main window plays on, unless nothing is queued. Outside Linux
+/// there is no tray to bring it back, so closing it quits.
 fn closed(cx: &mut App, id: WindowId) {
     let Some(app) = cx.try_global::<Main>().map(|main| main.0.clone()) else {
         return;
     };
     match app.update(cx, |this, _| this.window_closed(id)) {
-        Some(true) => log::info!("window closed; playing on in the background"),
-        Some(false) => {
-            log::info!("window closed with nothing queued; quitting");
+        Some(true) if cfg!(target_os = "linux") => {
+            log::info!("window closed; playing on in the background")
+        }
+        Some(_) => {
+            log::info!("window closed; quitting");
             cx.quit();
         }
         None => {}

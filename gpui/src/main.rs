@@ -1,5 +1,8 @@
 //! ytfast-gpui: a GPUI interface on ytfast's backend. See docs/gpui/PLAN.md.
 
+// No console window behind the app in a Windows release build.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 // GPUI's derive macros (Action, IntoElement) name the `gpui` crate.
 extern crate gpui_kit as gpui;
 
@@ -21,6 +24,8 @@ use std::sync::Arc;
 use anyhow::anyhow;
 
 fn main() -> anyhow::Result<()> {
+    // Bundled mpv, yt-dlp and deno win over the system's.
+    desktop::tools::add_bundled_to_path();
     let paths = ytfast::paths::Paths::new()?;
     // A running instance takes the message; this process is then done.
     let Some(launch) = desktop::command_line(&paths) else {

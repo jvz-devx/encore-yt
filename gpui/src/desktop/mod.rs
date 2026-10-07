@@ -1,7 +1,7 @@
 //! M4: the desktop around the window: MPRIS, tray, single instance and the
 //! command line, notifications, signals, the window's lifetime, keyboard
 //! shortcuts (`keys`), context menus (`menu`), Play anything (`palette`) and
-//! what they ask of the app (`control`).
+//! what they ask of the app (`control`), and the bundled tools (`tools`).
 //!
 //! MPRIS, the tray and the command line drive the app through a
 //! [`Remote`]: transport goes straight to the backend (it works with no
@@ -14,6 +14,7 @@ mod keys;
 pub mod menu;
 pub mod palette;
 mod signals;
+pub mod tools;
 mod window;
 
 use std::sync::Arc;
@@ -98,20 +99,27 @@ fn start_services(backend: &Backend, paths: &Paths, remote: &Remote, flags: &Arc
     {
         log::warn!("no single instance socket, so the command line can't reach Music: {e}");
     }
-    ytfast::tray::start(
-        &backend.runtime,
-        remote.clone(),
-        backend.now.clone(),
-        flags.window_open.subscribe(),
-    );
-    ytfast::mpris::start(
-        &backend.runtime,
-        remote.clone(),
-        backend.now.clone(),
-        flags.clone(),
-        paths.clone(),
-        backend.http.clone(),
-    );
+    // The tray (StatusNotifierItem), MPRIS and notifications are D-Bus
+    // services: Linux only.
+    #[cfg(target_os = "linux")]
+    {
+        ytfast::tray::start(
+            &backend.runtime,
+            remote.clone(),
+            backend.now.clone(),
+            flags.window_open.subscribe(),
+        );
+        ytfast::mpris::start(
+            &backend.runtime,
+            remote.clone(),
+            backend.now.clone(),
+            flags.clone(),
+            paths.clone(),
+            backend.http.clone(),
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (backend, flags);
     signals::watch(&backend.runtime, remote.clone());
 }
 

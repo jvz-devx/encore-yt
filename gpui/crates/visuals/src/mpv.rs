@@ -1,12 +1,19 @@
 //! A second client on mpv's JSON IPC socket (mpv takes many), to ask for
-//! the stream URL of the song it plays.
+//! the stream URL of the song it plays. Unix only for now: elsewhere
+//! `connect` fails and the waveform stays off.
 
 use std::io::{BufRead as _, BufReader, Write as _};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(not(unix))]
+type UnixStream = std::fs::File;
 use std::path::Path;
+#[cfg(unix)]
 use std::time::Duration;
 
-use anyhow::{Context as _, Result, anyhow, bail};
+#[cfg(unix)]
+use anyhow::Context as _;
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
 pub struct Ipc {
@@ -16,6 +23,12 @@ pub struct Ipc {
 }
 
 impl Ipc {
+    #[cfg(not(unix))]
+    pub fn connect(socket: &Path) -> Result<Self> {
+        bail!("no mpv socket on this system ({})", socket.display())
+    }
+
+    #[cfg(unix)]
     pub fn connect(socket: &Path) -> Result<Self> {
         let stream = UnixStream::connect(socket)
             .with_context(|| format!("connecting to {}", socket.display()))?;

@@ -119,7 +119,8 @@ impl MusicApp {
             desktop,
             extras,
             sidebar,
-            error: None,
+            // A missing mpv, yt-dlp or deno, from the start.
+            error: crate::desktop::tools::missing_notice(),
             focus,
             pending_playback: None,
             _subscriptions: subscriptions,

@@ -16,8 +16,8 @@ use crate::target::{Frame, Target};
 
 /// The most bars the shader holds (four to a vec4).
 pub const MAX_BARS: usize = 128;
-/// Eight vec4s, four colour stops, then the bars and the peaks.
-const PARAMS_SIZE: u64 = (8 + 4 + 2 * MAX_BARS as u64 / 4) * 16;
+/// Ten vec4s, four colour stops, then the bars and the peaks.
+const PARAMS_SIZE: u64 = (10 + 4 + 2 * MAX_BARS as u64 / 4) * 16;
 /// The style that draws the backdrop's ambient layer (wave and sparkles).
 pub const AMBIENT: u32 = 5;
 /// Levels under this are drawn as nothing (about -39 dB from the loudest).
@@ -132,18 +132,37 @@ pub struct VisualizerParams<'a> {
     pub ambient: Ambient,
 }
 
-/// The backdrop's ambient layer: sparkles and the wave. Strengths are 1
-/// for the Default look.
+/// The backdrop's ambient layer: sparkles and the wave. The clocks are
+/// kept by the caller, so a speed can change without a jump.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Ambient {
     /// How many sparkles, 0..2 (0: none).
     pub amount: f32,
-    pub size: f32,
-    /// How much they fade in and out, 0..1.
-    pub twinkle: f32,
+    /// The far and the near sparkles' radius, in device pixels.
+    pub size_min: f32,
+    pub size_max: f32,
+    /// 0 a crisp dot, 1 a soft glow.
+    pub softness: f32,
     pub brightness: f32,
-    /// The wave's strength, 0..2 (0: none).
+    /// The drift's clock: seconds at the drift speed.
+    pub drift: f32,
+    /// How much size, brightness and speed differ with depth, 0..1.
+    pub depth: f32,
+    /// How much the music lifts their brightness, 0..1.
+    pub reaction: f32,
+    /// How much they fade in and out, 0..1, and the twinkle's clock.
+    pub twinkle: f32,
+    pub twinkle_clock: f32,
+    /// Where they drift, in radians (0 rightwards, counter-clockwise).
+    pub direction: f32,
+    /// How much of the colour stops tints them, 0..1 (0 white).
+    pub tint: f32,
+    /// The wave's strength, 0..2 (0: none), its clock, its ribbons (1..3)
+    /// and the height of its middle (0 top, 1 bottom).
     pub wave: f32,
+    pub wave_clock: f32,
+    pub ribbons: u32,
+    pub wave_height: f32,
 }
 
 pub struct Visualizer {
@@ -225,8 +244,10 @@ impl Visualizer {
         floats.extend([corner, p.reach, p.travel, p.treble]);
         floats.extend([p.scale, flag(p.cover.is_some()), 0.0, 0.0]);
         let a = &p.ambient;
-        floats.extend([a.amount, a.size, a.twinkle, a.brightness]);
-        floats.extend([a.wave, 0.0, 0.0, 0.0]);
+        floats.extend([a.amount, a.size_min, a.size_max, a.softness]);
+        floats.extend([a.brightness, a.drift, a.depth, a.reaction]);
+        floats.extend([a.twinkle, a.twinkle_clock, a.direction, a.tint]);
+        floats.extend([a.wave, a.wave_clock, a.ribbons as f32, a.wave_height]);
         for stop in &p.stops {
             floats.extend(*stop);
             floats.push(1.0);
@@ -377,10 +398,21 @@ mod tests {
                 bars: &bars,
                 ambient: Ambient {
                     amount: 1.0,
-                    size: 1.0,
-                    twinkle: 0.6,
+                    size_min: 0.7,
+                    size_max: 1.4,
+                    softness: 0.8,
                     brightness: 1.0,
+                    drift: 3.0,
+                    depth: 1.0,
+                    reaction: 0.5,
+                    twinkle: 0.6,
+                    twinkle_clock: 3.0,
+                    direction: 0.0,
+                    tint: 1.0,
                     wave: 1.0,
+                    wave_clock: 3.0,
+                    ribbons: 3,
+                    wave_height: 0.56,
                 },
             };
             let frame = vis.frame_now(&p).expect("frame");

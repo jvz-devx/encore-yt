@@ -2,12 +2,12 @@
 //! value reads, and their states, kept while the app runs.
 
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderScale, SliderState, SliderValue};
 use gpui_kit::*;
 
-use super::Group;
+use super::Tab;
 use crate::app::MusicApp;
 use crate::theme::Colors;
 use crate::visuals::config::{self, VisualsConfig};
@@ -20,11 +20,6 @@ const WIDTH: Pixels = px(184.);
 pub enum Knob {
     Blur,
     Swirl,
-    Motes,
-    MoteSize,
-    MoteBrightness,
-    Twinkle,
-    Wave,
     Bloom,
     BassPulse,
     Intensity,
@@ -40,17 +35,25 @@ pub enum Knob {
     PeakFall,
     Opacity,
     VisGlow,
+    Amount,
+    Size,
+    Softness,
+    Brightness,
+    Speed,
+    Depth,
+    Twinkle,
+    TwinkleSpeed,
+    Direction,
+    Reaction,
+    WaveStrength,
+    WaveSpeed,
+    WaveHeight,
 }
 
 impl Knob {
-    const ALL: [Knob; 22] = [
+    const ALL: [Knob; 30] = [
         Knob::Blur,
         Knob::Swirl,
-        Knob::Motes,
-        Knob::MoteSize,
-        Knob::MoteBrightness,
-        Knob::Twinkle,
-        Knob::Wave,
         Knob::Bloom,
         Knob::BassPulse,
         Knob::Intensity,
@@ -66,17 +69,37 @@ impl Knob {
         Knob::PeakFall,
         Knob::Opacity,
         Knob::VisGlow,
+        Knob::Amount,
+        Knob::Size,
+        Knob::Softness,
+        Knob::Brightness,
+        Knob::Speed,
+        Knob::Depth,
+        Knob::Twinkle,
+        Knob::TwinkleSpeed,
+        Knob::Direction,
+        Knob::Reaction,
+        Knob::WaveStrength,
+        Knob::WaveSpeed,
+        Knob::WaveHeight,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             Knob::Blur => "Blur",
             Knob::Swirl => "Swirl speed",
-            Knob::Motes => "Amount",
-            Knob::MoteSize => "Size",
-            Knob::MoteBrightness => "Brightness",
+            Knob::Amount => "Amount",
+            Knob::Size => "Size",
+            Knob::Softness => "Softness",
+            Knob::Brightness => "Brightness",
+            Knob::Speed | Knob::WaveSpeed => "Speed",
+            Knob::Depth => "Depth",
             Knob::Twinkle => "Twinkle",
-            Knob::Wave => "Wave strength",
+            Knob::TwinkleSpeed => "Twinkle speed",
+            Knob::Direction => "Direction",
+            Knob::Reaction => "Music reaction",
+            Knob::WaveStrength => "Strength",
+            Knob::WaveHeight => "Height",
             Knob::Bloom => "Bloom",
             Knob::BassPulse => "Bass pulse",
             Knob::Intensity => "Colour",
@@ -96,8 +119,12 @@ impl Knob {
     /// Least, most, step, and whether the scale is logarithmic.
     fn range(self) -> (f32, f32, f32, bool) {
         match self {
-            Knob::MoteSize => (0.3, 2., 0.05, false),
-            Knob::Twinkle => (0., 1., 0.05, false),
+            Knob::Size => (config::SPARKLE_PX.0, config::SPARKLE_PX.1, 0.05, false),
+            Knob::Softness | Knob::Depth | Knob::Twinkle | Knob::Reaction => (0., 1., 0.05, false),
+            Knob::Speed | Knob::WaveSpeed => (0., 3., 0.05, false),
+            Knob::TwinkleSpeed => (0.2, 3., 0.05, false),
+            Knob::Direction => (0., 360., 5., false),
+            Knob::WaveHeight => (0.1, 0.9, 0.01, false),
             Knob::Dissolve => (200., 3000., 50., false),
             Knob::Flight => (120., 2000., 20., false),
             Knob::Bars => (16., 128., 4., false),
@@ -112,15 +139,23 @@ impl Knob {
     }
 
     pub fn get(self, c: &VisualsConfig) -> SliderValue {
-        let (b, v) = (&c.backdrop, &c.visualizer);
+        let (b, v, p, w) = (&c.backdrop, &c.visualizer, &c.particles, &c.wave);
         SliderValue::Single(match self {
             Knob::Blur => b.blur,
             Knob::Swirl => b.swirl,
-            Knob::Motes => b.motes_amount,
-            Knob::MoteSize => b.mote_size,
-            Knob::MoteBrightness => b.mote_brightness,
-            Knob::Twinkle => b.twinkle,
-            Knob::Wave => b.wave_strength,
+            Knob::Amount => p.amount,
+            Knob::Size => return SliderValue::Range(p.size_min, p.size_max),
+            Knob::Softness => p.softness,
+            Knob::Brightness => p.brightness,
+            Knob::Speed => p.speed,
+            Knob::Depth => p.depth,
+            Knob::Twinkle => p.twinkle,
+            Knob::TwinkleSpeed => p.twinkle_speed,
+            Knob::Direction => p.direction,
+            Knob::Reaction => p.reaction,
+            Knob::WaveStrength => w.strength,
+            Knob::WaveSpeed => w.speed,
+            Knob::WaveHeight => w.height,
             Knob::Bloom => b.bloom,
             Knob::BassPulse => b.bass_pulse,
             Knob::Intensity => b.intensity,
@@ -142,14 +177,23 @@ impl Knob {
     fn set(self, c: &mut VisualsConfig, value: SliderValue) {
         let x = value.start();
         let (b, v) = (&mut c.backdrop, &mut c.visualizer);
+        let (p, w) = (&mut c.particles, &mut c.wave);
         match self {
             Knob::Blur => b.blur = x,
             Knob::Swirl => b.swirl = x,
-            Knob::Motes => b.motes_amount = x,
-            Knob::MoteSize => b.mote_size = x,
-            Knob::MoteBrightness => b.mote_brightness = x,
-            Knob::Twinkle => b.twinkle = x,
-            Knob::Wave => b.wave_strength = x,
+            Knob::Amount => p.amount = x,
+            Knob::Size => (p.size_min, p.size_max) = (value.start(), value.end()),
+            Knob::Softness => p.softness = x,
+            Knob::Brightness => p.brightness = x,
+            Knob::Speed => p.speed = x,
+            Knob::Depth => p.depth = x,
+            Knob::Twinkle => p.twinkle = x,
+            Knob::TwinkleSpeed => p.twinkle_speed = x,
+            Knob::Direction => p.direction = x,
+            Knob::Reaction => p.reaction = x,
+            Knob::WaveStrength => w.strength = x,
+            Knob::WaveSpeed => w.speed = x,
+            Knob::WaveHeight => w.height = x,
             Knob::Bloom => b.bloom = x,
             Knob::BassPulse => b.bass_pulse = x,
             Knob::Intensity => b.intensity = x,
@@ -182,9 +226,29 @@ impl Knob {
             Knob::Decay => format!("Falls in {:.1} s", 1. / x.max(0.01)),
             Knob::PeakFall => format!("Caps fall in {:.1} s", 1. / x.max(0.01)),
             Knob::Frequencies => format!("{} to {}", hz(value.start()), hz(value.end())),
+            Knob::Size => format!("{:.1} to {:.1} px", value.start(), value.end()),
+            Knob::Direction => direction(x),
+            Knob::WaveHeight => format!("{:.0}% down", x * 100.),
+            Knob::TwinkleSpeed => format!("{x:.1}x"),
             _ => format!("{:.0}%", x * 100.),
         }
     }
+}
+
+/// A drift direction in words, with its angle.
+fn direction(degrees: f32) -> String {
+    let names = [
+        "Right",
+        "Up and right",
+        "Up",
+        "Up and left",
+        "Left",
+        "Down and left",
+        "Down",
+        "Down and right",
+    ];
+    let i = ((degrees / 45.).round() as usize) % 8;
+    format!("{} ({degrees:.0}°)", names[i])
 }
 
 fn hz(v: f32) -> String {
@@ -195,12 +259,13 @@ fn hz(v: f32) -> String {
     }
 }
 
-/// The section's state: the sliders, which one is held, and which groups
-/// are open.
+/// The section's state: the sliders, which one is held, and the tab
+/// showing.
 pub struct Knobs {
     sliders: HashMap<Knob, Entity<SliderState>>,
     held: Cell<Option<Knob>>,
-    pub open: std::cell::RefCell<HashSet<Group>>,
+    /// The tab showing.
+    pub tab: Cell<Tab>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -269,7 +334,7 @@ impl Knobs {
         Self {
             sliders,
             held: Cell::new(None),
-            open: Default::default(),
+            tab: Cell::new(Tab::General),
             _subscriptions: subscriptions,
         }
     }

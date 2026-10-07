@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gpui_kit::*;
 use ytfast_visuals::{AMBIENT, Ambient as Settings, Bars, Visualizer, VisualizerParams};
 
-use super::config::{self, Palette};
+use super::config::{self, Palette, ParticleColour};
 use super::effects::Tick;
 use super::frames::Frames;
 
@@ -23,6 +23,12 @@ pub struct Ambient {
     /// The size the frame on screen was drawn at, and the one in flight.
     shown: Option<(u32, u32)>,
     pending: Option<(u32, u32)>,
+    /// The sparkles' drift and twinkle clocks and the wave's, each at its
+    /// own speed, and the animation and flow clocks they last followed.
+    drift: f32,
+    twinkle: f32,
+    wave: f32,
+    clocks: Option<(f32, f32)>,
 }
 
 impl Ambient {
@@ -34,8 +40,8 @@ impl Ambient {
     /// Whether the layer draws at all.
     pub fn wanted() -> bool {
         let config = config::get();
-        let b = &config.backdrop;
-        (b.motes && b.motes_amount > 0.) || (b.wave && b.wave_strength > 0.)
+        let (p, w) = (&config.particles, &config.wave);
+        (p.on && p.amount > 0.) || (w.on && w.strength > 0.)
     }
 
     /// Stops showing (the backdrop went, or the layer was switched off).
@@ -90,11 +96,22 @@ impl Ambient {
             renderer.resize(size.0, size.1);
         }
         let config = config::get();
-        let b = &config.backdrop;
+        let (p, w) = (&config.particles, &config.wave);
+        let (passed, flowed) = self.clocks.map_or((0., 0.), |(seconds, last)| {
+            ((tick.seconds - seconds).max(0.), (flow - last).max(0.))
+        });
+        self.clocks = Some((tick.seconds, flow));
+        self.drift += passed * p.speed;
+        self.twinkle += passed * p.twinkle_speed;
+        self.wave += flowed * w.speed;
+        let palette_kind = match p.colour {
+            ParticleColour::Accent => Palette::Accent,
+            ParticleColour::White | ParticleColour::Cover => Palette::Cover,
+        };
         let params = VisualizerParams {
             style: AMBIENT,
             seconds: tick.seconds,
-            travel: flow,
+            travel: 0.,
             bass: 0.,
             kick: 0.,
             // The beat only lifts the sparkles a little, from the smoothed
@@ -109,7 +126,7 @@ impl Ambient {
             cover: None,
             reach: 0.,
             stops: super::visualizer::stops(
-                Palette::Cover,
+                palette_kind,
                 &config.visualizer.custom,
                 palette,
                 tick.look,
@@ -117,11 +134,26 @@ impl Ambient {
             ),
             bars: &self.bars,
             ambient: Settings {
-                amount: if b.motes { b.motes_amount } else { 0. },
-                size: b.mote_size,
-                twinkle: b.twinkle,
-                brightness: b.mote_brightness,
-                wave: if b.wave { b.wave_strength } else { 0. },
+                amount: if p.on { p.amount } else { 0. },
+                size_min: p.size_min,
+                size_max: p.size_max,
+                softness: p.softness,
+                brightness: p.brightness,
+                drift: self.drift,
+                depth: p.depth,
+                reaction: p.reaction,
+                twinkle: p.twinkle,
+                twinkle_clock: self.twinkle,
+                direction: p.direction.to_radians(),
+                tint: if p.colour == ParticleColour::White {
+                    0.
+                } else {
+                    1.
+                },
+                wave: if w.on { w.strength } else { 0. },
+                wave_clock: self.wave,
+                ribbons: w.ribbons,
+                wave_height: w.height,
             },
         };
         match renderer.frame(&params) {

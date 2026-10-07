@@ -32,6 +32,8 @@ pub const VERSION: u32 = 2;
 pub const DISPLAY_FPS: u32 = 0;
 /// The frame rates Settings offers; [`DISPLAY_FPS`] is the display's rate.
 pub const FPS: [u32; 5] = [15, 30, 60, 120, DISPLAY_FPS];
+/// The sparkles' radius in device pixels: least, most.
+pub const SPARKLE_PX: (f32, f32) = (0.5, 4.);
 /// The visualiser's bar counts: least, most.
 pub const BARS: (u32, u32) = (16, 128);
 /// The frequency range the analysis covers, in Hz.
@@ -88,6 +90,8 @@ pub struct VisualsConfig {
     /// [`DISPLAY_FPS`] for the display's rate.
     pub fps: u32,
     pub backdrop: Backdrop,
+    pub particles: Particles,
+    pub wave: Wave,
     pub glow: Glow,
     pub seek: Seek,
     pub halos: Halos,
@@ -109,17 +113,102 @@ pub struct Backdrop {
     pub bass_pulse: f32,
     /// How much of the cover's colour shows.
     pub intensity: f32,
-    /// The fine sparkles drifting over it (the ambient layer).
-    pub motes: bool,
-    /// How many sparkles, 0..2.
-    pub motes_amount: f32,
-    pub mote_size: f32,
-    pub mote_brightness: f32,
-    /// How much they fade in and out, 0..1.
+}
+
+/// The fine sparkles drifting over the backdrop (its ambient layer).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Particles {
+    pub on: bool,
+    /// How many, 0..2.
+    pub amount: f32,
+    /// The far and the near ones' radius, in device pixels.
+    pub size_min: f32,
+    pub size_max: f32,
+    /// 0 a crisp dot, 1 a soft glow.
+    pub softness: f32,
+    pub brightness: f32,
+    /// How fast they drift, 0..3.
+    pub speed: f32,
+    /// How much size, brightness and speed differ with depth, 0..1.
+    pub depth: f32,
+    /// How much they fade in and out (0..1), and how fast (0.2..3).
     pub twinkle: f32,
-    /// The soft light wave the sparkles gather round.
-    pub wave: bool,
-    pub wave_strength: f32,
+    pub twinkle_speed: f32,
+    /// Where they drift, in degrees: 0 right, 90 up.
+    pub direction: f32,
+    /// How much the music lifts their brightness, 0..1.
+    pub reaction: f32,
+    pub colour: ParticleColour,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ParticleColour {
+    White,
+    /// Tinted with the cover's colours.
+    Cover,
+    /// Tinted with the theme's live colour.
+    Accent,
+}
+
+impl ParticleColour {
+    pub const ALL: [Self; 3] = [Self::White, Self::Cover, Self::Accent];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::White => "White",
+            Self::Cover => "Cover",
+            Self::Accent => "Accent",
+        }
+    }
+}
+
+/// The soft light wave the particles gather round, after the PS3's
+/// XrossMediaBar.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Wave {
+    pub on: bool,
+    pub strength: f32,
+    /// How fast it undulates, 0..3 (times the backdrop's swirl).
+    pub speed: f32,
+    /// How many ribbons, 1..3.
+    pub ribbons: u32,
+    /// Where its middle runs: 0 the top, 1 the bottom.
+    pub height: f32,
+}
+
+impl Default for Particles {
+    fn default() -> Self {
+        Self {
+            on: true,
+            amount: 1.,
+            size_min: 0.7,
+            size_max: 1.4,
+            softness: 0.8,
+            brightness: 1.,
+            speed: 1.,
+            depth: 1.,
+            twinkle: 0.6,
+            twinkle_speed: 1.,
+            direction: 0.,
+            reaction: 0.5,
+            colour: ParticleColour::Cover,
+        }
+    }
+}
+
+impl Default for Wave {
+    fn default() -> Self {
+        Self {
+            on: true,
+            strength: 1.,
+            speed: 1.,
+            ribbons: 3,
+            height: 0.56,
+        }
+    }
 }
 
 /// The player bar's glow of the cover's palette.
@@ -385,6 +474,8 @@ impl Default for VisualsConfig {
             on: true,
             fps: 30,
             backdrop: Backdrop::default(),
+            particles: Particles::default(),
+            wave: Wave::default(),
             glow: Glow::default(),
             seek: Seek::default(),
             halos: Halos::default(),
@@ -402,16 +493,9 @@ impl Default for Backdrop {
             on: true,
             blur: 1.,
             swirl: 1.,
-            motes: true,
-            motes_amount: 1.,
-            mote_size: 1.,
             bloom: 1.,
             bass_pulse: 1.,
             intensity: 1.,
-            mote_brightness: 1.,
-            twinkle: 0.6,
-            wave: true,
-            wave_strength: 1.,
         }
     }
 }
@@ -495,6 +579,21 @@ impl VisualsConfig {
                 glow: base.visualizer.glow,
                 ..self.visualizer.clone()
             },
+            particles: Particles {
+                // Kept: their look, not how many or how strong.
+                size_min: self.particles.size_min,
+                size_max: self.particles.size_max,
+                softness: self.particles.softness,
+                depth: self.particles.depth,
+                direction: self.particles.direction,
+                colour: self.particles.colour,
+                ..base.particles.clone()
+            },
+            wave: Wave {
+                ribbons: self.wave.ribbons,
+                height: self.wave.height,
+                ..base.wave.clone()
+            },
             stage: self.stage.clone(),
             fps: self.fps,
             ..base
@@ -510,9 +609,10 @@ impl VisualsConfig {
 
     fn calm(&mut self) {
         let b = &mut self.backdrop;
-        (b.swirl, b.motes_amount, b.mote_size) = (0.6, 0.6, 0.9);
-        (b.bloom, b.bass_pulse, b.intensity) = (0.6, 0.4, 0.85);
-        (b.mote_brightness, b.wave_strength) = (0.7, 0.6);
+        (b.swirl, b.bloom, b.bass_pulse, b.intensity) = (0.6, 0.6, 0.4, 0.85);
+        let p = &mut self.particles;
+        (p.amount, p.brightness, p.speed, p.reaction) = (0.6, 0.7, 0.6, 0.3);
+        (self.wave.strength, self.wave.speed) = (0.6, 0.6);
         self.glow.intensity = 0.4;
         self.halos.strength = 0.3;
         self.dissolve.ms = 1400;
@@ -526,9 +626,11 @@ impl VisualsConfig {
     /// Settings → Visuals, the backdrop livelier than that.
     fn vivid(&mut self) {
         let b = &mut self.backdrop;
-        (b.blur, b.swirl, b.motes_amount, b.mote_size) = (0.9, 1.3, 1.4, 1.15);
-        (b.bloom, b.bass_pulse, b.intensity, b.mote_brightness) = (1.3, 1.4, 1.2, 1.2);
-        b.wave_strength = 1.4;
+        (b.blur, b.swirl, b.bloom) = (0.9, 1.3, 1.3);
+        (b.bass_pulse, b.intensity) = (1.4, 1.2);
+        let p = &mut self.particles;
+        (p.amount, p.brightness, p.speed, p.reaction) = (1.4, 1.2, 1.3, 0.7);
+        (self.wave.strength, self.wave.speed) = (1.4, 1.3);
         self.glow.intensity = 1.;
         self.halos.strength = 1.;
         self.dissolve.ms = 700;
@@ -552,19 +654,41 @@ impl VisualsConfig {
         self.version = VERSION;
         let m = |v: &mut f32, hi: f32| *v = if v.is_finite() { v.clamp(0., hi) } else { 1. };
         let b = &mut self.backdrop;
-        for v in [&mut b.blur, &mut b.swirl, &mut b.motes_amount, &mut b.bloom] {
-            m(v, 2.);
-        }
         for v in [
-            &mut b.mote_size,
+            &mut b.blur,
+            &mut b.swirl,
+            &mut b.bloom,
             &mut b.bass_pulse,
             &mut b.intensity,
-            &mut b.mote_brightness,
-            &mut b.wave_strength,
         ] {
             m(v, 2.);
         }
-        m(&mut b.twinkle, 1.);
+        let within = |v: &mut f32, (lo, hi): (f32, f32), or: f32| {
+            *v = if v.is_finite() { v.clamp(lo, hi) } else { or };
+        };
+        let p = &mut self.particles;
+        for v in [&mut p.amount, &mut p.brightness] {
+            m(v, 2.);
+        }
+        m(&mut p.speed, 3.);
+        for v in [
+            &mut p.softness,
+            &mut p.depth,
+            &mut p.twinkle,
+            &mut p.reaction,
+        ] {
+            m(v, 1.);
+        }
+        within(&mut p.size_min, SPARKLE_PX, 0.7);
+        within(&mut p.size_max, SPARKLE_PX, 1.4);
+        p.size_max = p.size_max.max(p.size_min);
+        within(&mut p.twinkle_speed, (0.2, 3.), 1.);
+        within(&mut p.direction, (0., 360.), 0.);
+        let w = &mut self.wave;
+        m(&mut w.strength, 2.);
+        m(&mut w.speed, 3.);
+        within(&mut w.height, (0.1, 0.9), 0.56);
+        w.ribbons = w.ribbons.clamp(1, 3);
         m(&mut self.glow.intensity, 2.);
         m(&mut self.halos.strength, 2.);
         self.dissolve.ms = self.dissolve.ms.clamp(200, 3000);

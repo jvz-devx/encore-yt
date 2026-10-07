@@ -9157,6 +9157,7 @@ name = "ytfast-gpui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ashpd",
  "fastframe-log",
  "gpui-kit",
  "gpui-pre-reqwest-client",

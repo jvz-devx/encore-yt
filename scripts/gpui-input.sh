@@ -14,7 +14,7 @@
 #   scripts/gpui-input.sh move X Y          put the pointer at X,Y
 #   scripts/gpui-input.sh click X Y         left click at X,Y
 #   scripts/gpui-input.sh rclick X Y        right click at X,Y
-#   scripts/gpui-input.sh scroll N          wheel N steps (negative is up)
+#   scripts/gpui-input.sh scroll N          wheel N steps (on KWin negative scrolls down)
 #   scripts/gpui-input.sh key KEYS...       ydotool key codes, e.g. 56:1 62:1 62:0 56:0 (Alt+F4)
 #   scripts/gpui-input.sh type TEXT         type text into the focused field
 #   scripts/gpui-input.sh shot NAME [full]  capture the active window (or the

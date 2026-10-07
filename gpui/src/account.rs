@@ -33,6 +33,16 @@ impl AccountUi {
 impl MusicApp {
     pub(crate) fn on_account(&mut self, account: Account, _cx: &mut Context<Self>) {
         let was = self.account.signed_in();
+        // The state only, never the name: scripts/gpui-smoke.sh checks it.
+        log::info!(
+            "account: {}",
+            match &account {
+                Account::Checking => "checking",
+                Account::SignedIn { .. } => "signed in",
+                Account::SignedOut { .. } => "signed out",
+                Account::Unverified { .. } => "unverified",
+            }
+        );
         self.account.account = account;
         if was != self.account.signed_in() {
             // Home, Library and the rest change with the account.

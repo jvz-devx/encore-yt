@@ -46,6 +46,15 @@ Views never name a colour, size or font directly: they use these.
 - Player bar `size::PLAYER_BAR` (88) on `base`; song and volume columns are the
   same width (300) so the transport is centred on the window.
 
+## Light and dark
+
+The look follows the desktop live: `theme::init` reads the XDG desktop
+portal's `org.freedesktop.appearance` `color-scheme` (KDE sets it from the
+colour scheme) and listens for `SettingChanged`, switching the tokens and
+gpui-component's theme and redrawing every window (`src/theme/portal.rs`).
+No preference or no portal means dark. `YTFAST_GPUI_THEME=light|dark` pins
+a look over the desktop.
+
 ## Colour tokens (`theme::colors(cx)` → `Colors`)
 
 OKLCH is the source of truth; hex is the sRGB fallback. Ink hue 285, signal
@@ -118,6 +127,11 @@ Inter 4.001 static cuts, bundled (`assets/fonts`, OFL). Body is 14 px.
   easing `motion::ease_out` (quint). Animate opacity and position only.
 - A page fades in once per page key (`with_animation("enter:<key>")`).
 - Loading pulses with `widgets::skeleton` (1.6 s, opacity 0.55–1).
+- Reduced motion: when the desktop asks for it (the portal's
+  `reduced-motion`, or KDE's animation speed at Instant), `theme::init` sets
+  GPUI's `reduce_motion`, so every `with_animation` shows its last frame at
+  once and loops stand still. Motion driven by hand (timers, M8 effects)
+  checks `theme::reduced_motion(cx)` and jumps to the end instead.
 
 ## Icons
 
@@ -196,4 +210,5 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
 - Don't put a `hover()` on an element twice (GPUI asserts in debug builds).
 - Don't call `.hover()` after `widgets::icon_button`/`pill_button`; they have
   one already. Build a variant in `widgets` instead.
-- Test both looks: `YTFAST_GPUI_THEME=light`.
+- Test both looks: `YTFAST_GPUI_THEME=light` and `=dark`, or switch the
+  desktop (`plasma-apply-colorscheme BreezeDark`) while the app runs.

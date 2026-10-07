@@ -41,7 +41,7 @@ pub fn chip(app: &MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> 
                 .pr(space::LG)
                 .gap(space::SM)
                 .rounded(radius::FULL)
-                .bg(if open { c.overlay } else { c.raised })
+                .bg(if open { c.pressed } else { c.raised })
                 .type_label()
                 .cursor_pointer()
                 .hover(|s| s.bg(c.overlay))

@@ -121,6 +121,11 @@ impl MusicApp {
             // copies; Library's playlists feed Add to playlist.
             self.ensure_page(self.pages.view.target(), true);
             self.ensure_page(LibraryTab::Playlists.target(), true);
+            // A song restored from the last session has no rating yet: only
+            // a song that starts playing brings its own.
+            if let Some(track) = self.player.current() {
+                self.send(Command::LikeStatus(track.video_id.clone()));
+            }
             if self.pages.view != View::Home {
                 self.ensure_page(View::Home.target(), true);
             }
@@ -144,6 +149,7 @@ impl MusicApp {
     }
 
     pub(crate) fn on_likes(&mut self, likes: Vec<(String, LikeStatus)>) {
+        log::info!("ratings from YouTube Music: {likes:?}");
         self.account.state.likes_fetched(likes);
     }
 

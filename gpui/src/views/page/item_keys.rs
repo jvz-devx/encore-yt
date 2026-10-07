@@ -1,5 +1,5 @@
 //! M29: the keyboard on a page's song rows and cards. Each one is a tab
-//! stop with a ring while the keyboard is on it: ↑/↓ move to the one
+//! stop with a ring while the keyboard is on it ([`ItemFocus`]): ↑/↓ move to the one
 //! before or after, Enter plays it (its own click), and the Menu key or
 //! Shift+F10 opens its menu under it. The page's own keys (Space, ←/→, the
 //! letters) keep working.
@@ -7,11 +7,12 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::app::MusicApp;
 use crate::theme::{Colors, radius};
-use crate::views::{keyed, menu};
+use crate::views::menu;
 
 actions!(music_item, [ItemMenu, ItemUp, ItemDown]);
 
@@ -37,9 +38,6 @@ pub enum Anchor {
 }
 
 /// Makes row or card `item` of shelf `shelf` on page `key` a tab stop.
-/// A row's ring sits inside its edge; a card has no fill of its own, so
-/// while focused it takes the page's colour and the ring stands a little
-/// outside it, clear of the cover.
 pub fn hook(
     el: Stateful<Div>,
     key: &str,
@@ -48,22 +46,13 @@ pub fn hook(
     anchor: Anchor,
     c: &Colors,
     cx: &mut Context<MusicApp>,
-) -> Stateful<Div> {
+) -> ItemFocus {
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let store = bounds.clone();
+    let id = SharedString::from(format!("item-focus:{key}:{shelf}:{item}"));
     let key = key.to_string();
-    let el = match anchor {
-        Anchor::Row => keyed::ring_inside(el, c),
-        Anchor::Card => {
-            let (ring, page) = (c.focus_ring, c.surface);
-            el.tab_index(0).focus_visible(move |s| {
-                s.bg(page)
-                    .rounded(radius::LG)
-                    .shadow(vec![band(ring, 4.), band(page, 2.)])
-            })
-        }
-    };
-    el.key_context(CONTEXT)
+    let el = el
+        .key_context(CONTEXT)
         .on_action(|_: &ItemUp, window, cx| window.focus_prev(cx))
         .on_action(|_: &ItemDown, window, cx| window.focus_next(cx))
         .on_action(cx.listener(move |this, _: &ItemMenu, window, cx| {
@@ -78,16 +67,56 @@ pub fn hook(
             canvas(move |b, _, _| store.set(b), |_, _, _, _| {})
                 .absolute()
                 .inset_0(),
-        )
+        );
+    ItemFocus {
+        el,
+        id,
+        radius: match anchor {
+            Anchor::Row => radius::MD,
+            Anchor::Card => radius::MD,
+        },
+        outset: match anchor {
+            Anchor::Row => px(0.),
+            Anchor::Card => px(5.),
+        },
+        ring: c.focus_ring,
+    }
 }
 
-/// A solid band `spread` wide around an element.
-fn band(color: Hsla, spread: f32) -> BoxShadow {
-    BoxShadow {
-        color,
-        offset: point(px(0.), px(0.)),
-        blur_radius: px(0.),
-        spread_radius: px(spread),
-        inset: false,
+/// A row or card with its focus: the ring is a line drawn over it while the
+/// keyboard is on it: on a row's edge, a little outside a card.
+#[derive(IntoElement)]
+pub struct ItemFocus {
+    el: Stateful<Div>,
+    id: SharedString,
+    radius: Pixels,
+    /// How far the ring stands outside: a card's clear of its cover and
+    /// title (the carousel leaves room for it), a row's on its edge.
+    outset: Pixels,
+    ring: Hsla,
+}
+
+impl RenderOnce for ItemFocus {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // A handle of our own is a tab stop only if it says so itself.
+        let focus = window
+            .use_keyed_state(self.id, cx, |_, cx| cx.focus_handle().tab_stop(true))
+            .read(cx)
+            .clone();
+        let shown = focus.is_focused(window) && window.last_input_was_keyboard();
+        let (radius, ring, outset) = (self.radius, self.ring, self.outset);
+        self.el.track_focus(&focus).when(shown, |el| {
+            el.child(
+                div()
+                    .absolute()
+                    .top(-outset)
+                    .left(-outset)
+                    .right(-outset)
+                    .bottom(-outset)
+                    .rounded(radius + outset)
+                    .border_2()
+                    .border_color(ring),
+            )
+        })
     }
 }

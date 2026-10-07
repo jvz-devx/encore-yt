@@ -183,16 +183,21 @@ fn carousel(
         .relative()
         .w_full()
         .group("carousel")
+        // Room inside the clip for a focused card's ring (M29), taken back
+        // outside so nothing moves.
         .child(
-            h_flex()
-                .id(ctx.id(format!("carousel:{index}")))
-                .w_full()
-                .items_start()
-                .gap(gap)
-                .overflow_x_scroll()
-                .restrict_scroll_to_axis()
-                .track_scroll(&scroll)
-                .children(items),
+            div().m(-space::SM).child(
+                h_flex()
+                    .id(ctx.id(format!("carousel:{index}")))
+                    .w_full()
+                    .items_start()
+                    .gap(gap)
+                    .p(space::SM)
+                    .overflow_x_scroll()
+                    .restrict_scroll_to_axis()
+                    .track_scroll(&scroll)
+                    .children(items),
+            ),
         )
         .children(back)
         .children(forward)

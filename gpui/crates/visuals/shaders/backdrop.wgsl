@@ -1,0 +1,207 @@
+// The Now Playing backdrop: a slowly flowing, blurred copy of the cover over
+// a gradient of its palette, a soft bloom of its brightest colours, motes
+// that drift up and swell on the beat, toned so text stays legible on top.
+// Output is BGRA8 in display (gamma) space, as GPUI's atlas expects.
+
+struct Params {
+    // x: seconds, y: bass 0..1, z: kick 0..1, w: level 0..1
+    audio: vec4<f32>,
+    // xy: output size in pixels, z: light look (0/1), w: particles (0/1)
+    output: vec4<f32>,
+    // x: weight of the new cover (cross-fade), y: has a cover (0/1)
+    cover: vec4<f32>,
+    palette: array<vec4<f32>, 4>,
+};
+
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var cover_new: texture_2d<f32>;
+@group(0) @binding(2) var cover_old: texture_2d<f32>;
+@group(0) @binding(3) var cover_sampler: sampler;
+
+// Dark look: the brightest the backdrop gets (relative luminance), so
+// text_muted keeps 4.5:1 on top of it.
+const DARK_CAP: f32 = 0.045;
+// Dark look: colour pushed away from grey, so dim covers still tint it.
+const DARK_SATURATION: f32 = 1.7;
+// Light look: the luminance range the backdrop is pressed into. The floor
+// keeps text_muted at 4.5:1 on top (it needs 0.63).
+const LIGHT_FLOOR: f32 = 0.645;
+const LIGHT_TOP: f32 = 0.8;
+// Light look: how much of the colour the gamut allows is kept (a pastel).
+const LIGHT_CHROMA: f32 = 0.9;
+const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+// One triangle that covers the target.
+@vertex
+fn vs_main(@builtin(vertex_index) index: u32) -> VertexOut {
+    let x = f32((index << 1u) & 2u);
+    let y = f32(index & 2u);
+    var out: VertexOut;
+    out.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    out.uv = vec2<f32>(x, y);
+    return out;
+}
+
+fn hash(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
+fn hash4(p: vec2<f32>) -> vec4<f32> {
+    return vec4<f32>(hash(p), hash(p + 19.19), hash(p + 47.3), hash(p + 83.7));
+}
+
+fn noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(hash(i), hash(i + vec2<f32>(1.0, 0.0)), u.x),
+        mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), u.x),
+        u.y,
+    );
+}
+
+fn fbm(p: vec2<f32>) -> f32 {
+    var value = 0.0;
+    var amplitude = 0.5;
+    var q = p;
+    for (var i = 0; i < 4; i++) {
+        value += amplitude * noise(q);
+        q = q * 2.03 + vec2<f32>(1.7, 9.2);
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+// The cover, cross-fading from the old one to the new one.
+fn cover_at(uv: vec2<f32>) -> vec3<f32> {
+    let new_color = textureSampleLevel(cover_new, cover_sampler, uv, 0.0).rgb;
+    let old_color = textureSampleLevel(cover_old, cover_sampler, uv, 0.0).rgb;
+    return mix(old_color, new_color, params.cover.x);
+}
+
+// A wide blur around `uv` (the cover is pre-blurred on upload): the centre
+// and six taps on a ring.
+fn wide_blur(uv: vec2<f32>, radius: f32) -> vec3<f32> {
+    var sum = cover_at(uv);
+    for (var i = 0; i < 6; i++) {
+        let a = f32(i) * 1.0471976 + 0.5;
+        sum += cover_at(uv + vec2<f32>(cos(a), sin(a)) * radius);
+    }
+    return sum / 7.0;
+}
+
+// Motes: one per grid cell (some cells empty), drifting up and swaying,
+// swelling with the kick. Two layers at different depths.
+fn motes(uv: vec2<f32>, aspect: f32, t: f32, kick: f32) -> f32 {
+    var sum = 0.0;
+    for (var layer = 0; layer < 2; layer++) {
+        let depth = f32(layer);
+        let cells = 6.0 + depth * 5.0;
+        let speed = 0.012 + depth * 0.01;
+        let q = vec2<f32>(uv.x * aspect, uv.y + t * speed) * cells;
+        let cell = floor(q);
+        let h = hash4(cell + depth * 31.0);
+        let sway = vec2<f32>(sin(t * 0.4 + h.z * 6.28), cos(t * 0.3 + h.x * 6.28)) * 0.08;
+        let centre = 0.25 + 0.5 * h.xy + sway;
+        let d = length(fract(q) - centre);
+        let size = (0.035 + 0.04 * h.z) * (1.0 + 0.9 * kick);
+        let twinkle = 0.55 + 0.45 * sin(t * (0.6 + h.w) + h.w * 40.0);
+        let alive = step(0.5, h.w);
+        sum += alive * twinkle * smoothstep(size, size * 0.15, d) * (1.0 - 0.35 * depth);
+    }
+    return sum;
+}
+
+// Dark look: luminance compressed under DARK_CAP, hue kept, a floor so it
+// never goes flat black.
+fn tone_dark(color: vec3<f32>) -> vec3<f32> {
+    let lin = pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
+    let y = max(dot(lin, LUMA), 1e-4);
+    let saturated = max(mix(vec3<f32>(y), lin, DARK_SATURATION), vec3<f32>(0.0));
+    let target_y = 0.004 + (DARK_CAP - 0.004) * (1.0 - exp(-y * 9.0));
+    let toned = saturated * (target_y / y);
+    // Channels over 1 would break the cap's hue; they can't at these levels.
+    return pow(toned, vec3<f32>(1.0 / 2.2));
+}
+
+// Light look: luminance lifted into LIGHT_FLOOR..LIGHT_TOP, hue kept. The
+// colour's offset from grey is scaled as far as the gamut allows at the new
+// luminance, then by LIGHT_CHROMA, so a dark blue cover gives a clear sky
+// blue rather than a near-white wash.
+fn tone_light(color: vec3<f32>) -> vec3<f32> {
+    let lin = pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
+    let y = max(dot(lin, LUMA), 1e-4);
+    let target_y = mix(LIGHT_FLOOR, LIGHT_TOP, smoothstep(0.05, 0.6, y));
+    // dot(offset, LUMA) is 0: scaling it leaves the luminance at target_y.
+    let offset = lin - vec3<f32>(y);
+    let up = max(max(offset.r, max(offset.g, offset.b)), 1e-4);
+    let down = max(max(-offset.r, max(-offset.g, -offset.b)), 1e-4);
+    let fit = min(target_y / y, min((1.0 - target_y) / up, target_y / down));
+    let toned = vec3<f32>(target_y) + offset * fit * LIGHT_CHROMA;
+    return pow(clamp(toned, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.2));
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let t = params.audio.x;
+    let bass = params.audio.y;
+    let kick = params.audio.z;
+    let light = params.output.z > 0.5;
+    let aspect = params.output.x / max(params.output.y, 1.0);
+    let p = (in.uv - 0.5) * vec2<f32>(aspect, 1.0);
+
+    // Domain warp: two layers of noise push the coordinates around slowly.
+    let warp = vec2<f32>(
+        fbm(p * 1.3 + vec2<f32>(t * 0.045, -t * 0.035)),
+        fbm(p * 1.3 + vec2<f32>(-t * 0.03, t * 0.05) + 5.2),
+    );
+    let flow = p + (warp - 0.5) * 0.85;
+
+    // The cover, slowly turning and zoomed in, breathing with the bass.
+    let angle = t * 0.025;
+    let rot = mat2x2<f32>(cos(angle), -sin(angle), sin(angle), cos(angle));
+    let cover_uv = rot * flow * (0.6 - kick * 0.025) + 0.5;
+    let near = cover_at(cover_uv);
+    let wide = wide_blur(cover_uv, 0.16);
+
+    // The palette as a flowing gradient (all there is without a cover).
+    let n = fbm(flow * 1.8 + t * 0.06);
+    let g1 = mix(params.palette[0].rgb, params.palette[1].rgb, smoothstep(0.2, 0.8, n));
+    let g2 = mix(params.palette[2].rgb, params.palette[3].rgb, smoothstep(0.3, 0.7, warp.x));
+    let gradient = mix(g1, g2, smoothstep(0.2, 0.8, in.uv.y + (warp.y - 0.5) * 0.6));
+
+    var color = mix(gradient, mix(near, wide, 0.4), 0.7 * params.cover.y);
+
+    // Bloom: the brightest colours of the wide blur glow, a little more on
+    // the bass.
+    let glow = wide * smoothstep(0.3, 0.85, dot(wide, LUMA));
+    color += glow * (0.35 + 0.35 * bass);
+
+    if light {
+        color = tone_light(color);
+    } else {
+        color = tone_dark(color);
+        // Vignette: the edges sink a little.
+        color *= 1.0 - 0.3 * dot(p, p);
+    }
+
+    if params.output.w > 0.5 {
+        let m = motes(in.uv, aspect, t, kick);
+        let tint = mix(vec3<f32>(1.0), params.palette[(u32(t * 0.05) % 4u)].rgb, 0.35);
+        if light {
+            color = mix(color, vec3<f32>(1.0), m * 0.6);
+        } else {
+            color += tint * m * (0.07 + 0.08 * kick);
+        }
+    }
+
+    // Dither so 8-bit gradients don't band.
+    let grain = (hash(in.uv * params.output.xy + fract(t) * 61.0) - 0.5) / 255.0;
+    return vec4<f32>(color + grain, 1.0);
+}

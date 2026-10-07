@@ -9171,6 +9171,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ytfast-visuals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "pollster 0.4.0",
+ "serde_json",
+ "wgpu",
+]
+
+[[package]]
 name = "zbus"
 version = "5.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -12,8 +12,12 @@ publish = false
 name = "ytfast-gpui"
 path = "src/main.rs"
 
-# Its own workspace: the root crate's egui/winit patches don't apply here.
+# Its own workspace, separate from the root crate's (whose egui/winit
+# patches don't apply here and whose features must not unify with ours).
+# crates/visuals holds the wgpu and audio code without GPUI, so it checks
+# and tests without building the app.
 [workspace]
+members = [".", "crates/visuals"]
 
 [dependencies]
 # The backend (InnerTube, yt-dlp resolver, mpv, sign-in, MPRIS) without the

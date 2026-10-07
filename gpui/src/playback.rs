@@ -229,28 +229,38 @@ impl MusicApp {
             .update(cx, |slider, cx| slider.set_value(at, window, cx));
     }
 
-    /// Redraws what shows the position. Stage and Now Playing (its
-    /// waveform) draw it inside the app's views; otherwise only the player
-    /// bar and the mini player do, and they watch [`Clock`]. While the
-    /// effects layer draws the seek bar, its frames show the position, and
-    /// the shell redraws the bar in one of them once what the bar shows
-    /// changed ([`MusicApp::bar_shows`]): a tick needs no frame of its own.
+    /// Redraws what shows the position. Stage, and Now Playing's waveform
+    /// unless the effects layer paints it, draw it inside the app's views;
+    /// otherwise only the player bar and the mini player do, and they watch
+    /// [`Clock`]. While the effects layer draws the seek bar, its frames
+    /// show the position, and the shell redraws the bar in one of them once
+    /// what the bar shows changed ([`MusicApp::bar_shows`]): a tick needs
+    /// no frame of its own.
     pub(crate) fn position_moved(&mut self, cx: &mut Context<Self>) {
-        if self.player.now_playing || self.extras.stage.open {
+        let in_views = self.player.now_playing && !crate::visuals::paints_waveform(self);
+        if in_views || self.extras.stage.open {
             cx.notify();
-        } else if self.extras.mini_open() || !crate::visuals::position_moved(cx) {
+        } else if self.extras.mini_open() || !crate::visuals::position_moved(self.bar_moved(cx), cx)
+        {
             self.player.clock.update(cx, |_, cx| cx.notify());
         }
     }
 
+    /// Whether the player bar would show the position differently from
+    /// what it last drew.
+    fn bar_moved(&self, cx: &App) -> bool {
+        self.player.bar_shown != Some(self.bar_shows(cx))
+    }
+
     /// What the player bar draws of the position itself: the elapsed time's
-    /// second and, with the ridge, its playhead to the pixel.
+    /// second and, with the ridge (unless the effects layer draws it), its
+    /// playhead to the pixel.
     pub(crate) fn bar_shows(&self, cx: &App) -> (u64, Option<i64>) {
         let position = self.player.position();
         let duration = self.player.playback.duration;
         let ridge = self
             .current_heat()
-            .filter(|_| duration > 0.0)
+            .filter(|_| duration > 0.0 && !crate::visuals::paints_bar(cx))
             .and_then(|_| crate::visuals::seek_width(cx))
             .map(|width| (position / duration * f64::from(f32::from(width))) as i64);
         (position as u64, ridge)

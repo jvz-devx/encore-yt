@@ -23,17 +23,20 @@
 //! effects frame re-renders `MusicApp`; with the app's views and the bar in
 //! cached views beside the effects, that is only this small shell, and a
 //! position tick re-renders only the bar. Each frame still redraws the
-//! whole window (about 2 ms of CPU), so while only the player bar moves,
-//! frames come when it would look different.
+//! whole window (about 2 ms of CPU and 8-12 ms of GPU time on an Intel UHD
+//! 630), so while only the player bar moves, frames come when it would look
+//! different, and Now Playing draws at 20 frames a second.
 //!
 //! The views place the effects with [`slot`] (empty boxes whose bounds the
 //! layers read); Now Playing draws the song's waveform with [`waveform`].
 //! Settings: `YTFAST_GPUI_VISUALS=0` turns the effects off,
-//! `YTFAST_GPUI_VISUALS_FPS` sets the highest frame rate (default 30),
+//! `YTFAST_GPUI_VISUALS_FPS` sets the highest frame rate (default 20),
 //! `YTFAST_GPUI_REDUCED_MOTION=1` (or the desktop's reduced motion) freezes
 //! them, `YTFAST_GPUI_VISUALS_UNCACHED=1` turns the cached view off (to
-//! measure it) and `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover
-//! down (to look at it).
+//! measure it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
+//! leaves single effects out (to measure them) and
+//! `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover down (to look at
+//! it).
 
 mod backdrop;
 mod bar;
@@ -53,12 +56,14 @@ use gpui_kit::*;
 use crate::app::MusicApp;
 use crate::theme;
 
-pub use slots::{Covers, Slot, paints_bar, set_bar_cover, set_covers, slot};
+pub use slots::{Covers, Slot, paints_bar, paints_cover_shadow, set_bar_cover, set_covers, slot};
 pub use waveform::waveform;
 
 /// The layers, made with the first window and kept for the next one.
 struct Layers {
     handles: Handles,
+    /// The window whose root background is cleared ([`clear_root_background`]).
+    cleared: Cell<Option<AnyWindowHandle>>,
     _keys: Subscription,
 }
 
@@ -78,6 +83,7 @@ impl Global for Layers {}
 /// The window's content: effects under the app, the flying cover over it.
 pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
     let layers = layers(app, cx);
+    clear_root_background(window, cx);
     let showing = fills_panel(app);
     let playback = &app.player.playback;
     let playing = playback.playing && !playback.loading;
@@ -125,6 +131,26 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .into_any_element()
 }
 
+/// The kit's root paints the theme's background over the whole window,
+/// and the shell paints the window's base colour over all of it, so the
+/// root's is never seen. It is cleared: on an Intel UHD 630 every layer
+/// over the whole window costs about a millisecond of GPU time per frame.
+fn clear_root_background(window: &mut Window, cx: &mut App) {
+    let handle = window.window_handle();
+    let Some(layers) = cx.try_global::<Layers>() else {
+        return;
+    };
+    if layers.cleared.get() == Some(handle) {
+        return;
+    }
+    layers.cleared.set(Some(handle));
+    if let Some(Some(root)) = window.root::<gpui_kit::base::Root>() {
+        root.update(cx, |root, _| {
+            root.style().background = Some(transparent_black().into());
+        });
+    }
+}
+
 /// A layer's view, cached or rendered afresh.
 fn view(view: AnyView, cache: bool) -> AnyElement {
     if cache {
@@ -160,21 +186,23 @@ fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
         known: duration > 0.0,
         duration,
         video_id: track.map(|t| t.video_id.clone()),
+        heat: app.current_heat().cloned(),
     })
 }
 
 /// The position moved: whether the effects layer shows it without the
 /// player bar being notified (it draws the seek bar, and the shell redraws
 /// the bar in its frames when needed). While its ticker runs the next frame
-/// shows it; otherwise (reduced motion) it is woken for a frame.
-pub fn position_moved(cx: &mut App) -> bool {
+/// shows it; otherwise (reduced motion) it is woken for a frame when `bar`
+/// (the bar shows something new) or the playhead moved a pixel.
+pub fn position_moved(bar: bool, cx: &mut App) -> bool {
     if !paints_bar(cx) {
         return false;
     }
     let Some(effects) = cx.try_global::<Layers>().map(|l| l.handles.effects.clone()) else {
         return false;
     };
-    effects.update(cx, |effects, cx| effects.wake(cx));
+    effects.update(cx, |effects, cx| effects.wake(bar, cx));
     true
 }
 
@@ -187,6 +215,12 @@ pub fn seek_width(cx: &App) -> Option<Pixels> {
 /// effects layer paints it.
 pub fn fills_panel(app: &MusicApp) -> bool {
     app.player.now_playing && app.player.now_playing_over.as_ref() == Some(&app.pages.view)
+}
+
+/// Whether this layer paints Now Playing's waveform (so a position tick
+/// needn't re-render the app's views).
+pub fn paints_waveform(app: &MusicApp) -> bool {
+    fills_panel(app) && enabled()
 }
 
 /// Whether the cover in Now Playing is hidden because its copy is flying
@@ -237,6 +271,7 @@ fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {
                 flight,
                 input,
             },
+            cleared: Cell::new(None),
             _keys: keys,
         });
     }

@@ -30,9 +30,12 @@ pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`.
   and shaded towards the loudness edge; unplayed is `text` at 16-20%. A soft
   `signal` bloom around the played part, and an ink playhead that swells on
   the kick with a `signal` ring pulsing out of it (larger under the
-  pointer). **The M6 ridge** rises from the same top edge, upwards, in the
-  app layer, so it draws over the strip without any coordination: the
-  loudness hangs below the line, the replay heat rises above it.
+  pointer). **The M6 ridge** rises from the same top edge, upwards: the
+  loudness hangs below the line, the replay heat rises above it. While the
+  strip paints the bar, the strip draws the ridge too (the heat as a second
+  512-texel texture, blended in display space like GPUI's paths) and the
+  ridge view keeps only its peak mark; without effects the ridge view
+  draws it with GPUI paths.
 - **Halos**: rings 2 points outside the play button and the cover, in the
   palette's most colourful entry, swelling and brightening on the kick,
   with a soft spill on the breath.
@@ -43,13 +46,14 @@ pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`.
   over the app by the shell. In the bar it is skipped while Now Playing is
   open (the cover is the close button then), in Now Playing while the
   cover flies. None under reduced motion.
-- **Pacing**: every frame redraws the whole window, about 2 ms of CPU here
-  even with the app view cached (measured: 30 frames a second with no
-  strip and no tap cost 10.7% against 4.1% without effects). So while only
-  the bar moves, the ticker wakes the window only when it would look
-  different: a kick or bass step of 0.06 (at most 20 fps), half a device
-  pixel of playhead, or the drift at 6 fps. Now Playing's backdrop keeps a
-  steady 30. A still picture (paused, reduced motion, a seek) is rendered
+- **Pacing**: every frame redraws the whole window, about 2 ms of CPU and
+  7-10 ms of GPU time here even with the app view cached (measured: 30
+  frames a second with no strip and no tap cost 10.7% CPU against 4.1%
+  without effects; GPU in "GPU budget" below). So the strip draws only
+  when it would look different: a kick step of 0.12 or a bass step of 0.24
+  (at most 10 fps), a device pixel of playhead, or the drift at 3 fps.
+  While only the bar moves, the ticker wakes the window only then; inside
+  Now Playing's frames (20 fps) the strip keeps the same rule. A still picture (paused, reduced motion, a seek) is rendered
   and waited for in the same render (`frame_now`), so it costs no extra
   window redraws.
 - **Stopping**: nothing while paused or minimised; under reduced motion
@@ -131,6 +135,81 @@ cover mid-burn), `m9r-sheet` (reduced motion pair, then paused),
 `m9-home-bar` (paused, light, the ridge over the waveform). Songs were
 opened over MPRIS (`playerctl -p ytfast open https://music.youtube.com/watch?v=…`).
 
+### GPU budget (2026-10-07)
+
+How it was measured: `scripts/gpui-measure.sh` (intel_gpu_top render busy
+for the whole desktop, app CPU in % of one core, 10 s), plus the render
+time of each DRM client from `/proc/<pid>/fdinfo` (`drm-engine-render`:
+GPUI's renderer, our effects device and KWin apart) and per-draw GPU
+timings from Mesa (`INTEL_MEASURE=draw`, written to the app's stderr).
+Profiling builds, test audio (`YTFAST_FAKE_STREAM`), Home with Quick picks,
+1280x1000 window, light look, the machine shared with other agents' builds
+(load 10-15). Songs opened over MPRIS, N for Now Playing, minimised with
+KWin's "Window Minimize" shortcut.
+
+Where the time went (before):
+
+- **Window frames, not the effects.** Each window frame cost GPUI's
+  renderer 8-12 ms of GPU time: the Intel UHD 630 runs at a low clock under
+  this load, so every layer over the whole window costs about 1 ms. Home
+  playing drew ~15 frames a second (GPUI 13.2%, effects device 2.8%, KWin
+  1.1%); Now Playing 30 paced frames plus ~6 position ticks (GPUI 29.5%,
+  effects 13.5%, KWin 11%). Effects off, the ticks alone cost GPUI 6.3%.
+- In a frame: the kit root's background, the shell's base and the page
+  panel (about 1 ms each); the ridge's GPUI paths (a full-window 4x MSAA
+  clear and resolve per batch, two batches: 1.7 ms); in Now Playing the
+  cover's `elevation::high` shadow (a 40 pt blur over the cover plus three
+  blur radii: 2-3 ms) and the fallback gradient under the backdrop.
+- Effects device: the backdrop shader 3-4 ms per frame at 528x448, the
+  strip 1.35 ms, each readback copy 0.4-0.7 ms. Particles about 0.8 points
+  of the desktop in Now Playing, the spectrum (GPUI quads) too little to
+  measure. The upload of each frame into GPUI's atlas as a new image
+  (`YTFAST_GPUI_VISUALS_SKIP=upload` kept the first one): no difference,
+  so frames still go through new images (retired a frame later).
+- KWin's 11% in Now Playing came from the unpaced tick frames between the
+  paced ones; with only paced frames it is 1.3-2.9%.
+- Tried and dropped: an integer hash instead of `sin` in the backdrop's
+  noise made it slower on this GPU (7 ms instead of 4; 32-bit integer
+  multiplies are emulated).
+
+What changed: Now Playing at 20 frames a second with the backdrop in
+every other one and the strip only when it would look different; the
+bar's beat frames on the kick (bass at twice the step, at most 10 fps,
+drift at 3 fps); the waveform painted by the effects layer, so ticks no
+longer re-render the app in Now Playing; the cover shadow drawn by the
+backdrop shader; the ridge drawn by the strip shader; the root's hidden
+background cleared; no fallback gradient under a frame; per-frame colour
+maths and far-away pixels out of the strip shader; the backdrop at 0.4 of
+the panel; under reduced motion a tick wakes the layer only when the bar
+changes.
+
+GPU render busy for the whole desktop (points over the app closed) and app
+CPU. `before` = main at 5956758, `after` = this branch; each pair back to
+back, three after runs:
+
+| State | GPU before | GPU after | CPU before | CPU after |
+|---|---|---|---|---|
+| app closed (baseline) | 8.7-9.2% | 8.3-9.0% | | |
+| Home, paused | +0.2-0.3 | +0.0-0.6 | 0.0-0.1% | 0.0% |
+| Home, playing | +16.9-19.0 | +7.2-8.2 | 6.2-7.6% | 4.1-4.2% |
+| Now Playing, playing | +51.1-53.6 | +18.1-20.0 | 15.7-18.2% | 7.2-7.4% |
+| minimised, playing | +0.1-0.3 | -0.1-+0.2 | 0.1-1.5% | 0.2% |
+| reduced motion, Home playing | | +2.1 (was +6.0) | | 1.2% |
+| reduced motion, Now Playing | | +2.0 | | 1.0% |
+
+Per client after (one run): Home playing GPUI 5.8-6.0%, effects 1.3-1.4%,
+KWin 0.9%; Now Playing GPUI 12.5-12.8%, effects 5.2-5.7%, KWin 2.5-2.8%.
+Window frames: Home ~8 a second, Now Playing ~19. Home playing sits at the
++8 target (+7.2, +8.2, +7.5 over the closed baseline; +7.1-7.6 over the
+paused app); the frame rate is what's left to trade.
+
+Captures (`artifacts/gpui/`, gitignored): `gb0-sheet` (before), `fa3-sheet`
+(after, Home and a Now Playing pair 1 s apart), `v1-bars` (bar pairs light
+and dark), `v1d-np-sheet` (dark Now Playing pair), `shadow-cmp` (cover
+shadow before/after), `ridge-cmp2` (ridge before, after light and dark),
+`scale-cmp` (backdrop at 0.5 and 0.4, dark and light), `fr3-bars`
+(reduced motion, the position moving).
+
 ## Now Playing (M8)
 
 Code: the crate `gpui/crates/visuals` (`ytfast-visuals`, no GPUI) and the
@@ -148,7 +227,7 @@ app side in `gpui/src/visuals/`.
   (the app's views, an `AnyView::cached` entity while Now Playing shows) and
   `Flight` over it (the cover flying between the player bar and Now
   Playing, `motion::SLOW`, ease-out). `Effects` notifies itself from a
-  30 fps timer; the notify marks `MusicApp` dirty too, but its render is
+  20 fps timer (the backdrop renders in every other frame); the notify marks `MusicApp` dirty too, but its render is
   only the shell, the app's views come from the cache. Mouse and key input
   drop the cache for one frame (a slider drag changes a model, not a view).
 - **Backdrop**: the cover blurred, domain-warped and turning slowly over a
@@ -157,10 +236,15 @@ app side in `gpui/src/visuals/`.
   New covers cross-fade over 1.2 s. Tone-mapped per theme so text keeps
   4.5:1: dark look capped at luminance 0.045 (measured 0.022-0.042 on a red
   cover), light look pressed into 0.645-0.8 (measured 0.64).
+- **Cover shadow**: the theme's `elevation::high` under the large cover,
+  drawn by the backdrop shader (two closed-form blurred boxes) while the
+  backdrop shows; the cover leaves its own out then (`paints_cover_shadow`).
 - **Spectrum**: 64 bars mirrored around the centre (lows in the middle)
   above the title, painted with GPUI quads in `text` at 28-88% opacity.
 - **Waveform**: under the title, thin bars, the played part in the accent
   colour; a click seeks. A faint line until the decode (1.1-1.3 s) is done.
+  The effects layer paints it in `Slot::Waveform` (the view keeps the
+  click), so a position tick doesn't re-render the app's views.
 - **Stopping**: no frames and no tap when Now Playing is closed, the window
   is hidden (minimised), playback is paused or motion is reduced (then one
   still frame per cover, no spectrum, no particles, no flight). The renderer
@@ -168,8 +252,10 @@ app side in `gpui/src/visuals/`.
   Reduced motion is `theme::reduced_motion` (the desktop portal) or
   `YTFAST_GPUI_REDUCED_MOTION=1`.
 - **Settings** (env): `YTFAST_GPUI_VISUALS=0` off, `YTFAST_GPUI_VISUALS_FPS`
-  (30), `YTFAST_GPUI_VISUALS_UNCACHED=1` (no cached app view, to measure
-  it), `YTFAST_GPUI_VISUALS_FLIGHT_MS` (slow the flight down to look at it).
+  (20), `YTFAST_GPUI_VISUALS_UNCACHED=1` (no cached app view, to measure
+  it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
+  (leave one out, to measure it), `YTFAST_GPUI_VISUALS_FLIGHT_MS` (slow the
+  flight down to look at it).
 
 Measured 2026-10-07, release build, 1280x1000 window, backdrop rendered at
 528x448 (load 0.7-1.7; CPU in % of one core over 5-8 s, from

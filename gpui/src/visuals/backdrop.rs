@@ -5,15 +5,18 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::{Cover, FrameCost, FrameParams, Renderer};
+use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer};
 
 use super::effects::Tick;
 use super::frames::Frames;
 use crate::theme::Colors;
 
-/// The backdrop renders at most this wide; GPUI scales it to the panel
-/// (a blurred image looks the same at half size).
-const MAX_WIDTH: f32 = 640.;
+/// The backdrop renders at `SCALE` of the panel's size, at most this wide;
+/// GPUI scales it to the panel. A blurred image and soft motes look the
+/// same at 0.4 as at 0.5, for 36% fewer pixels of a costly shader (about
+/// 2% of the GPU at 10 frames a second on the UHD 630).
+const MAX_WIDTH: f32 = 512.;
+const SCALE: f32 = 0.4;
 
 #[derive(Default)]
 pub struct Backdrop {
@@ -22,6 +25,8 @@ pub struct Backdrop {
     /// The cover uploaded, and its palette for the fallback gradient.
     cover: Option<SharedString>,
     palette: Option<[[f32; 4]; 4]>,
+    /// The cover shadow last drawn.
+    shadow: Option<CoverShadow>,
     /// Frames still to render although nothing moves (a new cover or size
     /// under reduced motion or while paused; the first frame shows a frame
     /// late).
@@ -72,9 +77,15 @@ impl Backdrop {
         tick: &Tick,
         panel: Bounds<Pixels>,
         cover: Option<(&SharedString, &Cover)>,
+        shadow: Option<Shadow>,
         window: &mut Window,
     ) {
         let size = render_size(panel);
+        let shadow = shadow.map(|s| s.in_frame(panel, size));
+        if shadow != self.shadow {
+            self.shadow = shadow;
+            self.pending = self.pending.max(1);
+        }
         let renderer = self.renderer.get_or_insert_with(|| {
             log::info!("visuals: backdrop {}x{}", size.0, size.1);
             Renderer::new(tick.gpu, size.0, size.1)
@@ -101,7 +112,8 @@ impl Backdrop {
             kick: tick.kick,
             level: tick.level,
             look: tick.look,
-            particles: !tick.reduce,
+            particles: !tick.reduce && !super::effects::skip("particles"),
+            shadow: self.shadow,
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {
@@ -136,11 +148,45 @@ impl Backdrop {
     }
 }
 
-/// The render size for a panel: half its size, at most `MAX_WIDTH` wide,
+/// The large cover's drop shadow, which the backdrop draws in place of
+/// GPUI's (`theme::elevation::high`).
+#[derive(Clone, Copy, Debug)]
+pub struct Shadow {
+    /// The cover, in window coordinates.
+    pub cover: Bounds<Pixels>,
+    pub radius: Pixels,
+    /// The theme's shadow colour's alpha.
+    pub opacity: f32,
+}
+
+impl Shadow {
+    /// In the coordinates of a frame of `size` painted cover-fit over
+    /// `panel` (as the effects layer paints it).
+    fn in_frame(self, panel: Bounds<Pixels>, size: (u32, u32)) -> CoverShadow {
+        let (w, h) = (size.0 as f32, size.1 as f32);
+        let (pw, ph) = (f32::from(panel.size.width), f32::from(panel.size.height));
+        // Window pixels per frame pixel.
+        let scale = (pw / w).max(ph / h);
+        let left = f32::from(panel.center().x) - w * scale / 2.;
+        let top = f32::from(panel.center().y) - h * scale / 2.;
+        let at =
+            |x: Pixels, y: Pixels| [(f32::from(x) - left) / scale, (f32::from(y) - top) / scale];
+        let [l, t] = at(self.cover.left(), self.cover.top());
+        let [r, b] = at(self.cover.right(), self.cover.bottom());
+        CoverShadow {
+            rect: [l, t, r, b],
+            radius: f32::from(self.radius) / scale,
+            scale: 1. / scale,
+            opacity: self.opacity,
+        }
+    }
+}
+
+/// The render size for a panel: `SCALE` of its size, at most `MAX_WIDTH` wide,
 /// rounded to 16 px so small resizes don't re-make the targets.
 fn render_size(panel: Bounds<Pixels>) -> (u32, u32) {
     let (w, h) = (f32::from(panel.size.width), f32::from(panel.size.height));
-    let scale = (MAX_WIDTH / w).min(0.5);
+    let scale = (MAX_WIDTH / w).min(SCALE);
     let round = |v: f32| ((v * scale / 16.).round().max(1.) * 16.) as u32;
     (round(w), round(h))
 }

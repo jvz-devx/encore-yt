@@ -8,10 +8,11 @@ use crate::gpu::{Gpu, bytes};
 use crate::renderer::Look;
 use crate::target::{Frame, Target};
 
-/// The waveform texture's width: the song's outline resampled to this.
+/// The waveform and heat textures' width: the song's outline and replay
+/// heat resampled to this.
 const WAVE: u32 = 512;
-/// Fifteen vec4s, as `strip.wgsl`'s `Params`.
-const PARAMS_SIZE: u64 = 15 * 16;
+/// Seventeen vec4s, as `strip.wgsl`'s `Params`.
+const PARAMS_SIZE: u64 = 17 * 16;
 
 /// Inputs for one strip frame. Positions and sizes are in output pixels
 /// (points times `scale`).
@@ -33,6 +34,9 @@ pub struct StripParams {
     pub play: Option<[f32; 3]>,
     /// The cover thumbnail: left, top, right, bottom, and its corner radius.
     pub cover: Option<([f32; 4], f32)>,
+    /// The most-replayed ridge's height in points where the heat is
+    /// greatest, while the song has heat ([`Strip::set_heat`]).
+    pub ridge: Option<f32>,
     pub colors: StripColors,
     /// The cover's four colours (display space), already cross-faded.
     pub palette: [[f32; 4]; 4],
@@ -65,6 +69,8 @@ pub struct StripColors {
     pub track: f32,
     /// The rings' hue (the cover's most colourful palette entry).
     pub accent: [f32; 3],
+    /// The ridge ahead of the playhead.
+    pub muted: [f32; 3],
 }
 
 pub struct Strip {
@@ -72,28 +78,33 @@ pub struct Strip {
     pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
     wave: wgpu::Texture,
+    heat: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     has_wave: bool,
+    has_heat: bool,
     target: Target,
 }
 
 impl Strip {
     pub fn new(gpu: &Gpu, width: u32, height: u32) -> Self {
         let module = gpu.shader("strip", include_str!("../shaders/strip.wgsl"));
-        let layout = gpu.layout("strip", 1);
+        let layout = gpu.layout("strip", 2);
         let pipeline = gpu.pipeline("strip", &module, &layout);
         let uniforms = gpu.uniforms("strip params", PARAMS_SIZE);
         let sampler = gpu.sampler(wgpu::AddressMode::ClampToEdge);
         let wave = gpu.texture("waveform", (WAVE, 1), wgpu::TextureFormat::R8Unorm);
-        let view = wave.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = gpu.bind_group(&layout, &uniforms, &[&view], &sampler);
+        let heat = gpu.texture("heat", (WAVE, 1), wgpu::TextureFormat::R8Unorm);
+        let views = [&wave, &heat].map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+        let bind_group = gpu.bind_group(&layout, &uniforms, &[&views[0], &views[1]], &sampler);
         Self {
             gpu: gpu.clone(),
             pipeline,
             uniforms,
             wave,
+            heat,
             bind_group,
             has_wave: false,
+            has_heat: false,
             target: Target::new(gpu, width, height),
         }
     }
@@ -111,22 +122,19 @@ impl Strip {
     /// The song's outline (0..1 values, any count), or `None` for a plain
     /// track.
     pub fn set_waveform(&mut self, values: Option<&[f32]>) {
-        self.has_wave = false;
-        let Some(values) = values.filter(|v| !v.is_empty()) else {
-            return;
-        };
-        let texels: Vec<u8> = (0..WAVE)
-            .map(|i| {
-                let at = (i as f32 + 0.5) / WAVE as f32 * values.len() as f32 - 0.5;
-                let lo = at.floor().clamp(0.0, (values.len() - 1) as f32) as usize;
-                let hi = (lo + 1).min(values.len() - 1);
-                let f = (at - lo as f32).clamp(0.0, 1.0);
-                let v = values[lo] + (values[hi] - values[lo]) * f;
-                (v.clamp(0.0, 1.0) * 255.0).round() as u8
-            })
-            .collect();
-        self.gpu.upload(&self.wave, 1, &texels);
-        self.has_wave = true;
+        self.has_wave = values.is_some_and(|v| !v.is_empty());
+        if let Some(values) = values.filter(|_| self.has_wave) {
+            self.gpu.upload(&self.wave, 1, &texels(values));
+        }
+    }
+
+    /// The song's replay heat (0..1 values evenly over the song, any
+    /// count), or `None` for no ridge.
+    pub fn set_heat(&mut self, values: Option<&[f32]>) {
+        self.has_heat = values.is_some_and(|v| !v.is_empty());
+        if let Some(values) = values.filter(|_| self.has_heat) {
+            self.gpu.upload(&self.heat, 1, &texels(values));
+        }
     }
 
     /// Renders a frame and returns the one rendered on the previous call.
@@ -178,20 +186,98 @@ impl Strip {
         floats.extend([play[0], play[1], play[2], flag(p.play.is_some())]);
         floats.extend(cover);
         floats.extend([corner, flag(p.cover.is_some()), 0.0, 0.0]);
+        let ridge = p.ridge.filter(|_| self.has_heat);
+        floats.extend([flag(ridge.is_some()), ridge.unwrap_or(0.0), 0.0, 0.0]);
+        let base = oklab(to_linear(c.base));
+        floats.extend(base);
+        floats.push(luminance(oklab_to_linear(base)));
+        let halo = halo(c.accent, p.look == Look::Light);
         for (rgb, w) in [
-            (c.base, 1.0),
             (c.signal, 1.0),
             (c.ink, c.track),
-            (c.accent, 1.0),
+            (halo, 1.0),
+            (c.muted, 1.0),
         ] {
             floats.extend(rgb);
             floats.push(w);
         }
         for colour in &p.palette {
-            floats.extend(colour);
+            let lab = oklab(to_linear([colour[0], colour[1], colour[2]]));
+            floats.extend([lab[1], lab[2], 0.0, 0.0]);
         }
         bytes(&floats)
     }
+}
+
+/// The accent made into the halos' colour (linear RGB): vivid and light
+/// in the dark look, a deeper tone in the light one.
+fn halo(accent: [f32; 3], light: bool) -> [f32; 3] {
+    let lab = oklab(to_linear(accent));
+    let c = lab[1].hypot(lab[2]);
+    let hue = if c > 1e-4 {
+        [lab[1] / c, lab[2] / c]
+    } else {
+        [1.0, 0.0]
+    };
+    let (l, c) = if light {
+        (0.66, c.max(0.1))
+    } else {
+        (0.74, c.clamp(0.09, 0.16))
+    };
+    oklab_to_linear([l, hue[0] * c, hue[1] * c])
+}
+
+fn to_linear(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    })
+}
+
+fn luminance(c: [f32; 3]) -> f32 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+/// Linear sRGB to OKLab, as `strip.wgsl` converts.
+fn oklab(c: [f32; 3]) -> [f32; 3] {
+    let l = 0.412_221_46 * c[0] + 0.536_332_55 * c[1] + 0.051_445_995 * c[2];
+    let m = 0.211_903_5 * c[0] + 0.680_699_5 * c[1] + 0.107_396_96 * c[2];
+    let s = 0.088_302_46 * c[0] + 0.281_718_85 * c[1] + 0.629_978_7 * c[2];
+    let [l, m, s] = [l, m, s].map(|v| v.max(0.0).cbrt());
+    [
+        0.210_454_26 * l + 0.793_617_8 * m - 0.004_072_047 * s,
+        1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s,
+        0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s,
+    ]
+}
+
+fn oklab_to_linear(lab: [f32; 3]) -> [f32; 3] {
+    let l = lab[0] + 0.396_337_78 * lab[1] + 0.215_803_76 * lab[2];
+    let m = lab[0] - 0.105_561_346 * lab[1] - 0.063_854_17 * lab[2];
+    let s = lab[0] - 0.089_484_18 * lab[1] - 1.291_485_5 * lab[2];
+    let [l, m, s] = [l, m, s].map(|v| v * v * v);
+    [
+        4.076_741_7 * l - 3.307_711_6 * m + 0.230_969_94 * s,
+        -1.268_438 * l + 2.609_757_4 * m - 0.341_319_38 * s,
+        -0.004_196_086_3 * l - 0.703_418_6 * m + 1.707_614_7 * s,
+    ]
+}
+
+/// `values` resampled linearly to `WAVE` bytes.
+fn texels(values: &[f32]) -> Vec<u8> {
+    (0..WAVE)
+        .map(|i| {
+            let at = (i as f32 + 0.5) / WAVE as f32 * values.len() as f32 - 0.5;
+            let lo = at.floor().clamp(0.0, (values.len() - 1) as f32) as usize;
+            let hi = (lo + 1).min(values.len() - 1);
+            let f = (at - lo as f32).clamp(0.0, 1.0);
+            let v = values[lo] + (values[hi] - values[lo]) * f;
+            (v.clamp(0.0, 1.0) * 255.0).round() as u8
+        })
+        .collect()
 }
 
 #[cfg(test)]

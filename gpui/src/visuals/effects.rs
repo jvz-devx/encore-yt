@@ -16,23 +16,26 @@ use std::time::{Duration, Instant};
 use gpui_kit::*;
 use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
-use super::backdrop::Backdrop;
+use super::backdrop::{self, Backdrop};
 use super::bar::{self, Bar};
 use super::dissolve::{self, Change};
 use super::slots::{self, Slot, Slots};
-use crate::theme::{self, radius};
+use super::waveform;
+use crate::theme::{self, radius, size};
 
 /// The backdrop renderer is dropped this long after Now Playing closes, and
 /// the GPU device (a second Vulkan device, ~50-90 MB) this long after the
 /// last frame of any effect.
 const KEEP: Duration = Duration::from_secs(30);
-/// While only the player bar moves, its slow drift is drawn at this rate;
-/// beats and the playhead bring frames up to `fps()`.
-const DRIFT_FPS: f32 = 6.;
+/// The player bar's slow drift is drawn at this rate; beats and the
+/// playhead add frames up to `BEAT_FPS`.
+const DRIFT_FPS: f32 = 3.;
 /// A change in the kick or bass that is worth a frame of the bar, and the
 /// rate beats draw at most.
-const BEAT_STEP: f32 = 0.06;
-const BEAT_FPS: f32 = 20.;
+const BEAT_STEP: f32 = 0.12;
+const BEAT_FPS: f32 = 10.;
+/// The backdrop moves slowly: a new picture every other window frame.
+const BACKDROP_FPS: f32 = 10.;
 
 /// What the app tells the layer on each render.
 #[derive(Clone, Debug, Default)]
@@ -48,6 +51,7 @@ pub struct Input {
 }
 
 /// One render's frame state, shared by the effects.
+#[derive(Clone, Copy)]
 pub struct Tick<'a> {
     /// A paced animation frame is due.
     pub due: bool,
@@ -88,6 +92,11 @@ pub struct Effects {
     bar_only: bool,
     /// The kick and bass the bar's last paced frame showed, and when.
     shown: (Option<Instant>, f32, f32),
+    /// When the backdrop last drew a paced frame.
+    backdrop_at: Option<Instant>,
+    /// When a position tick last woke this layer without the ticker.
+    woke: Option<Instant>,
+    counts: Counts,
     /// How fast the playhead moves, in device pixels a second.
     head_speed: f32,
     /// The last frame any effect drew, for dropping the GPU when idle.
@@ -121,6 +130,9 @@ impl Effects {
             last: None,
             bar_only: false,
             shown: (None, 0.0, 0.0),
+            backdrop_at: None,
+            woke: None,
+            counts: Counts::default(),
             head_speed: 0.0,
             drew_at: Instant::now(),
             shown_at: Instant::now(),
@@ -259,32 +271,46 @@ impl Effects {
     }
 
     /// Whether the next paced frame would look different. Each frame
-    /// redraws the whole window (about 2 ms of CPU here), so while only the
-    /// player bar moves, frames come for a beat, a playhead that moved half
-    /// a pixel, or the drift at `DRIFT_FPS`.
+    /// redraws the whole window (about 2 ms of CPU and 8-10 ms of GPU time
+    /// here), so while only the player bar moves, frames come only when it
+    /// would look different ([`Self::bar_wants`]).
     fn wants_frame(&self) -> bool {
+        !self.bar_only || self.bar_wants()
+    }
+
+    /// Whether the player bar would look different: a beat, a playhead
+    /// that moved a device pixel, or the drift at `DRIFT_FPS`.
+    fn bar_wants(&self) -> bool {
         let (Some(at), kick, bass) = self.shown else {
             return true;
         };
-        if !self.bar_only {
-            return true;
-        }
         let since = at.elapsed().as_secs_f32();
-        if since >= 1.0 / DRIFT_FPS || since * self.head_speed >= 0.5 {
+        if since >= 1.0 / DRIFT_FPS || since * self.head_speed >= 1.0 {
             return true;
         }
         if since < 1.0 / BEAT_FPS {
             return false;
         }
+        // The kick moves the halos and the playhead directly; the bass only
+        // feeds the glow's slow breath (at 0.6 of its weight), so it takes
+        // twice the step.
         let bands = self.tap.as_ref().map(AudioTap::bands).unwrap_or_default();
-        (bands.kick - kick).abs() > BEAT_STEP || (bands.bass - bass).abs() > BEAT_STEP
+        (bands.kick - kick).abs() > BEAT_STEP || (bands.bass - bass).abs() > 2. * BEAT_STEP
     }
 
     /// The song's position moved: while the ticker runs, its next frame
-    /// shows it; otherwise this draws one (a still frame if the playhead
-    /// moved).
-    pub fn wake(&mut self, cx: &mut Context<Self>) {
-        if self.ticker.is_none() {
+    /// shows it; otherwise (reduced motion) this draws one when the bar
+    /// shows something new (`bar`: its elapsed time) or the playhead moved
+    /// a device pixel since the last one, rather than on every tick.
+    pub fn wake(&mut self, bar: bool, cx: &mut Context<Self>) {
+        if self.ticker.is_some() {
+            return;
+        }
+        let moved = self
+            .woke
+            .is_none_or(|at| at.elapsed().as_secs_f32() * self.head_speed >= 1.0);
+        if bar || moved {
+            self.woke = Some(Instant::now());
             cx.notify();
         }
     }
@@ -354,12 +380,15 @@ impl Effects {
         }
     }
 
-    /// Tells the bar whether to leave its background to this layer; when
-    /// that changes, the cached app view renders afresh.
-    fn hand_over_bar(&mut self, window: &mut Window, cx: &App) {
-        let painted = self.input.bar.is_some() && self.bar.image().is_some();
-        if slots::paints_bar(cx) != painted {
-            Slots::set_bar_painted(cx, painted);
+    /// Tells the bar whether to leave its background to this layer, and
+    /// Now Playing's cover its shadow; when either changes, the cached app
+    /// view renders afresh.
+    fn hand_over(&mut self, window: &mut Window, cx: &App) {
+        let bar = self.input.bar.is_some() && self.bar.image().is_some();
+        let shadow = self.input.showing && self.backdrop.image().is_some();
+        if slots::paints_bar(cx) != bar || slots::paints_cover_shadow(cx) != shadow {
+            Slots::set_bar_painted(cx, bar);
+            Slots::set_shadow_painted(cx, shadow);
             self.input_flag.set(true);
             window.request_animation_frame();
         }
@@ -381,9 +410,28 @@ impl Render for Effects {
         let animate = moving && (music || fading || changing);
         let (due, dt) = self.tick(animate);
         self.bar_only = !input.showing && !fading && !changing;
-        if due {
+        // Window frames come at `fps()` while Now Playing animates; the bar
+        // and the backdrop draw a new picture only in some of them.
+        let bar_due = due && (self.bar_only || self.bar.fading() || self.bar_wants());
+        if bar_due {
             self.shown = (Some(Instant::now()), self.bands.kick, self.bands.bass);
         }
+        let backdrop_due = due
+            && (self.backdrop.fading()
+                || self
+                    .backdrop_at
+                    .is_none_or(|at| at.elapsed().as_secs_f32() >= 0.8 / BACKDROP_FPS));
+        if backdrop_due {
+            self.backdrop_at = Some(Instant::now());
+        }
+        if !animate {
+            self.backdrop_at = None;
+        }
+        self.counts.add(
+            due,
+            bar_due && input.bar.is_some(),
+            backdrop_due && input.showing,
+        );
         self.head_speed = head_speed(input.bar.as_ref(), window.scale_factor(), cx);
         if input.showing {
             self.shown_at = Instant::now();
@@ -407,8 +455,14 @@ impl Render for Effects {
             let art = self.art.as_ref().map(|a| (&a.url, &a.cover));
             // Now Playing lays out after this layer: its first frame comes
             // next.
+            let paced = |due| Tick { due, ..tick };
             match slots::panel(cx).filter(|_| input.showing) {
-                Some(panel) => self.backdrop.update(&tick, panel, art, window),
+                Some(panel) if !(skip("backdrop") && self.backdrop.image().is_some()) => {
+                    let shadow = cover_shadow(cx);
+                    let tick = paced(backdrop_due);
+                    self.backdrop.update(&tick, panel, art, shadow, window)
+                }
+                Some(_) => {}
                 None if input.showing => window.request_animation_frame(),
                 None => {}
             }
@@ -417,7 +471,9 @@ impl Render for Effects {
                 if Slots::get(cx, Slot::Bar).is_none() {
                     window.request_animation_frame();
                 }
-                self.bar.update(&tick, bar, window, cx);
+                if !(skip("strip") && self.bar.image().is_some()) {
+                    self.bar.update(&paced(bar_due), bar, window, cx);
+                }
             }
             let covers = Slots::covers(cx);
             let accent = self.bar.accent();
@@ -434,7 +490,7 @@ impl Render for Effects {
                 self.drew_at = Instant::now();
             }
         }
-        self.hand_over_bar(window, cx);
+        self.hand_over(window, cx);
         // Still pictures to finish, for the effects that are on.
         let pending = gpu.is_some()
             && ((input.showing && self.backdrop.pending())
@@ -451,8 +507,11 @@ impl Render for Effects {
             fallback: self.backdrop.fallback(&c),
             showing: input.showing,
             bar: input.bar.is_some().then(|| self.bar.image()).flatten(),
-            spectrum: moving && input.playing && input.showing,
+            spectrum: moving && input.playing && input.showing && !skip("spectrum"),
             levels: self.bands.levels,
+            waveform: input
+                .showing
+                .then(|| Waveform::new(input.bar.as_ref(), &c, cx)),
             color: c.text,
             flag: self.input_flag.clone(),
             hover: self.bar.hover.clone(),
@@ -477,6 +536,8 @@ struct Paint {
     /// Whether to draw the spectrum.
     spectrum: bool,
     levels: [f32; BANDS],
+    /// Now Playing's waveform: its outline (once decoded) and progress.
+    waveform: Option<Waveform>,
     color: Hsla,
     flag: Rc<Cell<bool>>,
     hover: Rc<Cell<bool>>,
@@ -501,17 +562,63 @@ impl Paint {
             return;
         };
         let corners = Corners::all(radius::LG);
-        // Under the frame: the gradient shows until the first frame and
-        // instead of it when there is no GPU device.
-        window.paint_quad(fill(panel, self.fallback).corner_radii(corners));
-        if let Some(image) = self.backdrop {
-            let fitted = dissolve::cover_fit(panel, &image);
-            let _ = window.paint_image(panel, fitted, corners, image, 0, false);
+        // The gradient shows until the first frame and instead of it when
+        // there is no GPU device. Not under the frame: each layer over the
+        // whole panel costs GPU time in every window frame.
+        match self.backdrop {
+            Some(image) => {
+                let fitted = dissolve::cover_fit(panel, &image);
+                let _ = window.paint_image(panel, fitted, corners, image, 0, false);
+            }
+            None => window.paint_quad(fill(panel, self.fallback).corner_radii(corners)),
         }
         if let Some(strip) = Slots::get(cx, Slot::Spectrum).filter(|_| self.spectrum) {
             paint_spectrum(strip, &self.levels, self.color, window);
         }
+        if let Some((w, bounds)) = self.waveform.zip(Slots::get(cx, Slot::Waveform)) {
+            waveform::paint(bounds, w.values.as_deref(), w.progress, w.colors, window);
+        }
     }
+}
+
+/// What Now Playing's waveform shows.
+struct Waveform {
+    values: Option<Vec<f32>>,
+    progress: f32,
+    colors: (Hsla, Hsla),
+}
+
+impl Waveform {
+    fn new(bar: Option<&bar::Input>, c: &theme::Colors, cx: &App) -> Self {
+        let values = bar
+            .and_then(|b| b.video_id.as_deref())
+            .and_then(|id| waveform::outline(id, cx));
+        Self {
+            values,
+            progress: bar.map_or(0.0, |b| b.progress),
+            colors: waveform::colors(c),
+        }
+    }
+}
+
+/// Now Playing's cover, whose shadow the backdrop draws, unless the cover
+/// is flying (the flight draws its own).
+fn cover_shadow(cx: &App) -> Option<backdrop::Shadow> {
+    if super::cover_in_flight(cx) {
+        return None;
+    }
+    let cover = Slots::get(cx, Slot::Cover)?;
+    // As `widgets::cover` rounds it.
+    let radius = if cover.size.width >= size::HEADER_COVER {
+        radius::LG
+    } else {
+        radius::MD
+    };
+    Some(backdrop::Shadow {
+        cover,
+        radius,
+        opacity: theme::colors(cx).shadow.a,
+    })
 }
 
 /// The spectrum as bars mirrored around the strip's centre (lows in the
@@ -591,11 +698,58 @@ fn head_speed(bar: Option<&bar::Input>, scale: f32, cx: &App) -> f32 {
     f32::from(seek.size.width) * scale / bar.duration as f32
 }
 
-/// Frames per second at most: `YTFAST_GPUI_VISUALS_FPS`, 30 by default.
+/// Window frames per second at most: `YTFAST_GPUI_VISUALS_FPS`, 20 by
+/// default (the spectrum's rate; each frame costs 8-10 ms of GPU time).
 fn fps() -> u32 {
     std::env::var("YTFAST_GPUI_VISUALS_FPS")
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&f| f > 0)
-        .unwrap_or(30)
+        .unwrap_or(20)
+}
+
+/// Paced frames over five seconds, logged while animating.
+#[derive(Default)]
+struct Counts {
+    since: Option<Instant>,
+    renders: u32,
+    window: u32,
+    bar: u32,
+    backdrop: u32,
+}
+
+impl Counts {
+    fn add(&mut self, window: bool, bar: bool, backdrop: bool) {
+        self.renders += 1;
+        if !window {
+            return;
+        }
+        let since = *self.since.get_or_insert_with(Instant::now);
+        self.window += 1;
+        self.bar += u32::from(bar);
+        self.backdrop += u32::from(backdrop);
+        let secs = since.elapsed().as_secs_f32();
+        if secs < 5.0 {
+            return;
+        }
+        log::info!(
+            "visuals: {:.1} frames a second ({:.1} paced): bar {:.1}, backdrop {:.1}",
+            self.renders as f32 / secs,
+            self.window as f32 / secs,
+            self.bar as f32 / secs,
+            self.backdrop as f32 / secs,
+        );
+        *self = Self::default();
+    }
+}
+
+/// Whether `YTFAST_GPUI_VISUALS_SKIP` (a comma list of `backdrop`,
+/// `strip`, `spectrum`, `particles`, `upload`) leaves `what` out, to
+/// measure what it costs: the backdrop and the strip keep their first
+/// picture, `upload` keeps showing the first frame of each.
+pub(super) fn skip(what: &str) -> bool {
+    static SKIP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SKIP.get_or_init(|| std::env::var("YTFAST_GPUI_VISUALS_SKIP").unwrap_or_default())
+        .split(',')
+        .any(|s| s == what)
 }

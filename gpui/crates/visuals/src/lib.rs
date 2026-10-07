@@ -29,7 +29,7 @@ pub mod waveform;
 pub use cover::{COVER_SIZE, Cover};
 pub use dissolve::Dissolve;
 pub use gpu::Gpu;
-pub use renderer::{FrameParams, Look, Renderer};
+pub use renderer::{CoverShadow, FrameParams, Look, Renderer};
 pub use spectrum::{AudioTap, BANDS, Bands};
 pub use strip::{Seek, Strip, StripColors, StripParams};
 pub use target::{Frame, FrameCost};

@@ -38,6 +38,25 @@ pub struct FrameParams {
     pub look: Look,
     /// Floating motes; off under reduced motion.
     pub particles: bool,
+    /// The large cover's drop shadow, drawn here rather than by GPUI: a
+    /// wide blurred box costs GPUI's renderer 2-3 ms of GPU time in every
+    /// window frame, this pass next to nothing.
+    pub shadow: Option<CoverShadow>,
+}
+
+/// A drop shadow under a rounded box, as the theme's `elevation::high`
+/// draws it: a tight layer and a wide one lower down. Lengths are in
+/// output pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CoverShadow {
+    /// Left, top, right, bottom of the box.
+    pub rect: [f32; 4],
+    pub radius: f32,
+    /// Output pixels per point (the layers' offsets and blurs are in
+    /// points).
+    pub scale: f32,
+    /// The shadow colour's alpha (it is black).
+    pub opacity: f32,
 }
 
 pub struct Renderer {
@@ -158,6 +177,14 @@ impl Renderer {
         let mut floats = vec![p.seconds, p.bass, p.kick, p.level];
         floats.extend([width as f32, height as f32, light, particles]);
         floats.extend([mix, has_cover, 0.0, 0.0]);
+        let shadow = p.shadow.unwrap_or_default();
+        floats.extend(shadow.rect);
+        floats.extend([
+            shadow.radius,
+            shadow.scale,
+            shadow.opacity,
+            if p.shadow.is_some() { 1.0 } else { 0.0 },
+        ]);
         let (new, old) = (self.palettes[self.front], self.palettes[1 - self.front]);
         for (n, o) in new.iter().zip(&old) {
             floats.extend((0..4).map(|i| o[i] + (n[i] - o[i]) * mix));
@@ -167,7 +194,7 @@ impl Renderer {
 }
 
 /// Three vec4s and four palette colours.
-const PARAMS_SIZE: u64 = 7 * 16;
+const PARAMS_SIZE: u64 = 9 * 16;
 
 #[cfg(test)]
 mod tests {
@@ -215,6 +242,7 @@ mod tests {
             level: 1.0,
             look,
             particles: false,
+            shadow: None,
         };
         renderer.frame(&params).expect("first frame");
         let frame = renderer.frame(&params).expect("frame").expect("a frame");

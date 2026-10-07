@@ -21,6 +21,9 @@ impl Frames {
 
     /// Shows `frame` from now on.
     pub fn push(&mut self, frame: ytfast_visuals::Frame, window: &mut Window) {
+        if super::effects::skip("upload") && self.shown.is_some() {
+            return;
+        }
         let pixels = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)
             .expect("a frame's size matches its bytes");
         let image = Arc::new(RenderImage::new([image::Frame::new(pixels)]));

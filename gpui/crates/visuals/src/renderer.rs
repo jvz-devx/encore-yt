@@ -77,9 +77,8 @@ pub struct Renderer {
 impl Renderer {
     /// A pipeline on `gpu` drawing `width`×`height` frames.
     pub fn new(gpu: &Gpu, width: u32, height: u32) -> Self {
-        let module = gpu.shader("backdrop", include_str!("../shaders/backdrop.wgsl"));
-        let layout = gpu.layout("backdrop", 2);
-        let pipeline = gpu.pipeline("backdrop", &module, &layout);
+        let effect = gpu.pipelines.backdrop.clone();
+        let (layout, pipeline) = (effect.layout, effect.pipeline);
         let uniforms = gpu.uniforms("backdrop params", PARAMS_SIZE);
         let sampler = gpu.sampler(wgpu::AddressMode::MirrorRepeat);
         let covers = [0, 1].map(|_| {

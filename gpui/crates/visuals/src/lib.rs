@@ -1,6 +1,7 @@
 //! The effects of ytfast-gpui, without GPUI.
 //!
-//! - [`Gpu`]: our own offscreen wgpu device, shared by the renderers below.
+//! - [`Gpu`]: our own offscreen wgpu device with every effect's pipeline
+//!   compiled (through a pipeline cache on disk), shared by the renderers below.
 //!   Each draws offscreen and reads every frame back as BGRA bytes for the
 //!   app to paint.
 //! - [`Renderer`]: the animated cover backdrop behind Now Playing (flowing
@@ -19,6 +20,7 @@ mod cover;
 mod dissolve;
 mod gpu;
 mod mpv;
+mod pipelines;
 mod pipewire;
 mod renderer;
 mod spectrum;

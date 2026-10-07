@@ -89,9 +89,12 @@ impl Change {
             let scale = window.scale_factor();
             let side = |p: Pixels| (f32::from(p) * scale).round().max(1.) as u32;
             let size = (side(bounds.size.width), side(bounds.size.height));
-            let renderer = self
-                .renderer
-                .get_or_insert_with(|| Dissolve::new(gpu, size.0, size.1));
+            let renderer = self.renderer.get_or_insert_with(|| {
+                let started = std::time::Instant::now();
+                let dissolve = Dissolve::new(gpu, size.0, size.1);
+                super::timing::setup(started);
+                dissolve
+            });
             renderer.resize(size.0, size.1);
             renderer.set_covers(pixels(old), pixels(new));
             self.started = Some(Instant::now());

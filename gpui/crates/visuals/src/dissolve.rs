@@ -25,9 +25,8 @@ pub struct Dissolve {
 
 impl Dissolve {
     pub fn new(gpu: &Gpu, width: u32, height: u32) -> Self {
-        let module = gpu.shader("dissolve", include_str!("../shaders/dissolve.wgsl"));
-        let layout = gpu.layout("dissolve", 2);
-        let pipeline = gpu.pipeline("dissolve", &module, &layout);
+        let effect = gpu.pipelines.dissolve.clone();
+        let (layout, pipeline) = (effect.layout, effect.pipeline);
         Self {
             gpu: gpu.clone(),
             uniforms: gpu.uniforms("dissolve params", 48),

@@ -211,9 +211,12 @@ impl Bar {
         if !tick.due && self.pending == 0 {
             return;
         }
-        let strip = self
-            .strip
-            .get_or_insert_with(|| Strip::new(tick.gpu, size.0, size.1));
+        let strip = self.strip.get_or_insert_with(|| {
+            let started = std::time::Instant::now();
+            let strip = Strip::new(tick.gpu, size.0, size.1);
+            super::timing::setup(started);
+            strip
+        });
         if strip.size() != size {
             strip.resize(size.0, size.1);
             self.pending = self.pending.max(2);

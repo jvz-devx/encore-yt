@@ -87,9 +87,8 @@ pub struct Strip {
 
 impl Strip {
     pub fn new(gpu: &Gpu, width: u32, height: u32) -> Self {
-        let module = gpu.shader("strip", include_str!("../shaders/strip.wgsl"));
-        let layout = gpu.layout("strip", 2);
-        let pipeline = gpu.pipeline("strip", &module, &layout);
+        let effect = gpu.pipelines.strip.clone();
+        let (layout, pipeline) = (effect.layout, effect.pipeline);
         let uniforms = gpu.uniforms("strip params", PARAMS_SIZE);
         let sampler = gpu.sampler(wgpu::AddressMode::ClampToEdge);
         let wave = gpu.texture("waveform", (WAVE, 1), wgpu::TextureFormat::R8Unorm);

@@ -8,8 +8,10 @@ GPUI window, and the audio mpv plays), which the code still follows.
 
 Code: `crates/visuals/src/strip.rs` + `shaders/strip.wgsl`,
 `dissolve.rs` + `shaders/dissolve.wgsl`, `gpu.rs` (the one device every
-effect shares), `target.rs` (the readback ring, and `frame_now` for still
-pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`.
+effect shares), `pipelines.rs` (every effect's pipeline and the pipeline
+cache), `target.rs` (the readback ring, and `frame_now` for still
+pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`,
+`device.rs` (the device made in the background).
 
 - **One strip, one pass**: the bar's whole background is one
   `Strip` frame at device size (1280x88 here), painted by the effects layer
@@ -58,7 +60,8 @@ pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`.
   window redraws.
 - **Stopping**: nothing while paused or minimised; under reduced motion
   only the playhead moves (a still frame when it moved half a pixel). The
-  device is dropped 30 s after the last frame of any effect; the last strip
+  device is dropped 30 s after the last frame of any effect (and made again
+  in the background when needed, "Shader warm-up" below); the last strip
   frame stays on screen. Stage hides the bar, and the strip with it.
 
 Measured 2026-10-07, release build, 1280x1000 window, Home page, % of one
@@ -209,6 +212,92 @@ and dark), `v1d-np-sheet` (dark Now Playing pair), `shadow-cmp` (cover
 shadow before/after), `ridge-cmp2` (ridge before, after light and dark),
 `scale-cmp` (backdrop at 0.5 and 0.4, dark and light), `fr3-bars`
 (reduced motion, the position moving).
+
+### Shader warm-up (2026-10-07)
+
+Before, the effects layer made the wgpu device (`Gpu::new`: Vulkan
+instance, adapter, device, all blocking) in the frame of the first effect,
+and each effect compiled its shader and pipeline in the frame it first drew.
+Now:
+
+- **Background device.** `Gpu` compiles all three pipelines (backdrop,
+  strip, dissolve; `crates/visuals/src/pipelines.rs`) when it is made, so a
+  renderer only makes buffers and textures (0.1-0.5 ms). The app makes the
+  `Gpu` on GPUI's background executor (`src/visuals/device.rs`): once after
+  the first visible frame (the warm-up, only with effects on), and again
+  when an effect needs it after the layer dropped it for idling (30 s after
+  the last frame, as before). The work starts in `on_next_frame`, so never
+  inside a frame, and the layer takes the device when the task finishes;
+  until then the effects don't draw and the views keep their plain
+  backgrounds. Reduced motion, paused and minimised behave as before (they
+  only decide what draws once the device is there).
+- **Pipeline cache.** On Vulkan, when the adapter has
+  `Features::PIPELINE_CACHE`, the pipelines go through a wgpu
+  `PipelineCache` kept in `~/.cache/ytfast/gpu/`, one file per GPU and
+  driver (`wgpu::util::pipeline_cache_key`, plus a hash of the driver name
+  and version). wgpu checks the header and the driver's cache UUID and
+  starts empty when they don't match. The file (about 141 KB here) is
+  written to a temporary name and renamed, only when its length or header
+  changed (the driver orders entries differently on every run), and other
+  drivers' files for the same GPU are removed. Without the feature (the GL
+  fallback) there is no cache; the device is still made in the background.
+- **Per OS.** wgpu has pipeline caches only on Vulkan. Linux (Mesa) gets
+  it. Windows uses the same Vulkan-or-GL device (DX12 is not asked for), so
+  a Vulkan driver gets the cache, in the local app data cache directory
+  under `gpu`. On macOS the device needs Vulkan (MoltenVK) or GL, so the
+  cache would only apply through MoltenVK; Metal isn't used. Windows and
+  macOS are untested on hardware; `cargo xwin check --target
+  x86_64-pc-windows-msvc` passes.
+
+How it was measured: profiling builds, test audio (`YTFAST_FAKE_STREAM`),
+the 1280x1000 window, a song restored in the player bar at start (so the
+strip draws in the first frames), then a song opened over MPRIS (first play:
+the bar cover's dissolve), N (first Now Playing: the backdrop), MPRIS Next
+(first track change inside Now Playing: its dissolve).
+`YTFAST_GPUI_FRAME_LOG=12` logs frames whose UI thread work (shell render
+through the last paint) took over 12 ms, and every frame that set up an
+effect with the time that took; `visuals:` lines time the instance,
+adapter, device, each shader and pipeline. Three runs per condition:
+**warm** (all caches warm), **cold** (`drop_caches` first) and **no driver
+cache** (cold plus `MESA_SHADER_CACHE_DISABLE=true`, as after a driver
+update; after the change our pipeline cache is still there). The machine was
+shared with other agents' builds (load 10-13), so frames of 15-50 ms happen
+with the effects off too.
+
+Effect set-up on the UI thread / the frame it happened in, ms (ranges over
+the runs):
+
+| Event | before warm | before cold | before no driver cache | after (all) |
+|---|---|---|---|---|
+| start: device | 71-103 / 116-137 | 86-105 / 128-150 | 76-126 / 122-219 | 0 |
+| start: strip | 4.5-18 / 15-32 | 5.7-13 / 19-31 | 87-122 / 103-143 | 0.2-0.5 / 11-28 |
+| first play (dissolve) | 1.3-3.7 / 7-13 | 2.4-4.1 / 10-28 | 17-37 / 23-44 | 0.0-0.1 / 4-10 |
+| first Now Playing (backdrop) | 3.8-12 / 12-24 | 4.4-12 / 12-23 | 136-158 / 145-166 | 0.2-0.3 / 8-55 |
+| first track change (dissolve) | 1.2-1.4 / 20-24 | 1.2-1.8 / 20-27 | 3.4 / 23-29 | 0.1 / 14-27 |
+
+Where the device time went before: instance 44-95 ms (loading the Vulkan
+drivers), adapter 15-22, device 7-20. Pipelines with Mesa's disk cache warm
+took 0.4-15 ms each, without it backdrop 133-155, strip 84-119, dissolve
+16-36.
+
+After, in the background: the device ready 93-272 ms after the first frame
+warm, 147-238 cold, 108-143 without the driver cache (all pipelines from our
+cache in 8-10 ms), and 384 ms on a first run with no cache at all
+(pipelines 234 ms). The frames during that time were 16-51 ms at most, as
+at start-up with the effects off (15-110 ms). After the change no frame
+spent more than 0.5 ms on effect set-up; the frames over 16 ms that remain
+in the table (Now Playing opening, a track change re-rendering the app) did
+no set-up and match runs with the effects off (`YTFAST_GPUI_VISUALS=0`:
+the longest frame 19-26 ms on play, 14-49 ms opening Now Playing, up to 21 ms
+on Next). The device dropped after 30 s idle was made again in 73 ms on the
+next play, without a set-up frame. The first strip frame after start still
+costs its still-picture wait (`frame_now`, 8-13 ms like every still strip
+frame), which is not set-up.
+
+Captures (`artifacts/gpui/`, gitignored): `trial-sheet` and
+`after-trial-sheet` (first play, Now Playing, after Next; before and
+after), `warmup-bar-cmp` (the strip before and after), `warmup-np-cmp`
+(Now Playing before and after): the effects look the same.
 
 ## Now Playing (M8)
 

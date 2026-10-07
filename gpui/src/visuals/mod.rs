@@ -36,17 +36,19 @@
 //! measure it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
 //! leaves single effects out (to measure them) and
 //! `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover down (to look at
-//! it).
+//! it) and `YTFAST_GPUI_FRAME_LOG=<ms>` logs frames slower than that
+//! ([`timing`]).
 
 mod backdrop;
 mod bar;
 mod content;
-pub mod device;
+mod device;
 mod dissolve;
 mod effects;
 mod flight;
 mod frames;
 mod slots;
+mod timing;
 mod waveform;
 
 use std::cell::Cell;
@@ -83,6 +85,7 @@ impl Global for Layers {}
 
 /// The window's content: effects under the app, the flying cover over it.
 pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
+    timing::frame_started();
     let layers = layers(app, cx);
     clear_root_background(window, cx);
     let showing = fills_panel(app);
@@ -129,6 +132,7 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .child(content)
         .child(overlay)
         .child(layers.flight.clone())
+        .children(timing::frame_end())
         .into_any_element()
 }
 
@@ -257,10 +261,11 @@ fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {
         cx.set_global(slots::Slots::default());
         let input = Rc::new(Cell::new(false));
         let clock = app.player.clock.clone();
+        let cache = app.paths.cache.clone();
         let app = cx.entity();
         let content = cx.new(|cx| content::Content::new(app.clone(), cx));
         let bar = cx.new(|cx| crate::views::PlayerBar::new(app, clock, cx));
-        let effects = cx.new(|_| effects::Effects::new(input.clone()));
+        let effects = cx.new(|_| effects::Effects::new(input.clone(), &cache));
         let flight = cx.new(|_| flight::Flight::new(content.clone()));
         let keys_input = input.clone();
         let keys = cx.observe_keystrokes(move |_, _, _, _| keys_input.set(true));

@@ -459,7 +459,7 @@ fn scope_reach() -> f32 {
     if params.look.y <= 0.0 {
         return 1.0;
     }
-    return glow_radius() * 2.5;
+    return glow_radius() * 1.8;
 }
 
 // A stroke `d` pixels from `p`: its glow under its body, in `color`;
@@ -473,7 +473,7 @@ fn stroke(ink: Ink, d: f32, color: vec3<f32>, weight: f32) -> Ink {
     if g > 0.0 {
         let r = glow_radius() * 0.8;
         let edge = max(d - half, 0.0);
-        let fade = 1.0 - smoothstep(scope_reach() * 0.5, scope_reach(), edge);
+        let fade = 1.0 - smoothstep(scope_reach() * 0.4, scope_reach(), edge);
         let halo = exp(-edge / r) * fade * (0.18 + 0.3 * params.audio.w) * min(g, 1.5) * 0.5;
         out = over(out, color, halo * weight);
     }
@@ -492,9 +492,22 @@ fn trace(ink: Ink, p: vec2<f32>, first: i32, mid: f32, amp: f32) -> Ink {
     let f = p.x / pitch;
     let lo = max(i32(floor(f - reach / pitch)), 0);
     let hi = min(i32(ceil(f + reach / pitch)), n - 1);
+    let last = min(hi, lo + 64);
+    // Most pixels are above or below every segment in reach: skip the
+    // distances for them.
+    var top = -1.0;
+    var bottom = 1.0;
+    for (var k = lo; k <= last; k++) {
+        let v = wave(first + k);
+        top = max(top, v);
+        bottom = min(bottom, v);
+    }
+    if p.y < mid - top * amp - reach || p.y > mid - bottom * amp + reach {
+        return ink;
+    }
     var d = 1e6;
     var a = vec2<f32>(f32(lo) * pitch, mid - wave(first + lo) * amp);
-    for (var k = lo; k < min(hi, lo + 64); k++) {
+    for (var k = lo; k < last; k++) {
         let b = vec2<f32>(f32(k + 1) * pitch, mid - wave(first + k + 1) * amp);
         d = min(d, segment(p, a, b));
         a = b;
@@ -552,10 +565,12 @@ fn figure(p: vec2<f32>, room: f32) -> Ink {
 }
 
 // The oscilloscope: the mix as one trace, left over right, or the X/Y
-// figure, in the band's height less a little room at the top and bottom.
+// figure, in the band's height less some room at the top and bottom.
 fn scope(p: vec2<f32>) -> Ink {
     let size = params.output.xy;
-    let pad = min(10.0 * params.extra.x, size.y * 0.12);
+    // Clear of the frame's edges, and in a tall band (Stage, the full
+    // window) of the window's bottom edge too.
+    let pad = clamp(size.y * 0.15, 4.0 * params.extra.x, 32.0 * params.extra.x);
     let half = size.y * 0.5 - pad;
     let channels = i32(params.scope.y + 0.5);
     var ink = Ink(gradient(0.5), 0.0);

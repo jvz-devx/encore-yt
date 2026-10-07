@@ -56,7 +56,8 @@ pub(super) fn panel(
         .children(tabs.map(|t| h_flex().flex_none().px(size::GUTTER).pb(space::LG).child(t)))
         .child(
             div()
-                .id(id)
+                .id(id.clone())
+                .track_scroll(&super::reveal::track(&id))
                 .debug_selector(|| "settings-content".into())
                 .flex_1()
                 .min_h_0()

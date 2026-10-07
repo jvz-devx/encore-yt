@@ -6,7 +6,7 @@ rust-version = "1.98"
 description = "The backend of ytfast-gpui, a native YouTube Music client"
 license = "MIT"
 authors = ["Tyler Mayberry"]
-repository = "https://github.com/MayberryDT/ytfast"
+repository = "https://github.com/jvz-devx/ytfast-gpui"
 publish = false
 
 # Real-stream check of the Rust audio engine (PLAN M19).

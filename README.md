@@ -47,7 +47,7 @@ Media keys and the system's media controls work everywhere (MPRIS on Linux, the 
 ## What it does
 
 - **Browse like YouTube Music:** Home with mood chips, Explore, Library (playlists, songs, albums, artists, history), album, artist, playlist and mood pages, search with suggestions and recent searches. The sidebar holds Liked music, your playlists and what you played recently.
-- **Play:** a built-in Rust player with gapless playback at the best quality your account gets (Opus 256 kbps with Premium), a queue you can edit and reorder, autoplay radios, timed lyrics that follow the song, Related, and loudness levelling between songs.
+- **Play:** a built-in Rust player with gapless playback in Opus (about 160 kbps; YouTube Music Premium's 256 kbps streams aren't reachable without yt-dlp yet), a queue you can edit and reorder, autoplay radios, timed lyrics that follow the song, Related, and loudness levelling between songs.
 - **Effects:** Now Playing has a slowly flowing backdrop made from the cover, a spectrum of the music and the song's waveform; the player bar glows in the cover's colours, its seek bar shows the waveform, and covers dissolve into each other on a new song. They stop when hidden or paused and honour reduced motion.
 - **Motion:** pages slide, scale or fade in the way you navigate, lyrics glide to the current line and fill as it's sung; Settings sets the speed, each kind of animation and reduced motion.
 - **Extras:** a 10-band equalizer, a sleep timer, smooth mixes (crossfades on radios), audition (hold Alt over a song to hear its best part), the most-replayed part on the seek bar, Stage (cover and big lyrics, full screen) and a mini player.

@@ -56,7 +56,9 @@ check() {
 test_crate() {
     local crate=$1 filter=${2:-}
     case "$crate" in
-        gpui) echo "ytfast-gpui has no tests; nothing to run" >&2 ;;
+        # The headless UI tests (gpui/src/ui_tests): GPUI's test platform, no
+        # desktop, network or YouTube.
+        gpui) step "test gpui"; in_crate gpui cargo test -j "$jobs" -p ytfast-gpui -- $filter ;;
         visuals) step "test visuals"; in_crate gpui cargo test -j "$jobs" -p ytfast-visuals -- $filter ;;
         backend | egui)
             # The parser fixture tests (tests/) and unit tests, without egui.

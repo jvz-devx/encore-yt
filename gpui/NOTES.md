@@ -148,6 +148,45 @@ self._backend_task = cx.spawn(async move |this, cx| {
   `cx.with_window(entity_id, ..)` follow it. `spawn_in(window)` and `observe_*`/`on_blur`
   with a window stay bound to the first window and stop once it closes.
 
+## UI tests (headless, `just test gpui`)
+
+`src/ui_tests/` runs the real `MusicApp` in a window of GPUI's test platform
+(`#[gpui_kit::test]`, the kit's `test-support` feature as a dev-dependency).
+
+- Seam: `MusicApp::with_link(Link::Fake { .. })` (`src/link.rs`, test builds
+  only) instead of `Backend::start`. A test pushes `Event`s through a std
+  channel and drains them by hand (`MusicApp::drain`); the app's `Command`s
+  (and the desktop remote's) land on a tokio channel the test reads. The
+  desktop services (instance socket, tray, MPRIS, signals) don't start, the
+  theme skips the portal (`theme::init_without_desktop`), effects are off
+  (`visuals::enabled` is false under `cfg(test)`), and `Paths` point at
+  directories that are never made.
+- Finding elements: views name them with `.debug_selector(|| ..)`, recorded
+  only in debug builds with gpui's `test-support` and a no-op otherwise;
+  `VisualTestContext::debug_bounds(name)` gives their bounds in the last
+  frame. Names carry the text a test checks ("bar-title:{title}",
+  "play-button:pause", "menu-entry:Play next", "suggestion:{text}").
+- Input: `simulate_click`, `simulate_mouse_down/up` (right-click),
+  `simulate_keystrokes("ctrl-,")`, `simulate_input("text")`; timers with
+  `executor().advance_clock(d)` (the search debounce). Draw with the kit's
+  `TestWindowExt::render_frame` after each step.
+- Test windows start inactive and GPUI sends focus events only to the active
+  window, so an `InputState` never emits `InputEvent::Focus` until
+  `window.activate_window()`.
+- What the test platform can't do: no text shaping (`NoopTextSystem`), so
+  rendered text, truncation and line widths can't be checked, only a name a
+  view gave an element; no pixels or colours; no GPU, so the effects layer
+  (backdrop, seek bar, beat halos, cover dissolves and flight), the
+  waveform and the spectrum (PipeWire) are untested; no images (the asset
+  source and HTTP client are stubs, so covers and icons show their
+  fallbacks); no D-Bus (portal light/dark, MPRIS, tray, notifications); no
+  real backend (mpv, yt-dlp, InnerTube). The kit's `find`/`click` helpers
+  need `.test_support()` on each element, which changes its type in test
+  builds; `debug_selector` doesn't.
+- First `cargo test` build compiles gpui with `test-support` (about 18 min
+  on this machine with other builds running); after that a change rebuilds
+  in ~25 s and the tests run in under a second, in parallel.
+
 ## Build numbers (debug, `-j4`, deps at opt-level 2)
 
 - Clean build: 9m49s wall (7m14s user; another build was likely sharing the CPU). 864 crates in lock.

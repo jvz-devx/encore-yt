@@ -597,6 +597,21 @@ Visuals → 3D (`views/settings/visuals/cards.rs`, `Card::Scenes`).
   highs; its shape never changes with the music. Settings → Visuals → 3D's
   Music reaction sets how much a scene behind text follows (0.5 as
   designed); the full window follows all of it.
+- **Pace.** Behind text (Now Playing, Stage) a scene draws at most 60
+  frames a second, every other frame on a 120 Hz display (dimmed and slow
+  there, like the backdrop, which draws at half the window's rate, 10-30);
+  its clocks move by the time since its last frame. The full-window
+  visualiser draws every frame.
+- **Ridges' edges.** The spike's Ridges had no anti-aliasing: the ridges'
+  outlines were stairs of whole pixels, crawling in motion (worse
+  upscaled from 0.6). The march samples exactly the ridge tops, so it
+  knows how close the ray passes over each one; a crest within a pixel
+  covers that much of it and is blended in (one more shading, on edge
+  pixels only; the frame time didn't change). Flicker over 24 frames (the
+  mean of |f(t+1) - 2f(t) + f(t-1)|): 0.37 to 0.21, pixels over 4 from
+  2.5% to 0.86%; what is left is the near ridges' bright lines moving.
+  `examples/scene_shot.rs` writes a scene's frames as the app renders them,
+  for looking at them closely.
 - **Resolution.** XMB renders at full size (its lines and sparkles are a
   pixel or two), Ridges at 0.6 and Aurora at 0.5 of device pixels, times
   the Resolution setting, at most full size and 2048 wide.
@@ -617,6 +632,12 @@ back:
 | XMB, 2048x1312 | 2.39 W | 1.86 W | 0.53 W | 7% | submit 0.09 ms, copy 0.25 ms |
 | Ridges, 1536x984 | 3.30 W | 1.38 W | 1.92 W | 20% | submit 0.15 ms, copy 0.20 ms |
 | Aurora, 1280x820 | 2.80 W | 1.24 W | 1.56 W | 16% | submit 0.16 ms, copy 0.16 ms |
+
+Now Playing with a scene, after the scenes there were held to 60 frames
+a second (below; two runs each, the window at 120 on a 120 Hz display):
+XMB 1.97-2.07 W, Ridges 2.11-2.13 W (GPU 1.05-1.08 W), Aurora 1.76-1.99
+W, against 1.61-1.75 W for the plain backdrop. Before, drawing every
+frame: XMB 2.98 W, Ridges 3.06 W (GPU 1.59 W).
 
 XMB costs the GPU less than the bars over the backdrop; its extra is CPU,
 the upload of a 2048x1312 frame 120 times a second (the readback path; the

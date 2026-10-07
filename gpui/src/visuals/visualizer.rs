@@ -15,6 +15,7 @@
 //! hidden or under reduced motion it draws nothing.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use gpui_kit::*;
 use ytfast_visuals::{
@@ -44,6 +45,9 @@ pub struct Vis {
     scene: Option<Scene>,
     pace: Pace,
     stats: super::frames::Stats,
+    /// When the scene last drew (its pace and clocks move by the time
+    /// since).
+    scene_at: Option<Instant>,
     frames: Frames,
     bars: Bars,
     scope: Scope,
@@ -78,6 +82,7 @@ impl Vis {
             if let Some(s) = &mut self.scene {
                 s.discard();
             }
+            self.scene_at = None;
             self.frames.clear(cx);
         }
     }
@@ -215,9 +220,20 @@ impl Vis {
         window: &mut Window,
         cx: &mut App,
     ) {
+        // Behind text (Now Playing, Stage) a scene draws at most 60 times
+        // a second, every other frame on a 120 Hz display: dimmed and
+        // moving slowly there, like the backdrop (which draws at half the
+        // window's rate). The full window draws every frame.
+        let now = Instant::now();
+        let since = self.scene_at.map(|at| now.duration_since(at).as_secs_f32());
+        if place != Place::Full && since.is_some_and(|s| s < 0.8 / BEHIND_TEXT_FPS) {
+            return;
+        }
         let Some((region, corners)) = scene_region(place, cx) else {
             return;
         };
+        self.scene_at = Some(now);
+        let dt = since.unwrap_or(tick.dt).clamp(1. / 240., 0.1);
         let region = whole_pixels(region, window.scale_factor());
         let (w, h) = (
             f32::from(region.size.width) * window.scale_factor(),
@@ -232,8 +248,7 @@ impl Vis {
             (w * scale).round().max(1.) as u32,
             (h * scale).round().max(1.) as u32,
         );
-        self.pace
-            .update(tick.dt.max(1. / 240.), &tick.levels, tick.bass, tick.level);
+        self.pace.update(dt, &tick.levels, tick.bass, tick.level);
         let renderer = self.scene.get_or_insert_with(|| {
             let started = std::time::Instant::now();
             let r = Scene::new(tick.gpu, size.0, size.1);
@@ -307,6 +322,9 @@ fn render_scale(style: Style) -> f32 {
         _ => 1.,
     }
 }
+
+/// The most frames a second a scene draws behind text.
+const BEHIND_TEXT_FPS: f32 = 60.;
 
 /// The scale a 3D scene renders at, of device pixels: the XMB's thin lines
 /// and sparkles want full size (and it costs little); the raymarched scenes

@@ -202,6 +202,52 @@ fn ridge_sky(rd: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
     return col;
 }
 
+// The colour where the ray meets the land at `t`: dark land lit from the
+// low sun ahead, the line along the ridge top, and the haze.
+fn ridge_shade(ro: vec3<f32>, rd: vec3<f32>, t: f32, cam_z: f32, r: RidgeLook, sun: vec3<f32>,
+    haze_col: vec3<f32>, pixel: f32, far: f32) -> vec3<f32> {
+    let backdrop = params.output.w < 0.5;
+    let vis = params.output.w;
+    let p = ro + rd * t;
+    let s = ridge_sample(p.xz, cam_z, r, true);
+    let e = 0.012 + 0.002 * t;
+    let hx = ridge_h(p.xz + vec2<f32>(e, 0.0), cam_z, r, true);
+    let hz = ridge_h(p.xz + vec2<f32>(0.0, e), cam_z, r, true);
+    let n = normalize(vec3<f32>(s.x - hx, e, s.x - hz));
+
+    // Dark land, lit from the low sun ahead: the faces we see are in
+    // shade, the ridge tops catch a rim of the horizon's light.
+    let albedo = mix(pal(3), pal(0), 0.25 * smoothstep(1.0, 0.0, s.w)) * 0.12;
+    let dif = max(dot(n, sun), 0.0);
+    let amb = mix(pal(2), pal(3), 0.5) * (0.08 + 0.12 * n.y);
+    let ndv = max(dot(n, -rd), 0.0);
+    let rim = pow(1.0 - ndv, 4.0) * ridge_horizon() * 0.1;
+    var col = albedo * (amb + dif * pal(1) * 0.8) + rim;
+
+    // The line on the ridge top: a gaussian whose width grows with the
+    // pixel's footprint, dimmed as it widens, so far lines fade out
+    // instead of aliasing. Centred a little on the camera's side of the
+    // top, where the silhouette's blend meets it.
+    let foot = t * pixel / max(abs(dot(n, rd)), 0.12);
+    let lw = mix(0.012, 0.009, vis);
+    let w = sqrt(lw * lw + foot * foot);
+    let d = (fract(s.y + 0.5) - 0.5) * r.spacing - 0.4 * w;
+    let line = exp(-(d * d) / (w * w)) * (lw / w) * smoothstep(far * 0.7, 5.0, t);
+    let halo = exp(-abs(d) / 0.09) * 0.12;
+    let toward = pow(max(dot(normalize(vec3<f32>(rd.x, 0.0, rd.z)), sun), 0.0), 6.0);
+    let tint = mix(mix(pal(1), pal(2), 0.5 * smoothstep(0.2, 1.1, s.w)), vec3<f32>(1.0, 0.92, 0.85), 0.2);
+    let spread = 0.5 + 0.5 * smoothstep(1.2, 0.4, s.w);
+    let glint = (0.25 + 1.1 * s.z) * spread * (0.7 + 0.6 * toward) * mix(1.0, 1.6, vis);
+    col += tint * (line + halo) * glint;
+
+    // Aerial haze into the horizon's glow, all haze at the far end.
+    let density = mix(0.035, 0.06, params.seed.z) * select(1.0, 1.5, backdrop);
+    let fog = max(1.0 - exp(-t * density), smoothstep(far * 0.55, far, t));
+    // Near haze is dimmer than the glow it fades into.
+    let haze = haze_col * mix(0.35, 1.0, smoothstep(4.0, far * 0.8, t));
+    return mix(col, haze, fog);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let frag = in.position.xy;
@@ -255,6 +301,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     hit = h < 0.0;
     var row = floor(p0.z / r.spacing + ridge_warp(p0.x));
     var x_at = p0.x;
+    // The crest the ray passes closest over, as a share of a pixel (1 on
+    // it, 0 a pixel or more above it), and where.
+    var graze = 0.0;
+    var graze_t = 0.0;
     for (var i = 0; i < steps; i++) {
         if hit || t > far {
             break;
@@ -270,6 +320,13 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         if h < 0.0 {
             hit = true;
             break;
+        }
+        // Samples are on the ridge tops: how far above this one the ray
+        // passes, in pixels at this distance.
+        let cover = 1.0 - h / (t * pixel * 1.5);
+        if cover > graze {
+            graze = cover;
+            graze_t = t;
         }
         prev_t = t;
         prev_h = h;
@@ -305,45 +362,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let haze_col = ridge_sky(normalize(vec3<f32>(rd.x, 0.0, rd.z)), sun);
     var col = sky_col;
     if hit {
-        let p = ro + rd * t;
-        let s = ridge_sample(p.xz, cam_z, r, true);
-        let e = 0.012 + 0.002 * t;
-        let hx = ridge_h(p.xz + vec2<f32>(e, 0.0), cam_z, r, true);
-        let hz = ridge_h(p.xz + vec2<f32>(0.0, e), cam_z, r, true);
-        let n = normalize(vec3<f32>(s.x - hx, e, s.x - hz));
-
-        // Dark land, lit from the low sun ahead: the faces we see are in
-        // shade, the ridge tops catch a rim of the horizon's light.
-        let albedo = mix(pal(3), pal(0), 0.25 * smoothstep(1.0, 0.0, s.w)) * 0.12;
-        let dif = max(dot(n, sun), 0.0);
-        let amb = mix(pal(2), pal(3), 0.5) * (0.08 + 0.12 * n.y);
-        let ndv = max(dot(n, -rd), 0.0);
-        let rim = pow(1.0 - ndv, 4.0) * ridge_horizon() * 0.1;
-        col = albedo * (amb + dif * pal(1) * 0.8) + rim;
-
-        // The line on the ridge top: a gaussian whose width grows with the
-        // pixel's footprint, dimmed as it widens, so far lines fade out
-        // instead of aliasing.
-        // Centred a little on the camera's side of the top, so the
-        // silhouette edge (no anti-aliasing there) sits on its soft flank.
-        let foot = t * pixel / max(abs(dot(n, rd)), 0.12);
-        let lw = mix(0.012, 0.009, vis);
-        let w = sqrt(lw * lw + foot * foot);
-        let d = (fract(s.y + 0.5) - 0.5) * r.spacing - 0.4 * w;
-        let line = exp(-(d * d) / (w * w)) * (lw / w) * smoothstep(far * 0.7, 5.0, t);
-        let halo = exp(-abs(d) / 0.09) * 0.12;
-        let toward = pow(max(dot(normalize(vec3<f32>(rd.x, 0.0, rd.z)), sun), 0.0), 6.0);
-        let tint = mix(mix(pal(1), pal(2), 0.5 * smoothstep(0.2, 1.1, s.w)), vec3<f32>(1.0, 0.92, 0.85), 0.2);
-        let spread = 0.5 + 0.5 * smoothstep(1.2, 0.4, s.w);
-        let glint = (0.25 + 1.1 * s.z) * spread * (0.7 + 0.6 * toward) * mix(1.0, 1.6, vis);
-        col += tint * (line + halo) * glint;
-
-        // Aerial haze into the horizon's glow, all haze at the far end.
-        let density = mix(0.035, 0.06, params.seed.z) * select(1.0, 1.5, backdrop);
-        let fog = max(1.0 - exp(-t * density), smoothstep(far * 0.55, far, t));
-        // Near haze is dimmer than the glow it fades into.
-        let haze = haze_col * mix(0.35, 1.0, smoothstep(4.0, far * 0.8, t));
-        col = mix(col, haze, fog);
+        col = ridge_shade(ro, rd, t, cam_z, r, sun, haze_col, pixel, far);
+    }
+    // A crest the ray passed within a pixel of covers that much of the
+    // pixel: blended in, its silhouette is anti-aliased (on the side of
+    // what lies beyond; the crest's own side is the hit itself).
+    if graze > 0.0 {
+        let crest = ridge_shade(ro, rd, graze_t, cam_z, r, sun, haze_col, pixel, far);
+        col = mix(col, crest, graze);
     }
 
     // Strength: how far the scene stands out from its own haze.

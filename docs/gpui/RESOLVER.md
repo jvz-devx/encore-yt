@@ -61,8 +61,8 @@ yt-dlp 2026.08.19's defaults: signed out `visionos, web`; signed in `web_embedde
 
 All of it is off by default. `YTFAST_RESOLVER=rust` turns it on, and yt-dlp stays the fallback.
 
-- `src/jsc.rs`: the EJS solver in rquickjs, with yt-dlp-ejs 0.8.0 vendored in `src/jsc/` (the SHA3-512 hashes match the ones yt-dlp 2026.08.19 pins; licence in `src/jsc/EJS-LICENSE`, meriyah's and astring's in the bundle headers).
-  - It preprocesses a player once per version and saves `<id>.ejs.js` beside it.
+- `src/jsc.rs`: the EJS solver in rquickjs, with yt-dlp-ejs vendored in `src/jsc/` (0.8.0 on 2026-10-07; `src/jsc/pins.txt` names the release by SHA-256, and the SHA3-512 hashes match the ones yt-dlp 2026.08.19 pins; licence in `src/jsc/EJS-LICENSE`, meriyah's and astring's in the bundle headers).
+  - It preprocesses a player once per version and solver release and saves `<id>.ejs-<release>.js` beside it.
   - One engine thread keeps the last player's `n` and `sig` functions loaded.
   - Signatures are solved once per length as an index list and applied in Rust.
 - `src/streams.rs`: the resolver.
@@ -73,6 +73,51 @@ All of it is off by default. `YTFAST_RESOLVER=rust` turns it on, and yt-dlp stay
 - `src/innertube.rs` keeps the `responseContext.visitorData` from YouTube Music's responses and sends it with stream requests: signed out, VISIONOS fails the bot check without it. `player_as` sends a player request as another client.
 - `src/resolver.rs` tries the Rust resolver first. On any error yt-dlp runs instead, and a song whose Rust-resolved stream failed to play (the playback retry calls `forget`) goes to yt-dlp next time. Caching, slots and priorities are unchanged.
 - Tests: `tests/resolver_offline.rs` and `scripts/ejs-expected.sh`. The live check is `examples/resolve_rust.rs`.
+
+## Keeping up without hand work
+
+Added on 2026-10-07 (PLAN M14, second item). Three parts keep the Rust resolver working when YouTube changes its player: the solver is data, a daily canary, and a weekly bump.
+
+### The solver as data, and what the app trusts
+
+The app runs the newest of these solver releases whose two files (`yt.solver.lib.min.js`, `yt.solver.core.min.js`) are both pinned by SHA-256 to that release:
+
+1. the copy vendored in the app (`src/jsc/ejs-*.min.js`);
+2. `~/.cache/ytfast/ejs/`, where the app saves a release it downloaded;
+3. `~/.config/ytfast/ejs/`, for a release put there by hand.
+
+The pins are `src/jsc/pins.txt`, built into the app, plus the copy of that file the app last fetched (`~/.cache/ytfast/ejs/pins.txt`). A file whose hash isn't pinned, or a lib and core pinned to different releases, is ignored with a warning, and the vendored copy runs. Answers are cached per solver release (`<id>.ejs-<release>.js`), so a new solver never reuses an old one's output.
+
+The app fetches anything only when its solver fails on a player, once per player version: it reads `src/jsc/pins.txt` from this repository's `main` on raw.githubusercontent.com, and if that names a release newer than the one running, downloads its two files from yt-dlp-ejs's GitHub release (`github.com/yt-dlp/ejs/releases/download/<release>/`), checks both hashes, saves them with the fetched pins and switches the engine to them. The next songs of that player try again with the new solver; until then they go to yt-dlp.
+
+Trust model:
+- No remote code runs without a hash pin. The scripts come from yt-dlp-ejs's releases, but what may run is decided only by the pins, and changing the pins on `main` takes a commit to this repository (the EJS bump's pull request, reviewed and merged). Anyone who can push to `main` can already change the app's next release, so this adds no new party to trust.
+- What the pins rely on: GitHub's TLS and access control for this repository. There is no signature yet. Signing `pins.txt` (for example minisign, with the public key in the app and the secret key as a repository secret used by the bump workflow) would remove the trust in raw.githubusercontent.com and in whoever can push to `main`; it needs a key the maintainer holds.
+- Files on disk are trusted as much as the user's home directory: whoever can write `~/.cache/ytfast/ejs/pins.txt` can also change the user's shell profile.
+- The solver runs in QuickJS without network, file or process access (no `std`/`os` modules), with a 1 GB memory limit and a 16 MB stack limit. A pinned but buggy solver can at worst give wrong answers, and then streams fail and fall back to yt-dlp.
+- Fetches happen only with `YTFAST_RESOLVER=rust` on and only after a solver failure, so the app doesn't call home.
+
+### The canary (`.github/workflows/resolver-canary.yml`)
+
+Daily at 05:17 UTC, by hand, and on pull requests that touch the resolver. It runs `scripts/resolver-canary.sh` on a GitHub runner, signed out, with no cookies and no secrets:
+
+1. It downloads the current player (iframe API, `base.js`), solves a fixed set of challenges with yt-dlp's EJS in deno (`scripts/ejs-expected.sh`) and runs `tests/resolver_offline.rs` against it (`YTFAST_RESOLVER_CAPTURES`), so QuickJS has to match deno on today's player.
+2. It resolves two public songs with `YTFAST_RESOLVER=rust` (`examples/resolve_rust.rs`, VISIONOS) and fetches the first KB of each URL, expecting 200 or 206.
+
+That is 7 YouTube requests per run, all from GitHub's IPs. When a scheduled run, or a manual one on `main`, fails, the job opens an issue labelled `resolver-canary` with the log's tail, or comments on the open one (the workflow's `GITHUB_TOKEN`, `issues: write`). This needs Issues enabled on the repository. The log is also kept as a run artifact.
+
+### The EJS bump (`.github/workflows/ejs-bump.yml`)
+
+Weekly on Mondays at 06:23 UTC, and by hand (optionally for a given release, or forced to re-check the vendored one). `scripts/ejs-bump.sh` asks GitHub's API for yt-dlp-ejs's latest release and, if it is newer than the vendored one, downloads the two files, checks them against GitHub's SHA-256 digests for the release assets and for the Unlicense header, copies them into `src/jsc/` and adds their pins. The job then runs the canary's solver part on the current player, pushes `ejs-bump/<release>`, opens a pull request and dispatches the canary on that branch (pull requests opened with `GITHUB_TOKEN` don't trigger workflows themselves; a dispatch does). Opening the pull request needs "Allow GitHub Actions to create and approve pull requests" in the repository's Actions settings; without it the job prints a compare link instead.
+
+### What the first runs found (2026-10-07)
+
+- Player `f2999a12` (served to some runners next to `1b3be681`) made the solver recurse without end in `Array.prototype.join`, and the process aborted with a stack overflow. rquickjs treats a stack limit above 16 MB as no limit, so the 48 MB set before disabled QuickJS's check. With 16 MB QuickJS throws a RangeError instead, the solve completes, and its answers for `f2999a12` match deno's. Without the fix, the first signed-in song on that player would have crashed the app.
+- From runners' IPs, VISIONOS answered "Sign in to confirm you're not a bot" for every public song tried except `dQw4w9WgXcQ` (9 others, in 5 runs, in any order; `BaW_jenozKc` is unavailable), although `wU26xVT_vBU`, one of them, resolved from a home connection the same day. A song that meets the bot check doesn't count as a failure; if every song does, the live part warns that it was inconclusive and the run passes on the solver check alone. The canary keeps a second song so it notices if that changes.
+
+### At runtime
+
+`crate::resolver` falls back to yt-dlp on any Rust resolver failure. A failure that holds for every song of a player version (the solver can't use the player, or it is still being prepared) is logged once per player version, and further songs skip the broken player at once instead of preprocessing it again; other failures are logged per song.
 
 ## Measurements (2026-10-07, i5 6-core shared with other builds, debug build with deps at opt-level 2)
 

@@ -13,20 +13,24 @@
 //!
 //! QuickJS contexts aren't `Send`: the engine lives on its own thread and
 //! takes jobs over a channel.
+//!
+//! The solver scripts are data (`scripts`): a newer pinned release saved on
+//! disk replaces the vendored copy without an app release.
 
-use std::collections::HashMap;
+pub mod scripts;
+
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 
-const EJS_LIB: &str = include_str!("jsc/ejs-lib.min.js");
-const EJS_CORE: &str = include_str!("jsc/ejs-core.min.js");
+pub use scripts::Scripts;
 
 /// A player script saved on disk: `<dir>/<id>.js`, with its preprocessed
-/// form written beside it as `<id>.ejs.js`.
+/// form written beside it as `<id>.ejs-<solver release>.js`.
 #[derive(Clone, Debug)]
 pub struct Player {
     pub id: String,
@@ -34,9 +38,21 @@ pub struct Player {
 }
 
 impl Player {
-    fn preprocessed(&self) -> PathBuf {
-        self.path.with_extension("ejs.js")
+    /// Where the given solver release saves its preprocessed form.
+    pub fn preprocessed(&self, solver: &str) -> PathBuf {
+        self.path.with_extension(format!("ejs-{solver}.js"))
     }
+}
+
+/// Whether a player's functions are ready to use.
+#[derive(Debug, PartialEq)]
+pub enum Status {
+    Ready,
+    /// Not loaded and not preprocessed yet (or being prepared now).
+    Cold,
+    /// The solver couldn't use this player: the reason, until the player
+    /// version or the solver changes.
+    Broken(String),
 }
 
 /// What a player request needs solved.
@@ -60,15 +76,25 @@ pub fn decipher(s: &str, spec: &[usize]) -> Option<String> {
 }
 
 struct Job {
+    scripts: Scripts,
     player: Player,
     challenges: Challenges,
     reply: tokio::sync::oneshot::Sender<Result<Solutions>>,
 }
 
+/// Players being prepared and players the solver failed on.
+#[derive(Default)]
+struct Health {
+    warming: HashSet<String>,
+    broken: HashMap<String, String>,
+}
+
 /// The engine thread and the answers it gave, per player version.
 pub struct Solver {
     jobs: Mutex<Option<mpsc::Sender<Job>>>,
+    scripts: Mutex<Scripts>,
     known: Mutex<HashMap<String, Solutions>>,
+    health: Arc<Mutex<Health>>,
 }
 
 impl Default for Solver {
@@ -78,11 +104,32 @@ impl Default for Solver {
 }
 
 impl Solver {
+    /// With the vendored solver scripts.
     pub fn new() -> Self {
+        Self::with_scripts(Scripts::vendored())
+    }
+
+    pub fn with_scripts(scripts: Scripts) -> Self {
         Self {
             jobs: Mutex::default(),
+            scripts: Mutex::new(scripts),
             known: Mutex::default(),
+            health: Arc::default(),
         }
+    }
+
+    /// The solver release in use.
+    pub fn version(&self) -> String {
+        self.scripts.lock().expect("scripts lock").version.clone()
+    }
+
+    /// Switches to other solver scripts (a newer pinned release): players
+    /// the old ones failed on get another try.
+    pub fn set_scripts(&self, scripts: Scripts) {
+        log::info!("switching to EJS solver {}", scripts.version);
+        *self.scripts.lock().expect("scripts lock") = scripts;
+        self.known.lock().expect("solutions lock").clear();
+        self.health.lock().expect("health lock").broken.clear();
     }
 
     /// Solves the challenges, from memory where they were solved before.
@@ -91,39 +138,40 @@ impl Solver {
         if missing.n.is_empty() && missing.sig_lengths.is_empty() {
             return Ok(known);
         }
-        let (reply, answer) = tokio::sync::oneshot::channel();
-        self.sender()?
-            .send(Job {
-                player: player.clone(),
-                challenges: missing,
-                reply,
-            })
-            .map_err(|_| anyhow!("the JS engine stopped"))?;
-        let solved = answer.await.context("the JS engine stopped")??;
+        let solved = self.ask(player, missing).await;
+        let solved = self.note(player, solved)?;
         Ok(self.merge(player, known, solved))
     }
 
-    /// Whether the player's functions can be loaded without preprocessing
-    /// (a ~15 s job in QuickJS, once per player version).
-    pub fn prepared(&self, player: &Player) -> bool {
-        self.known
+    /// Whether the player's functions can be used now: loaded or saved
+    /// preprocessed (preprocessing is a ~15 s job in QuickJS, once per
+    /// player version), or known not to work with this solver.
+    pub fn status(&self, player: &Player) -> Status {
+        if let Some(reason) = self
+            .health
+            .lock()
+            .expect("health lock")
+            .broken
+            .get(&player.id)
+        {
+            return Status::Broken(reason.clone());
+        }
+        let loaded = self
+            .known
             .lock()
             .expect("solutions lock")
-            .contains_key(&player.id)
-            || player.preprocessed().exists()
+            .contains_key(&player.id);
+        if loaded || player.preprocessed(&self.version()).exists() {
+            Status::Ready
+        } else {
+            Status::Cold
+        }
     }
 
     /// Preprocesses and loads a player, waiting for it.
     pub async fn load(&self, player: &Player) -> Result<()> {
-        let (reply, answer) = tokio::sync::oneshot::channel();
-        self.sender()?
-            .send(Job {
-                player: player.clone(),
-                challenges: Challenges::default(),
-                reply,
-            })
-            .map_err(|_| anyhow!("the JS engine stopped"))?;
-        answer.await.context("the JS engine stopped")??;
+        let loaded = self.ask(player, Challenges::default()).await;
+        self.note(player, loaded)?;
         self.known
             .lock()
             .expect("solutions lock")
@@ -132,23 +180,83 @@ impl Solver {
         Ok(())
     }
 
-    /// Preprocesses and loads a player in the background.
+    /// Preprocesses and loads a player in the background, once: a failure
+    /// is logged once and the player is marked broken for this solver.
     pub fn warm(&self, player: &Player) {
-        let Ok(sender) = self.sender() else { return };
+        {
+            let mut health = self.health.lock().expect("health lock");
+            if health.broken.contains_key(&player.id) || !health.warming.insert(player.id.clone()) {
+                return;
+            }
+        }
+        let health = self.health.clone();
+        let id = player.id.clone();
+        let Ok((sender, job, answer)) = self.job(player, Challenges::default()) else {
+            health.lock().expect("health lock").warming.remove(&id);
+            return;
+        };
+        let version = job.scripts.version.clone();
+        let sent = sender.send(job).is_ok();
+        std::thread::spawn(move || {
+            let result = if sent {
+                answer
+                    .blocking_recv()
+                    .unwrap_or_else(|_| Err(anyhow!("the JS engine stopped")))
+            } else {
+                Err(anyhow!("the JS engine stopped"))
+            };
+            let mut health = health.lock().expect("health lock");
+            health.warming.remove(&id);
+            if let Err(error) = result {
+                log::warn!("EJS solver {version} can't use player {id}: {error:#}");
+                health.broken.insert(id, format!("{error:#}"));
+            }
+        });
+    }
+
+    fn job(
+        &self,
+        player: &Player,
+        challenges: Challenges,
+    ) -> Result<(
+        mpsc::Sender<Job>,
+        Job,
+        tokio::sync::oneshot::Receiver<Result<Solutions>>,
+    )> {
         let (reply, answer) = tokio::sync::oneshot::channel();
         let job = Job {
+            scripts: self.scripts.lock().expect("scripts lock").clone(),
             player: player.clone(),
-            challenges: Challenges::default(),
+            challenges,
             reply,
         };
-        if sender.send(job).is_ok() {
-            let id = player.id.clone();
-            std::thread::spawn(move || {
-                if let Ok(Err(error)) = answer.blocking_recv() {
-                    log::warn!("preparing player {id} failed: {error:#}");
-                }
-            });
+        Ok((self.sender()?, job, answer))
+    }
+
+    async fn ask(&self, player: &Player, challenges: Challenges) -> Result<Solutions> {
+        let (sender, job, answer) = self.job(player, challenges)?;
+        sender
+            .send(job)
+            .map_err(|_| anyhow!("the JS engine stopped"))?;
+        answer.await.context("the JS engine stopped")?
+    }
+
+    /// Marks the player broken when the engine failed on it: the next
+    /// songs skip it instead of failing the same way.
+    fn note<T>(&self, player: &Player, result: Result<T>) -> Result<T> {
+        if let Err(error) = &result {
+            log::warn!(
+                "EJS solver {} can't use player {}: {error:#}",
+                self.version(),
+                player.id
+            );
+            self.health
+                .lock()
+                .expect("health lock")
+                .broken
+                .insert(player.id.clone(), format!("{error:#}"));
         }
+        result
     }
 
     /// Splits the request into what is already known and what isn't.
@@ -212,12 +320,19 @@ impl Solver {
 }
 
 fn run(jobs: mpsc::Receiver<Job>) {
-    let mut engine = None;
+    let mut engine: Option<Engine> = None;
     for job in jobs {
         let result = (|| {
+            // Other solver scripts get a fresh engine.
+            let stale = engine
+                .as_ref()
+                .is_some_and(|e| e.scripts.version != job.scripts.version);
+            if stale {
+                engine = None;
+            }
             let engine = match &mut engine {
                 Some(engine) => engine,
-                None => engine.insert(Engine::new()?),
+                None => engine.insert(Engine::with_scripts(job.scripts.clone())?),
             };
             engine.solve(&job.player, &job.challenges)
         })();
@@ -229,22 +344,38 @@ fn run(jobs: mpsc::Receiver<Job>) {
 pub struct Engine {
     _runtime: Runtime,
     context: Context,
+    scripts: Scripts,
     loaded: Option<String>,
     has_ejs: bool,
 }
 
 impl Engine {
+    /// With the vendored solver scripts.
     pub fn new() -> Result<Self> {
+        Self::with_scripts(Scripts::vendored())
+    }
+
+    pub fn with_scripts(scripts: Scripts) -> Result<Self> {
         let runtime = Runtime::new().context("creating the JS runtime")?;
-        runtime.set_max_stack_size(48 << 20);
+        // rquickjs treats a limit above 16 MB as "no limit", and then deep
+        // recursion overflows the thread's stack and aborts the process
+        // (seen on player f2999a12). 16 MB, the most it takes, inside the
+        // engine thread's 64 MB: QuickJS throws a RangeError instead.
+        runtime.set_max_stack_size(16 << 20);
         runtime.set_memory_limit(1 << 30);
         let context = Context::full(&runtime).context("creating the JS context")?;
         Ok(Self {
             _runtime: runtime,
             context,
+            scripts,
             loaded: None,
             has_ejs: false,
         })
+    }
+
+    /// Where this engine saves a player's preprocessed form.
+    pub fn preprocessed(&self, player: &Player) -> PathBuf {
+        player.preprocessed(&self.scripts.version)
     }
 
     /// Solves on the calling thread (the engine must stay on it).
@@ -291,7 +422,7 @@ impl Engine {
     /// done before for this version.
     fn load(&mut self, player: &Player) -> Result<()> {
         self.loaded = None;
-        let saved = player.preprocessed();
+        let saved = self.preprocessed(player);
         let preprocessed = match std::fs::read_to_string(&saved) {
             Ok(code) => code,
             Err(_) => {
@@ -300,8 +431,9 @@ impl Engine {
                 let started = std::time::Instant::now();
                 let code = self.preprocess(&source)?;
                 log::info!(
-                    "preprocessed player {} in {:.1}s",
+                    "preprocessed player {} with EJS {} in {:.1}s",
                     player.id,
+                    self.scripts.version,
                     started.elapsed().as_secs_f64()
                 );
                 write_atomic(&saved, code.as_bytes());
@@ -340,13 +472,13 @@ impl Engine {
     fn preprocess(&mut self, source: &str) -> Result<String> {
         self.context.with(|ctx| {
             if !self.has_ejs {
-                ctx.eval::<(), _>(EJS_LIB)
+                ctx.eval::<(), _>(&*self.scripts.lib)
                     .catch(&ctx)
                     .map_err(|e| anyhow!("loading the EJS library: {e}"))?;
                 ctx.eval::<(), _>("Object.assign(globalThis, lib);")
                     .catch(&ctx)
                     .map_err(|e| anyhow!("{e}"))?;
-                ctx.eval::<(), _>(EJS_CORE)
+                ctx.eval::<(), _>(&*self.scripts.core)
                     .catch(&ctx)
                     .map_err(|e| anyhow!("loading the EJS solver: {e}"))?;
                 self.has_ejs = true;

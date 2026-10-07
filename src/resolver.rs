@@ -108,6 +108,9 @@ pub struct Resolver {
     native: OnceLock<crate::streams::Native>,
     /// Songs whose Rust-resolved stream failed to play: yt-dlp's turn.
     native_failed: Mutex<HashSet<String>>,
+    /// Player-wide Rust resolver failures already logged, so each is
+    /// logged once per player version instead of once per song.
+    native_logged: Mutex<HashSet<String>>,
 }
 
 pub fn now() -> u64 {
@@ -249,15 +252,21 @@ impl Resolver {
             runs: AtomicU64::new(0),
             native: OnceLock::new(),
             native_failed: Mutex::default(),
+            native_logged: Mutex::default(),
         }
     }
 
     /// Resolves through InnerTube in Rust first (`crate::streams`), with
     /// yt-dlp as the fallback, when `YTFAST_RESOLVER=rust`.
-    pub fn use_innertube(&self, client: Arc<crate::innertube::Client>, cache: &std::path::Path) {
+    pub fn use_innertube(
+        &self,
+        client: Arc<crate::innertube::Client>,
+        paths: &crate::paths::Paths,
+    ) {
         if crate::streams::enabled() {
             log::info!("resolving streams in Rust first (YTFAST_RESOLVER=rust)");
-            let _ = self.native.set(crate::streams::Native::new(client, cache));
+            let native = crate::streams::Native::new(client, &paths.cache, &paths.config);
+            let _ = self.native.set(native);
         }
     }
 
@@ -578,13 +587,36 @@ impl Resolver {
                     );
                     return Ok((stream, signed_in));
                 }
-                Err(error) => log::warn!(
-                    "the Rust resolver failed for {video_id} after {:.2}s ({error:#}); trying yt-dlp",
-                    started.elapsed().as_secs_f64()
-                ),
+                Err(error) => self.log_native_failure(video_id, started, &error),
             }
         }
         self.run_ytdlp(video_id, speculative).await
+    }
+
+    /// A failure of one song is logged for that song; one that holds for
+    /// the whole player version (the solver can't use it, or it is being
+    /// prepared) once per version and kind.
+    fn log_native_failure(&self, video_id: &str, started: Instant, error: &anyhow::Error) {
+        let elapsed = started.elapsed().as_secs_f64();
+        let Some(failure) = error.downcast_ref::<crate::streams::PlayerFailure>() else {
+            log::warn!(
+                "the Rust resolver failed for {video_id} after {elapsed:.2}s ({error:#}); trying yt-dlp"
+            );
+            return;
+        };
+        let key = format!("{}:{}", failure.player, failure.preparing);
+        let first = {
+            let mut logged = self.native_logged.lock().expect("native lock");
+            if logged.len() > 64 {
+                logged.clear();
+            }
+            logged.insert(key)
+        };
+        if first {
+            log::warn!("{failure}; songs go to yt-dlp until that changes");
+        } else {
+            log::debug!("{video_id}: {failure}; trying yt-dlp");
+        }
     }
 
     /// One yt-dlp run; also says whether it had the account's cookies.

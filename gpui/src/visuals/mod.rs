@@ -62,6 +62,8 @@ pub use waveform::waveform;
 /// The layers, made with the first window and kept for the next one.
 struct Layers {
     handles: Handles,
+    /// The window whose root background is cleared ([`clear_root_background`]).
+    cleared: Cell<Option<AnyWindowHandle>>,
     _keys: Subscription,
 }
 
@@ -81,6 +83,7 @@ impl Global for Layers {}
 /// The window's content: effects under the app, the flying cover over it.
 pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
     let layers = layers(app, cx);
+    clear_root_background(window, cx);
     let showing = fills_panel(app);
     let playback = &app.player.playback;
     let playing = playback.playing && !playback.loading;
@@ -126,6 +129,26 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .child(overlay)
         .child(layers.flight.clone())
         .into_any_element()
+}
+
+/// The kit's root paints the theme's background over the whole window,
+/// and the shell paints the window's base colour over all of it, so the
+/// root's is never seen. It is cleared: on an Intel UHD 630 every layer
+/// over the whole window costs about a millisecond of GPU time per frame.
+fn clear_root_background(window: &mut Window, cx: &mut App) {
+    let handle = window.window_handle();
+    let Some(layers) = cx.try_global::<Layers>() else {
+        return;
+    };
+    if layers.cleared.get() == Some(handle) {
+        return;
+    }
+    layers.cleared.set(Some(handle));
+    if let Some(Some(root)) = window.root::<gpui_kit::base::Root>() {
+        root.update(cx, |root, _| {
+            root.style().background = Some(transparent_black().into());
+        });
+    }
 }
 
 /// A layer's view, cached or rendered afresh.
@@ -247,6 +270,7 @@ fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {
                 flight,
                 input,
             },
+            cleared: Cell::new(None),
             _keys: keys,
         });
     }

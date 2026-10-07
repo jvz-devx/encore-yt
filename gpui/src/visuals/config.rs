@@ -116,6 +116,36 @@ pub struct VisualsConfig {
     pub flight: Timed,
     pub stage: Stage,
     pub visualizer: Visualizer,
+    pub scenes: Scenes,
+}
+
+/// The 3D scenes (M30): how they look and how they move with the music.
+/// Which one shows is the visualiser's style. Multipliers: 1 is each
+/// scene's own.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Scenes {
+    /// How far a scene stands out from its own haze, 0.4..1.5.
+    pub strength: f32,
+    /// The raymarched scenes' detail (their steps), 0.5..1.5.
+    pub detail: f32,
+    /// The resolution, times the scene's own (full for the XMB, less for
+    /// the soft ones), 0.5..1.5, at most full size.
+    pub resolution: f32,
+    /// How much a scene behind text (Now Playing, Stage) follows the
+    /// music, 0..1; the full-window visualiser follows it all.
+    pub reaction: f32,
+}
+
+impl Default for Scenes {
+    fn default() -> Self {
+        Self {
+            strength: 1.,
+            detail: 1.,
+            resolution: 1.,
+            reaction: 0.5,
+        }
+    }
 }
 
 /// Now Playing's animated cover backdrop. Strengths are multipliers: 1 is
@@ -282,16 +312,25 @@ pub enum Style {
     Particles,
     /// The oscilloscope (M22): the samples, not the spectrum.
     Scope,
+    /// The 3D scenes (M30), filling the scene: the PS3's XMB wave,
+    Xmb,
+    /// a flight over ridges made of the spectrum,
+    Ridges,
+    /// and curtains of light.
+    Aurora,
 }
 
 impl Style {
-    pub const ALL: [Style; 6] = [
+    pub const ALL: [Style; 9] = [
         Style::Bars,
         Style::Mirrored,
         Style::Ring,
         Style::Line,
         Style::Particles,
         Style::Scope,
+        Style::Xmb,
+        Style::Ridges,
+        Style::Aurora,
     ];
 
     pub fn label(self) -> &'static str {
@@ -302,6 +341,20 @@ impl Style {
             Style::Line => "Line",
             Style::Particles => "Particles",
             Style::Scope => "Scope",
+            Style::Xmb => "XMB",
+            Style::Ridges => "Ridges",
+            Style::Aurora => "Aurora",
+        }
+    }
+
+    /// The 3D scene the style draws, if it is one.
+    pub fn scene(self) -> Option<ytfast_visuals::SceneKind> {
+        use ytfast_visuals::SceneKind;
+        match self {
+            Style::Xmb => Some(SceneKind::Xmb),
+            Style::Ridges => Some(SceneKind::Ridges),
+            Style::Aurora => Some(SceneKind::Aurora),
+            _ => None,
         }
     }
 
@@ -310,9 +363,10 @@ impl Style {
         self as u32
     }
 
-    /// Drawn from the spectrum's bars (all but the scope).
+    /// Drawn from the spectrum's bars (the bar styles, not the scope or
+    /// the scenes).
     pub fn spectral(self) -> bool {
-        self != Style::Scope
+        self != Style::Scope && self.scene().is_none()
     }
 
     /// Drawn with a stroke whose thickness the settings choose.
@@ -554,6 +608,7 @@ impl Default for VisualsConfig {
             flight: Timed { on: true, ms: 320 },
             stage: Stage::default(),
             visualizer: Visualizer::default(),
+            scenes: Scenes::default(),
         }
     }
 }
@@ -668,6 +723,8 @@ impl VisualsConfig {
                 ..base.wave.clone()
             },
             stage: self.stage.clone(),
+            // Kept: a preset doesn't pick the scenes' look.
+            scenes: self.scenes.clone(),
             fps: self.fps,
             ..base
         };
@@ -777,6 +834,11 @@ impl VisualsConfig {
         within(&mut v.thickness, THICKNESS, 2.5);
         v.low_hz = v.low_hz.clamp(HZ.0, 2_000.);
         v.high_hz = v.high_hz.clamp(v.low_hz * 2., HZ.1);
+        let sc = &mut self.scenes;
+        within(&mut sc.strength, (0.4, 1.5), 1.);
+        within(&mut sc.detail, (0.5, 1.5), 1.);
+        within(&mut sc.resolution, (0.5, 1.5), 1.);
+        within(&mut sc.reaction, (0., 1.), 0.5);
         self
     }
 
@@ -941,5 +1003,21 @@ mod tests {
         assert!(!c.with_preset(Preset::Off).on);
         let back = vivid.with_preset(Preset::Default);
         assert_eq!(back.backdrop, Backdrop::default());
+    }
+
+    /// Every style is saved under its name and loads back; the 3D scenes
+    /// are the three that draw a scene and the only ones without bars.
+    #[test]
+    fn styles_load_by_name() {
+        for style in Style::ALL {
+            let json = serde_json::to_string(&style).expect("saves");
+            assert_eq!(json, format!("\"{}\"", format!("{style:?}").to_lowercase()));
+            assert_eq!(serde_json::from_str::<Style>(&json).expect("loads"), style);
+            assert_eq!(
+                style.scene().is_some(),
+                matches!(style, Style::Xmb | Style::Ridges | Style::Aurora)
+            );
+            assert!(!(style.scene().is_some() && style.spectral()));
+        }
     }
 }

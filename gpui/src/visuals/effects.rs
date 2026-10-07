@@ -467,9 +467,10 @@ impl Effects {
     /// Tells the bar whether to leave its background to this layer, and
     /// Now Playing's cover its shadow; when either changes, the cached app
     /// view renders afresh.
-    fn hand_over(&mut self, window: &mut Window, cx: &App) {
+    fn hand_over(&mut self, fills: bool, window: &mut Window, cx: &App) {
         let bar = self.input.bar.is_some() && self.bar.image().is_some();
-        let shadow = self.backdrop_shows()
+        let shadow = !fills
+            && self.backdrop_shows()
             && self.backdrop.image().is_some()
             && super::config::get().backdrop.on;
         if slots::paints_bar(cx) != bar || slots::paints_cover_shadow(cx) != shadow {
@@ -527,6 +528,10 @@ impl Render for Effects {
             self.shown_at = Instant::now();
         }
         let need = backdrop_shows || input.bar.is_some() || changing || vis_place.is_some();
+        // A 3D scene in the visualiser fills the backdrop's place: the
+        // backdrop and its sparkles rest under it, and the views draw the
+        // cover's shadow.
+        let fills = vis_place.is_some() && moving && input.playing && self.vis.fills();
         let gpu = self.gpu(need, window, cx);
 
         if let Some(gpu) = &gpu {
@@ -548,7 +553,9 @@ impl Render for Effects {
             // next.
             let paced = |due| Tick { due, ..tick };
             let backdrop_on = super::config::get().backdrop.on;
-            match backdrop_area(input.showing, cx).filter(|_| backdrop_shows && backdrop_on) {
+            match backdrop_area(input.showing, cx)
+                .filter(|_| backdrop_shows && backdrop_on && !fills)
+            {
                 Some((area, _)) if !(skip("backdrop") && self.backdrop.image().is_some()) => {
                     let shadow = cover_shadow(input.showing, cx);
                     let tick = paced(backdrop_due);
@@ -561,7 +568,8 @@ impl Render for Effects {
             match vis_place.filter(|_| moving && input.playing) {
                 Some(place) => {
                     let palette = self.bar.palette();
-                    self.vis.update(&tick, place, &palette, window, cx);
+                    let id = input.bar.as_ref().and_then(|b| b.video_id.as_deref());
+                    self.vis.update(&tick, place, &palette, id, window, cx);
                 }
                 None => self.vis.hide(cx),
             }
@@ -590,7 +598,7 @@ impl Render for Effects {
                 self.drew_at = Instant::now();
             }
         }
-        self.hand_over(window, cx);
+        self.hand_over(fills, window, cx);
         // Still pictures to finish, for the effects that are on.
         let pending = gpu.is_some()
             && ((backdrop_shows && self.backdrop.pending())
@@ -605,10 +613,10 @@ impl Render for Effects {
         let config = super::config::get();
         let backdrop_on = config.backdrop.on;
         let paint = Paint {
-            backdrop: (backdrop_shows && backdrop_on)
+            backdrop: (backdrop_shows && backdrop_on && !fills)
                 .then(|| self.backdrop.image())
                 .flatten(),
-            sparkles: (backdrop_shows && backdrop_on && !skip("sparkles"))
+            sparkles: (backdrop_shows && backdrop_on && !fills && !skip("sparkles"))
                 .then(|| {
                     Field::new(
                         &self.sparkles,
@@ -621,6 +629,7 @@ impl Render for Effects {
                 })
                 .flatten(),
             scene: self.scene_backdrop(),
+            fills,
             vis: vis_place.and_then(|_| self.vis.image()),
             fallback: if backdrop_on {
                 self.backdrop.fallback(&c)
@@ -662,8 +671,10 @@ struct Paint {
     showing: bool,
     /// The backdrop fills a scene (Stage, the full-window visualiser).
     scene: bool,
-    /// The visualiser's frame and where it goes.
-    vis: Option<(std::sync::Arc<RenderImage>, Bounds<Pixels>)>,
+    /// A 3D scene fills the backdrop's place (painted as the visualiser).
+    fills: bool,
+    /// The visualiser's frame, where it goes and its corners.
+    vis: Option<(std::sync::Arc<RenderImage>, Bounds<Pixels>, Corners<Pixels>)>,
     bar: Option<std::sync::Arc<RenderImage>>,
     /// Whether to draw the spectrum.
     spectrum: bool,
@@ -687,7 +698,8 @@ impl Paint {
             let _ = window.paint_image(bar, bar, Corners::default(), image, 0, false);
             follow_hover(self.hover.clone(), self.this.clone(), window);
         }
-        let area = backdrop_area(self.showing, cx).filter(|_| self.showing || self.scene);
+        let area =
+            backdrop_area(self.showing, cx).filter(|_| (self.showing || self.scene) && !self.fills);
         if let Some((panel, corners)) = area {
             // The gradient shows until the first frame and instead of it
             // when there is no GPU device. Not under the frame: each layer
@@ -703,8 +715,8 @@ impl Paint {
                 sparkles.paint(panel, window);
             }
         }
-        if let Some((image, bounds)) = self.vis {
-            let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+        if let Some((image, bounds, corners)) = self.vis {
+            let _ = window.paint_image(bounds, bounds, corners, image, 0, false);
         }
         if !self.showing {
             return;

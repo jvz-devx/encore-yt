@@ -18,22 +18,26 @@ use crate::theme::{Colors, Type, radius, size, space};
 const SMALL: Pixels = px(26.);
 const SMALL_ICON: Pixels = px(15.);
 
-/// The sleep timer and the equalizer buttons, and their panels.
+/// The sleep timer and the equalizer buttons.
 pub fn controls(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
     h_flex()
         .gap(space::XXS)
         .child(sleep_button(app, c, cx))
         .child(equalizer_button(app, c, cx))
-        .children(
-            app.extras
-                .sleep_open
-                .then(|| super::sleep::menu(app, c, cx)),
-        )
-        .children(
-            app.extras
-                .equalizer_open
-                .then(|| super::equalizer::panel(app, c, cx)),
-        )
+}
+
+/// The open panel of the two, drawn with the window's overlays: the player
+/// bar is a layer under the app's views (`player::layer`), so a panel
+/// inside it would open behind the page.
+pub fn panel(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<AnyElement> {
+    let c = crate::theme::colors(cx);
+    if app.extras.sleep_open {
+        Some(super::sleep::menu(app, &c, cx))
+    } else if app.extras.equalizer_open {
+        Some(super::equalizer::panel(app, &c, cx))
+    } else {
+        None
+    }
 }
 
 /// The mini player button, beside the volume.

@@ -3,8 +3,9 @@
 //! The backend runs on its own tokio runtime and reports through a std
 //! channel plus a wake callback. The callback pokes an async channel; a
 //! foreground task awaits it and drains the events into this entity, so the
-//! app redraws only when something happened (and on a slow clock while a
-//! song plays, for the position).
+//! app redraws only when something happened. When only the position moved
+//! (most playback reports, and a slow clock while a song plays), just the
+//! views that show it redraw (`MusicApp::position_moved`).
 //!
 //! Each area of the app keeps its state and its event handlers in its own
 //! module, so work on one area doesn't touch another's files:
@@ -77,7 +78,7 @@ impl MusicApp {
                 cx.background_executor().timer(POSITION_TICK).await;
                 let ticked = this.update(cx, |this, cx| {
                     if this.player.playback.playing {
-                        cx.notify();
+                        this.position_moved(cx);
                     }
                 });
                 if ticked.is_err() {
@@ -131,22 +132,43 @@ impl MusicApp {
     }
 
     /// Takes in the backend's events; `window` is the one showing the app,
-    /// if any.
+    /// if any. Reports that only move the position redraw just what shows
+    /// it, not the whole app.
     pub(crate) fn drain(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let mut changed = false;
         if let Some(window) = window.as_deref_mut()
             && let Some(playback) = self.pending_playback.take()
         {
-            self.on_playback(playback, window, cx);
+            changed |= self.on_playback(playback, window, cx);
         }
         while let Ok(event) = self.backend.events.try_recv() {
-            self.handle(event, window.as_deref_mut(), cx);
+            changed |= self.handle(event, window.as_deref_mut(), cx);
         }
-        cx.notify();
+        if changed {
+            cx.notify();
+        } else {
+            self.position_moved(cx);
+        }
     }
 
-    /// Hands each event to the module that owns it.
-    fn handle(&mut self, event: Event, window: Option<&mut Window>, cx: &mut Context<Self>) {
+    /// Hands each event to the module that owns it; whether the app's
+    /// state changed beyond the position.
+    fn handle(
+        &mut self,
+        event: Event,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) -> bool {
         match event {
+            Event::Playback(playback) => {
+                return match window {
+                    Some(window) => self.on_playback(playback, window, cx),
+                    None => {
+                        self.pending_playback = Some(playback);
+                        true
+                    }
+                };
+            }
             Event::Account(account) => self.on_account(account, cx),
             Event::Page {
                 key,
@@ -164,10 +186,6 @@ impl MusicApp {
             Event::Lyrics { id, result } => self.on_lyrics(id, result),
             Event::Searches(saved) => self.on_searches(saved),
             Event::Queue(queue) => self.on_queue(queue),
-            Event::Playback(playback) => match window {
-                Some(window) => self.on_playback(playback, window, cx),
-                None => self.pending_playback = Some(playback),
-            },
             Event::Error(error) => {
                 log::warn!("{error}");
                 self.error = Some(error);
@@ -179,6 +197,7 @@ impl MusicApp {
             Event::Heat { id, heat } => self.on_heat(id, heat),
             Event::QuickResults { query, result } => self.on_quick_results(query, result),
         }
+        true
     }
 }
 

@@ -2,7 +2,8 @@
 //!
 //! - sidebar, top bar, page (M1: `sidebar`, `top_bar`, `page`)
 //! - player bar, Up next, Now Playing, error strip (M2: `player`, `queue`,
-//!   `now_playing`)
+//!   `now_playing`); the player bar is a view of its own, laid out by the
+//!   shell (`visuals::shell`) in the room `player::space` leaves
 //! - account chip, dialogs and Settings (M3: `account`, `settings`)
 //! - overlays: Play anything, shortcuts, menus (M4: `overlays`, `menu`)
 //! - Stage, equalizer, sleep timer (M6: `extras`)
@@ -32,6 +33,8 @@ use ytfast::model::Run;
 use crate::app::MusicApp;
 use crate::theme::{self, Type, radius, size, space};
 use widgets::Pill;
+
+pub use player::layer::PlayerBar;
 
 pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
     // Stage replaces the whole window while it's open.
@@ -80,7 +83,8 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
                 .child(panel)
                 .children(queue::panel(app, window, cx)),
         )
-        .child(player::player_bar(app, cx))
+        // The player bar is its own view under these (`player::layer`).
+        .child(player::space())
         .children(overlays::overlays(app, window, cx))
         // Dialogs and Settings (M3).
         .children(account::layer(app, window, cx));

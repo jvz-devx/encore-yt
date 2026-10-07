@@ -85,6 +85,11 @@ pub struct Stage {
 }
 
 impl Extras {
+    /// The mini player's window is open.
+    pub fn mini_open(&self) -> bool {
+        self.mini.is_some()
+    }
+
     pub fn new(_window: &mut Window, cx: &mut Context<MusicApp>) -> (Self, Vec<Subscription>) {
         (
             Self {

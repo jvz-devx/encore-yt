@@ -6,15 +6,20 @@ use gpui_kit::*;
 
 use crate::app::MusicApp;
 
-/// The mini player's view: it reads the app and redraws when it changes.
+/// The mini player's view: it reads the app and redraws when it changes,
+/// or when only the position moved (`playback::Clock`).
 pub struct MiniPlayer {
     pub app: Entity<MusicApp>,
-    _observe: Subscription,
+    _observe: [Subscription; 2],
 }
 
 impl MiniPlayer {
     pub fn new(app: Entity<MusicApp>, cx: &mut Context<Self>) -> Self {
-        let observe = cx.observe(&app, |_, _, cx| cx.notify());
+        let clock = app.read(cx).player.clock.clone();
+        let observe = [
+            cx.observe(&app, |_, _, cx| cx.notify()),
+            cx.observe(&clock, |_, _, cx| cx.notify()),
+        ];
         Self {
             app,
             _observe: observe,

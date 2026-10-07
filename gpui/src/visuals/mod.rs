@@ -1,27 +1,30 @@
 //! The effects (PLAN M8, M9), drawn around the app instead of inside it, so
 //! an animation frame doesn't re-render the app.
 //!
-//! [`shell`] is what `MusicApp` renders. It stacks four layers:
+//! [`shell`] is what `MusicApp` renders. It stacks five layers:
 //!
 //! 1. [`effects::Effects`]: the window's base colour, the animated cover
 //!    backdrop over the page panel and the spectrum while Now Playing
 //!    shows ([`backdrop`]), and the player bar's background, seek bar and
 //!    beat halos ([`bar`]), all on one GPU device of our own
 //!    (`ytfast-visuals`). It re-renders on its own timer.
-//! 2. [`content::Content`]: the app itself (`views::root`), as a cached
-//!    view while an effect animates. The page panel (behind Now Playing),
-//!    the player bar and its slider are see-through where the effects
-//!    paint.
-//! 3. The cover dissolves on a track change ([`dissolve`]), over the app.
-//! 4. [`flight::Flight`]: the cover flying between the player bar and Now
+//! 2. The player bar (`views::PlayerBar`), a cached view in the room the
+//!    app's views leave at the bottom. It renders again when `MusicApp` is
+//!    notified or only the position moved (`playback::Clock`).
+//! 3. [`content::Content`]: the app itself (`views::root`), a cached view.
+//!    The page panel (behind Now Playing), the player bar and its slider
+//!    are see-through where the effects paint.
+//! 4. The cover dissolves on a track change ([`dissolve`]), over the app.
+//! 5. [`flight::Flight`]: the cover flying between the player bar and Now
 //!    Playing.
 //!
 //! GPUI marks a notified view and all its ancestors dirty, and a window's
 //! root re-renders on every frame. `MusicApp` is that root's child, so an
-//! effects frame re-renders `MusicApp`; with the app's views in a cached
-//! `Content` beside the effects, that is only this small shell. Each frame
-//! still redraws the whole window (about 2 ms of CPU), so while only the
-//! player bar moves, frames come when it would look different.
+//! effects frame re-renders `MusicApp`; with the app's views and the bar in
+//! cached views beside the effects, that is only this small shell, and a
+//! position tick re-renders only the bar. Each frame still redraws the
+//! whole window (about 2 ms of CPU), so while only the player bar moves,
+//! frames come when it would look different.
 //!
 //! The views place the effects with [`slot`] (empty boxes whose bounds the
 //! layers read); Now Playing draws the song's waveform with [`waveform`].
@@ -62,6 +65,7 @@ struct Layers {
 #[derive(Clone)]
 struct Handles {
     content: Entity<content::Content>,
+    bar: Entity<crate::views::PlayerBar>,
     effects: Entity<effects::Effects>,
     flight: Entity<flight::Flight>,
     /// Set by input the cached app view may not hear about (a slider drag
@@ -73,12 +77,11 @@ impl Global for Layers {}
 
 /// The window's content: effects under the app, the flying cover over it.
 pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
-    let layers = layers(cx);
+    let layers = layers(app, cx);
     let showing = fills_panel(app);
     let playback = &app.player.playback;
     let playing = playback.playing && !playback.loading;
     let bar = bar_input(app, cx);
-    let bar_moves = bar.is_some() && playing && !reduced_motion(cx);
     let input = effects::Input {
         showing: showing && enabled(),
         playing,
@@ -88,31 +91,45 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
     layers
         .effects
         .update(cx, |effects, _| effects.input = input);
-    let flying = layers
+    layers
         .flight
         .update(cx, |flight, cx| flight.follow(showing, window, cx));
-    // Cached only while effects or the flight animate, and not after input
-    // the app's models may have taken.
-    let cache = (showing || flying || bar_moves) && !layers.input.take() && !uncached();
+    // Cached, except after input the app's models may have taken: a cached
+    // view renders again only when notified.
+    let cache = !layers.input.take() && !uncached();
     let overlay = layers.effects.read(cx).overlay();
-    let content = if cache {
-        layers
-            .content
-            .clone()
-            .cached(StyleRefinement::default().size_full())
-            .into_any_element()
-    } else {
-        layers.content.clone().into_any_element()
-    };
+    let content = view(layers.content.clone().into(), cache);
+    // Under the app's views, in the room they leave for it, so their
+    // dialogs and menus cover it. Stage hides it.
+    let bar_layer = (!app.extras.stage.open).then(|| {
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(theme::size::PLAYER_BAR)
+            .child(view(layers.bar.clone().into(), cache))
+    });
     div()
         .size_full()
         .relative()
         .bg(theme::colors(cx).base)
         .child(layers.effects.clone())
+        .children(bar_layer)
         .child(content)
         .child(overlay)
         .child(layers.flight.clone())
         .into_any_element()
+}
+
+/// A layer's view, cached or rendered afresh.
+fn view(view: AnyView, cache: bool) -> AnyElement {
+    if cache {
+        view.cached(StyleRefinement::default().size_full())
+            .into_any_element()
+    } else {
+        view.into_any_element()
+    }
 }
 
 /// The player bar's state for the effects layer, or `None` while the bar
@@ -141,6 +158,26 @@ fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
         duration,
         video_id: track.map(|t| t.video_id.clone()),
     })
+}
+
+/// The position moved: whether the effects layer shows it without the
+/// player bar redrawing (it draws the seek bar). While its ticker runs the
+/// next frame shows it; otherwise (reduced motion) it is woken for a still
+/// frame.
+pub fn position_moved(cx: &mut App) -> bool {
+    if !paints_bar(cx) {
+        return false;
+    }
+    let Some(effects) = cx.try_global::<Layers>().map(|l| l.handles.effects.clone()) else {
+        return false;
+    };
+    effects.update(cx, |effects, cx| effects.wake(cx));
+    true
+}
+
+/// The seek bar's width, as last laid out.
+pub fn seek_width(cx: &App) -> Option<Pixels> {
+    slots::Slots::get(cx, Slot::Seek).map(|b| b.size.width)
 }
 
 /// Now Playing fills the page panel: the panel is left see-through and the
@@ -176,12 +213,14 @@ pub fn reduced_motion(cx: &App) -> bool {
         || std::env::var_os("YTFAST_GPUI_REDUCED_MOTION").is_some_and(|v| v == "1")
 }
 
-fn layers(cx: &mut Context<MusicApp>) -> Handles {
+fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {
     if !cx.has_global::<Layers>() {
         cx.set_global(slots::Slots::default());
         let input = Rc::new(Cell::new(false));
+        let clock = app.player.clock.clone();
         let app = cx.entity();
-        let content = cx.new(|cx| content::Content::new(app, cx));
+        let content = cx.new(|cx| content::Content::new(app.clone(), cx));
+        let bar = cx.new(|cx| crate::views::PlayerBar::new(app, clock, cx));
         let effects = cx.new(|_| effects::Effects::new(input.clone()));
         let flight = cx.new(|_| flight::Flight::new(content.clone()));
         let keys_input = input.clone();
@@ -189,6 +228,7 @@ fn layers(cx: &mut Context<MusicApp>) -> Handles {
         cx.set_global(Layers {
             handles: Handles {
                 content,
+                bar,
                 effects,
                 flight,
                 input,

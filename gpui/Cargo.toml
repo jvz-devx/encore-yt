@@ -99,3 +99,15 @@ opt-level = 2
 [profile.release]
 lto = "thin"
 strip = true
+
+# Release speed without release build times, for CPU/GPU measurements and
+# visual checks of the effects: `cargo build --profile profiling`. Full
+# release (LTO) is for CI and packaging only; after a one-file change it
+# re-optimises and re-links the whole app, which takes minutes.
+[profile.profiling]
+inherits = "release"
+lto = false
+incremental = true
+codegen-units = 16
+strip = false
+debug = "line-tables-only"

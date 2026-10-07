@@ -1,64 +1,16 @@
 #!/usr/bin/env bash
-# Fast, targeted checks while iterating. Check what you touched, then run
-# scripts/gpui-check.sh once before finishing.
+# Kept for older docs and habits; scripts/dev.sh (and the justfile) is the
+# interface now. Each command checks only what you name.
 #
-#   scripts/check.sh gpui      cargo check of the GPUI app (and the backend it uses)
-#   scripts/check.sh backend   cargo check of the backend alone (no egui)
-#   scripts/check.sh egui      cargo check of the egui app, all targets
-#   scripts/check.sh tests     backend tests, including the parser fixtures
-#   scripts/check.sh shaders   validate every .wgsl under gpui/ with naga
-#   scripts/check.sh visuals   check and test the effects crate (gpui/crates/visuals)
-#   scripts/check.sh all       everything above (still no release build)
-#
-# The root crate and gpui/ are separate Cargo workspaces on purpose: one
-# workspace would unify features across both apps (zbus's tokio feature
-# breaks AccessKit in the egui app; see Cargo.toml), so `--workspace` is
-# not used here. Builds go through sccache when ~/.cargo/config.toml sets
-# it as the rustc wrapper; each worktree keeps its own target/.
+#   scripts/check.sh gpui|backend|egui|visuals   cargo check of that crate
+#   scripts/check.sh tests                        backend tests (parser fixtures)
+#   scripts/check.sh shaders                      validate .wgsl with naga
 set -euo pipefail
-cd "$(dirname "$0")/.."
-jobs="${JOBS:-4}"
-
-step() { printf '== %s\n' "$*"; }
-
-gpui() {
-    step "check gpui"
-    (cd gpui && cargo check -j "$jobs" -p ytfast-gpui --all-targets)
-}
-backend() {
-    step "check backend"
-    cargo check -j "$jobs" --lib --tests --no-default-features
-}
-egui() {
-    step "check egui app"
-    cargo check -j "$jobs" --all-targets --features e2e
-}
-tests() {
-    step "test backend"
-    cargo test -j "$jobs" --lib --tests --no-default-features
-}
-visuals() {
-    step "check and test visuals"
-    (cd gpui && cargo check -j "$jobs" -p ytfast-visuals --all-targets &&
-        cargo test -j "$jobs" -p ytfast-visuals)
-}
-shaders() {
-    step "validate shaders"
-    local found=0 file
-    while IFS= read -r -d '' file; do
-        found=1
-        naga "$file" >/dev/null && echo "ok  $file"
-    done < <(find gpui -name '*.wgsl' -not -path '*/target/*' -print0)
-    [ "$found" = 1 ] || echo "no .wgsl files"
-}
-
+dev="$(dirname "$0")/dev.sh"
 case "${1:-}" in
-    gpui) gpui ;;
-    backend) backend ;;
-    egui) egui ;;
-    tests) tests ;;
-    shaders) shaders ;;
-    visuals) visuals ;;
-    all) backend; tests; gpui; egui; shaders; visuals ;;
-    *) sed -n '2,11p' "$0"; exit 2 ;;
+    gpui | backend | egui) exec "$dev" check "$1" ;;
+    visuals) "$dev" check visuals && exec "$dev" test visuals ;;
+    tests) exec "$dev" test backend ;;
+    shaders) exec "$dev" shaders ;;
+    *) sed -n '2,7p' "$0"; exit 2 ;;
 esac

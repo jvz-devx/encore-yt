@@ -1,0 +1,10 @@
+# Build settings for the GPUI workspace (gpui/), committed so every
+# worktree gets them. The root crate's /.cargo/config.toml stays
+# machine-local as upstream intends.
+
+[build]
+# sccache when installed, plain rustc otherwise (see the script). Every
+# worktree keeps its own target/ and they share sccache's cache; listing the
+# worktree roots as sccache `basedirs` (~/.config/sccache/config) lets them
+# share entries despite different paths.
+rustc-wrapper = "../scripts/rustc-wrapper"

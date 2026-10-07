@@ -1,0 +1,8 @@
+#!/bin/sh
+# Cargo's rustc wrapper for this repo (gpui/.cargo/config.toml): compile
+# through sccache when it's installed, so every worktree shares one compiler
+# cache, and plain rustc otherwise, so builds never fail for lack of it.
+if command -v sccache >/dev/null 2>&1; then
+    exec sccache "$@"
+fi
+exec "$@"

@@ -1,0 +1,30 @@
+# Background compiler feedback for the GPUI workspace. Run `bacon` in gpui/
+# in your own terminal (not from an agent task): it re-checks ytfast-gpui on
+# every save. Agents read its results instead of starting their own checks.
+#
+#   c  check the app (default)     v  check the visuals crate
+#   l  clippy for the app          t  visuals tests
+
+default_job = "check"
+
+[jobs.check]
+command = ["cargo", "check", "-p", "ytfast-gpui"]
+need_stdout = false
+
+[jobs.check-visuals]
+command = ["cargo", "check", "-p", "ytfast-visuals"]
+need_stdout = false
+
+[jobs.clippy]
+command = ["cargo", "clippy", "-p", "ytfast-gpui", "--", "-D", "warnings"]
+need_stdout = false
+
+[jobs.test-visuals]
+command = ["cargo", "test", "-p", "ytfast-visuals"]
+need_stdout = true
+
+[keybindings]
+c = "job:check"
+v = "job:check-visuals"
+l = "job:clippy"
+t = "job:test-visuals"

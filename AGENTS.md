@@ -12,9 +12,21 @@ This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `up
 - Fixture-based parser tests (saved signed-out InnerTube responses) are allowed in this fork, as an exception to the "no unit tests" rule below.
 - Verify UI work visually: run the app on the Wayland session and capture it with `spectacle` (see PLAN.md). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`. Never push to `upstream`.
-- Fast loop: group edits, then `scripts/check.sh gpui|backend|egui|tests|shaders` (cargo check of just what you touched; `cargo check -p ytfast-gpui` from `gpui/`). Use `cargo check`, not `cargo build`, unless you need to run the binary. `scripts/gpui-check.sh` (clippy, tests, release build) runs once before finishing. Shader-only changes: `scripts/check.sh shaders` (naga) instead of rebuilding the app.
-- YouTube rate limits: checks that only need *something* playing (UI, performance, effects) run with `YTFAST_FAKE_STREAM=<audio file>` (e.g. `artifacts/test-audio.opus`), which plays that local file without yt-dlp and doesn't report plays to history. Real streams only where the check is about streaming itself, and as few as possible.
-- Caches: builds go through sccache (`rustc-wrapper` in `~/.cargo/config.toml`). Each worktree keeps its own `target/`; sccache shares compiled dependencies between them. Never `cargo clean` unless a build is genuinely corrupt.
+- Build loop (see "Rust builds" below): `just check gpui` while iterating, `just verify <crate>` before finishing, `just verify-workspace` / `just gate` once at the end.
+- Caches: builds go through sccache (gpui/.cargo/config.toml wraps rustc with scripts/rustc-wrapper, which falls back to plain rustc). Each worktree keeps its own `target/`; never share a CARGO_TARGET_DIR between worktrees, and never `cargo clean` unless a build is genuinely corrupt.
+
+## Rust builds (fast loop, reliable finish)
+
+Crates: `gpui` (the GPUI app), `visuals` (wgpu effects), `backend` (root crate without egui), `egui` (root crate with the egui app). The root crate and `gpui/` are separate Cargo workspaces on purpose.
+
+- Never run `cargo build` to validate an edit; use `cargo check`. Build only when you need to run the binary (debug builds are incremental, ~5 s), and use `just profiling` (no LTO) instead of `--release` for measurements.
+- Make a coherent batch of edits, then check once: `just check <crate>` (= `cargo check -p <crate>`). Read diagnostics you already have (bacon, rust-analyzer) before starting a new check.
+- Don't run `cargo check --workspace`, `--all-targets`, `--all-features` or clippy after every change; don't start a second cargo command while one is running in the same worktree.
+- Tests: `just test <crate> [filter]` for what you touched.
+- Before finishing: `just verify <crate>` for each crate you changed (fmt, check, tests, clippy). `just verify-workspace` (or `just gate`, which adds the release build) only at the very end or when a change spans both workspaces; CI builds the release installers.
+- Shader-only changes: `just shaders` (naga), no app build.
+- Bacon is for a human terminal (`cd gpui && bacon`); agents don't start it.
+- Worktrees: concurrent agents each use their own worktree and `target/`, all sharing sccache (worktree slots ../yt-rust-wt/slotN are listed as sccache `basedirs`). Reuse a slot for the next task (`git checkout -B <branch> main`) instead of making a new worktree, so its `target/` stays warm. Don't edit modules another concurrent task owns.
 
 ## Start here
 

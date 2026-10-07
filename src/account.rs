@@ -1,6 +1,6 @@
 //! Changes to the signed-in account: likes and dislikes, saving albums and
 //! playlists to the library, subscriptions, and the account's own playlists
-//! (docs/SPEC.md § Journeys → Account; § Decisions → Write-back).
+//! (docs/integration.md, "Account changes").
 //!
 //! Every change shows in the frame of the input: the app shows the new state
 //! (or edits the cached pages), then the backend asks YouTube Music, one
@@ -440,7 +440,7 @@ fn playlist_target(playlist_id: &str) -> Target {
     Target::browse(format!("VL{playlist_id}"))
 }
 
-/// Library tabs' pages (the egui app's `LibraryTab::target`): Playlists
+/// Library tabs' pages: Playlists
 /// here; Songs, Albums and Artists are `FEmusic_liked_videos`,
 /// `FEmusic_liked_albums` and `FEmusic_library_corpus_track_artists`.
 fn library_target() -> Target {
@@ -710,8 +710,8 @@ impl PageEdit {
 }
 
 /// A frontend's cached page, as the account logic sees it. The frontend
-/// keeps its pages in a `HashMap` by [`Target::key`]; the egui app's
-/// `PageState` implements this, and so can any other frontend's.
+/// keeps its pages in a `HashMap` by [`Target::key`] and implements this
+/// for its page state.
 pub trait CachedPage {
     /// The page as shown (with the changes in force applied), if loaded.
     fn page(&self) -> Option<&Page>;

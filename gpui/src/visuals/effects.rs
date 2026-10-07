@@ -82,6 +82,8 @@ pub struct Tick<'a> {
     pub look: Look,
     pub reduce: bool,
     pub gpu: &'a Gpu,
+    /// What the engine plays, for the scope's samples.
+    pub tap: Option<&'a AudioTap>,
 }
 
 /// The cover the player bar shows, decoded, and its palette.
@@ -539,6 +541,7 @@ impl Render for Effects {
                 look: self.look,
                 reduce: self.reduce,
                 gpu,
+                tap: self.tap.as_ref(),
             };
             let art = self.art.as_ref().map(|a| (&a.url, &a.cover));
             // Now Playing lays out after this layer: its first frame comes

@@ -1,12 +1,12 @@
 // The audio visualiser: bars, mirrored bars, a ring round the cover, a line
 // spectrum or a particle field, from the bars the app worked out of the
-// spectrum. Drawn with an alpha channel (straight, not premultiplied, as
+// spectrum, or an oscilloscope from the traces it made of the samples. Drawn with an alpha channel (straight, not premultiplied, as
 // GPUI's sprites take it) over the backdrop. Positions are in output
 // pixels. Colour is BGRA8 in display (gamma) space.
 
 struct Params {
     // xy: output size in pixels, z: style (0 bars, 1 mirrored, 2 ring,
-    // 3 line, 4 particles), w: bar count
+    // 3 line, 4 particles, 5 scope), w: bar count
     output: vec4<f32>,
     // x: seconds, y: bass, z: kick, w: level (0..1)
     audio: vec4<f32>,
@@ -18,13 +18,22 @@ struct Params {
     // particles' clock, w: treble 0..1
     shape: vec4<f32>,
     // x: pixels per point, y: has a cover (0/1), z: the margin the bands
-    // keep at each side, in pixels
+    // keep at each side, in pixels, w: half the stroke, in pixels
     extra: vec4<f32>,
+    // The scope: x: points per trace, y: channels (0 mono, 1 left over
+    // right, 2 X/Y)
+    scope: vec4<f32>,
     // The gradient along the spectrum, linear RGB, low to high.
     stops: array<vec4<f32>, 4>,
     // Four bars to a vec4: heights, then peak caps, 0..1.
     bars: array<vec4<f32>, 32>,
     peaks: array<vec4<f32>, 32>,
+    // The scope's values, four to a vec4: one trace, two (left, then
+    // right), or X/Y pairs, -1..1.
+    wave: array<vec4<f32>, 256>,
+    // The X/Y figure's runs of 16 segments: least x, least y, most x,
+    // most y.
+    runs: array<vec4<f32>, 16>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -277,7 +286,7 @@ fn line(p: vec2<f32>) -> Ink {
         let halo = exp(-d / (glow_radius() * 1.4)) * (0.2 + 0.4 * v) * min(g, 1.5) * 0.5;
         ink = over(ink, color, halo * ends);
     }
-    let width = 1.25 * s;
+    let width = params.extra.w;
     ink = over(ink, lit(color, v), clamp(width + 0.5 - d, 0.0, 1.0) * ends);
     if params.look.z > 0.5 {
         let pv = curve_value(p.x, true);
@@ -428,6 +437,155 @@ fn particles(p: vec2<f32>) -> Ink {
     return ink;
 }
 
+fn wave(i: i32) -> f32 {
+    let j = u32(clamp(i, 0, 1023));
+    return params.wave[j >> 2u][j & 3u];
+}
+
+fn points() -> i32 {
+    return clamp(i32(params.scope.x), 2, 512);
+}
+
+// The distance from `p` to the segment from `a` to `b`.
+fn segment(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+    let pa = p - a;
+    let ba = b - a;
+    let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+// How far a stroke's glow reaches past its edge, in pixels.
+fn scope_reach() -> f32 {
+    if params.look.y <= 0.0 {
+        return 1.0;
+    }
+    return glow_radius() * 1.8;
+}
+
+// A stroke `d` pixels from `p`: its glow under its body, in `color`;
+// `weight` dims it (the X/Y figure's older part).
+fn stroke(ink: Ink, d: f32, color: vec3<f32>, weight: f32) -> Ink {
+    let half = params.extra.w;
+    // A trace at rest is a quieter line.
+    let rest = mix(0.55, 1.0, smoothstep(0.0, 0.12, params.audio.w));
+    var out = ink;
+    let g = params.look.y;
+    if g > 0.0 {
+        let r = glow_radius() * 0.8;
+        let edge = max(d - half, 0.0);
+        let fade = 1.0 - smoothstep(scope_reach() * 0.4, scope_reach(), edge);
+        let halo = exp(-edge / r) * fade * (0.18 + 0.3 * params.audio.w) * min(g, 1.5) * 0.5;
+        out = over(out, color, halo * weight);
+    }
+    let body = clamp(half + 0.5 - d, 0.0, 1.0);
+    return over(out, lit(color, 0.35), body * rest * weight);
+}
+
+// One trace of the scope, `first` its first value, centred on `mid` with
+// 1.0 `amp` pixels up, across the band, fading out at its ends.
+fn trace(ink: Ink, p: vec2<f32>, first: i32, mid: f32, amp: f32) -> Ink {
+    let size = params.output.xy;
+    let n = points();
+    let pitch = size.x / f32(n - 1);
+    // The segments a stroke this wide (and its glow) could reach from here.
+    let reach = params.extra.w + scope_reach() + 1.0;
+    let f = p.x / pitch;
+    let lo = max(i32(floor(f - reach / pitch)), 0);
+    let hi = min(i32(ceil(f + reach / pitch)), n - 1);
+    let last = min(hi, lo + 64);
+    // Most pixels are above or below every segment in reach: skip the
+    // distances for them.
+    var top = -1.0;
+    var bottom = 1.0;
+    for (var k = lo; k <= last; k++) {
+        let v = wave(first + k);
+        top = max(top, v);
+        bottom = min(bottom, v);
+    }
+    if p.y < mid - top * amp - reach || p.y > mid - bottom * amp + reach {
+        return ink;
+    }
+    var d = 1e6;
+    var a = vec2<f32>(f32(lo) * pitch, mid - wave(first + lo) * amp);
+    for (var k = lo; k < last; k++) {
+        let b = vec2<f32>(f32(k + 1) * pitch, mid - wave(first + k + 1) * amp);
+        d = min(d, segment(p, a, b));
+        a = b;
+    }
+    if d > 1e5 {
+        return ink;
+    }
+    // Through the margins (at least a little way) the trace fades out.
+    let fade = max(params.extra.z, 16.0 * params.extra.x);
+    let ends = smoothstep(0.0, fade, p.x) * smoothstep(0.0, fade, size.x - p.x);
+    return stroke(ink, d, gradient(p.x / size.x), ends);
+}
+
+// The X/Y figure: mid up, side across, the newest part strongest, in a box
+// a little wider than tall round the band's centre.
+fn figure(p: vec2<f32>, room: f32) -> Ink {
+    let size = params.output.xy;
+    let centre = size * 0.5;
+    let r = vec2<f32>(min(room * 1.5, size.x * 0.5 - params.extra.z - room * 0.1), room);
+    let reach = params.extra.w + scope_reach() + 1.0;
+    // The nearest segment, weighed by its age: the one that shows most.
+    var best = 0.0;
+    var best_d = 1e6;
+    var best_u = 0.0;
+    for (var run = 0; run < 16; run++) {
+        let b = params.runs[run];
+        let lo = centre + vec2<f32>(b.x, -b.w) * r - reach;
+        let hi = centre + vec2<f32>(b.z, -b.y) * r + reach;
+        if p.x < lo.x || p.y < lo.y || p.x > hi.x || p.y > hi.y {
+            continue;
+        }
+        let first = run * 16;
+        let last = min(first + 16, 255);
+        var a = centre + vec2<f32>(wave(2 * first), -wave(2 * first + 1)) * r;
+        for (var k = first; k < last; k++) {
+            let q = centre + vec2<f32>(wave(2 * k + 2), -wave(2 * k + 3)) * r;
+            let d = segment(p, a, q);
+            let u = f32(k) / 255.0;
+            let weight = mix(0.3, 1.0, u);
+            // Closer and newer wins.
+            let score = weight * exp(-max(d - params.extra.w, 0.0) / reach);
+            if score > best {
+                best = score;
+                best_d = d;
+                best_u = u;
+            }
+            a = q;
+        }
+    }
+    let ink = Ink(gradient(0.5), 0.0);
+    if best_d > 1e5 {
+        return ink;
+    }
+    return stroke(ink, best_d, gradient(best_u), mix(0.3, 1.0, best_u));
+}
+
+// The oscilloscope: the mix as one trace, left over right, or the X/Y
+// figure, in the band's height less some room at the top and bottom.
+fn scope(p: vec2<f32>) -> Ink {
+    let size = params.output.xy;
+    // Clear of the frame's edges, and in a tall band (Stage, the full
+    // window) of the window's bottom edge too.
+    let pad = clamp(size.y * 0.15, 4.0 * params.extra.x, 32.0 * params.extra.x);
+    let half = size.y * 0.5 - pad;
+    let channels = i32(params.scope.y + 0.5);
+    var ink = Ink(gradient(0.5), 0.0);
+    if channels == 2 {
+        return figure(p, half);
+    }
+    if channels == 1 {
+        let n = points();
+        let quarter = (size.y - 2.0 * pad) * 0.25;
+        ink = trace(ink, p, 0, pad + quarter, quarter * 0.9);
+        return trace(ink, p, n, size.y - pad - quarter, quarter * 0.9);
+    }
+    return trace(ink, p, 0, size.y * 0.5, half);
+}
+
 // Display space from linear, per channel.
 fn to_display(c: vec3<f32>) -> vec3<f32> {
     let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -449,17 +607,23 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         ink = ring(p);
     } else if style == 3 {
         ink = line(p);
-    } else {
+    } else if style == 4 {
         ink = particles(p);
+    } else {
+        ink = scope(p);
     }
     // Glows fade out before the frame's edge, so its box never shows:
     // all round for the ring and the particles, at the top for the bands
-    // (their bars stand on the bottom edge).
+    // (their bars stand on the bottom edge), at the top and the bottom for
+    // the scope (its traces keep clear of both).
     let size = params.output.xy;
-    let margin = 14.0 * params.extra.x;
+    var margin = 14.0 * params.extra.x;
     var edge = p.y;
     if style == 2 || style == 4 {
         edge = min(min(p.x, size.x - p.x), min(p.y, size.y - p.y));
+    } else if style == 5 {
+        margin = min(8.0 * params.extra.x, size.y * 0.1);
+        edge = min(p.y, size.y - p.y);
     }
     let alpha = clamp(ink.alpha * params.look.x, 0.0, 1.0) * smoothstep(0.0, margin, edge);
     return vec4<f32>(to_display(ink.color), alpha);

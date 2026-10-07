@@ -9,9 +9,13 @@
 //! frame spreads it evenly and keeps the bands about a period behind, near
 //! what the device is playing.
 //!
+//! While the oscilloscope draws ([`AudioTap::recent`] asked in the last
+//! second) the thread also keeps the newest frames in stereo for it.
+//!
 //! Dropping the [`AudioTap`] ends the thread, and with no tap open the
 //! engine skips the copy.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,6 +35,10 @@ const STALE: Duration = Duration::from_millis(150);
 /// Waiting samples beyond this many seconds are dropped (the thread was
 /// held up), so the bands don't lag behind the music.
 const MAX_LAG: f32 = 0.2;
+/// Stereo frames kept for the oscilloscope (~170 ms at 48 kHz).
+pub const RECENT: usize = 8192;
+/// The oscilloscope's frames are kept this long after it last asked.
+const RECENT_FOR: Duration = Duration::from_secs(1);
 
 /// Where `hz` falls among the bands, as a fractional band index (band `i`
 /// is centred on `i`), clamped to the first and last band.
@@ -59,6 +67,15 @@ struct Shared {
     stop: AtomicBool,
     bands: Mutex<(Bands, Option<Instant>)>,
     linked: AtomicUsize,
+    recent: Mutex<Recent>,
+}
+
+/// The newest stereo frames, while the oscilloscope asks for them.
+#[derive(Default)]
+struct Recent {
+    frames: VecDeque<[f32; 2]>,
+    rate: u32,
+    asked: Option<Instant>,
 }
 
 /// A running tap; [`Self::bands`] reads the newest levels.
@@ -91,6 +108,20 @@ impl AudioTap {
             };
         }
         bands
+    }
+
+    /// Replaces `out` with the newest `seconds` of stereo frames (at most
+    /// [`RECENT`]) and returns their rate, 0 when there are none yet. The
+    /// thread keeps them from the first call on, for a second after the
+    /// last.
+    pub fn recent(&self, seconds: f32, out: &mut Vec<[f32; 2]>) -> u32 {
+        let mut recent = self.shared.recent.lock().expect("recent");
+        recent.asked = Some(Instant::now());
+        out.clear();
+        let n = (seconds * recent.rate as f32).ceil() as usize;
+        let skip = recent.frames.len().saturating_sub(n);
+        out.extend(recent.frames.iter().skip(skip));
+        recent.rate
     }
 }
 
@@ -132,8 +163,9 @@ fn run(shared: &Shared) {
             continue;
         }
         hop.clear();
-        tap.read(size, &mut hop);
-        let bands = analyser.hop(hop.iter().copied());
+        tap.read_stereo(size, &mut hop);
+        keep_recent(shared, &hop, rate);
+        let bands = analyser.hop(hop.iter().map(|[l, r]| (l + r) * 0.5));
         *shared.bands.lock().expect("bands") = (bands, Some(Instant::now()));
         if analyser.hops % 600 == 1 {
             log::info!(
@@ -143,6 +175,23 @@ fn run(shared: &Shared) {
             );
         }
     }
+}
+
+/// Adds a hop to the oscilloscope's frames while it asks for them.
+fn keep_recent(shared: &Shared, hop: &[[f32; 2]], rate: u32) {
+    let mut recent = shared.recent.lock().expect("recent");
+    if recent.asked.is_none_or(|at| at.elapsed() > RECENT_FOR) {
+        recent.frames.clear();
+        return;
+    }
+    if recent.rate != rate {
+        recent.frames.clear();
+        recent.rate = rate;
+    }
+    let frames = &mut recent.frames;
+    frames.extend(hop);
+    let excess = frames.len().saturating_sub(RECENT);
+    frames.drain(..excess);
 }
 
 /// The FFT state between hops.

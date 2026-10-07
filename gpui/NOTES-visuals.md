@@ -434,8 +434,8 @@ about 2 µs of CPU a frame, which is why there aren't more).
 with the other pipelines, so warm-up and the pipeline cache cover it) draws
 bars, mirrored bars, a ring round the cover, a line or a particle field
 from `Bars` (bar count, sensitivity, rise smoothing, fall speed, frequency
-range and spacing, peak caps), straight alpha, painted over the backdrop.
-Regions: Now Playing's strip over the spectrum (or in its place); the ring
+range and spacing, peak caps), and since M22 an oscilloscope from the
+samples (below), straight alpha, painted over the backdrop. Regions: Now Playing's strip over the spectrum (or in its place); the ring
 round the cover, which shrinks the cover to leave the ring its room inside
 the panel (`now_playing_ring_room`, and `stage_ring_room` beside Stage's
 lyrics); a band along the bottom of Stage's body that the body keeps free
@@ -482,6 +482,75 @@ style in Now Playing and the full window), `v-stage-mirrored`,
 and `f-dark-*` (the tabs, light and dark), `y-*` (three covers in light
 and dark), `z-*-full` and `c3` (sparkles at full size), `f-np-vivid`,
 `f-np-off`.
+
+## The oscilloscope (M22, 2026-10-07)
+
+**Samples.** The engine's tap keeps both channels now: the output
+callback stores each frame's left and right in one 64-bit atomic (still
+one store a frame), and readers take mono or stereo. The spectrum thread
+reads stereo, analyses the mix and, while the scope asks
+(`AudioTap::recent`, within the last second), keeps the newest 8192
+frames; the scope copies the newest 72 ms of them each paced frame.
+
+**Trigger** (`crates/visuals/src/scope.rs`). A trace is 30 ms of sound.
+It starts on a rising zero crossing of a copy low-passed at 400 Hz (so
+the fundamental triggers, not the hiss on top), armed only after the
+signal fell below 8% of the recent peak, with the low-pass's lag taken
+off. Of the crossings in the last 40 ms, the one whose window is most
+like the trace on screen wins (64 probes, older ones costing a little),
+so a steady note stands still instead of hopping between periods; then
+each frame eases a quarter of the way back to the last (at 20 fps). An
+automatic gain follows the loudest sample (up within a few frames, down
+over about a second) times the sensitivity, with a tanh limit, so quiet
+songs and low volume still fill the band and loud passages don't hit
+its edges. A test feeds a tone at five phases and checks the traces
+match.
+
+**Channels.** Mono (the mix), Stereo (left over right, each in half the
+band) and X/Y (a goniometer: mid up, side across, so mono music is a
+vertical line and width spreads it sideways; the newest 20 ms, the older
+part fainter, not eased since two figures averaged are neither). The test
+audio is dual mono (its side channel at -91 dB), so its X/Y is a line;
+`sc4` used a synthetic stereo file to show the figure.
+
+**Drawing.** A style of the visualiser pipeline (style 5), so warm-up and
+the pipeline cache cover it. The traces go in the uniforms as up to 1024
+values packed four to a vec4, plus the X/Y figure's 16 runs of 16
+segments with their bounds. Strokes are distances to line segments:
+anti-aliased at any slope, the glow under the body. A trace pixel only
+measures the segments within reach of its column, and skips them when it
+is above or below all of them; an X/Y pixel only the runs whose bounds it
+is near. Colour runs along the band (the X/Y figure along its age) from
+the same stops as the bars; opacity, glow and colours are shared with
+the other styles. Thickness (1 to 6 points, default 2.5) is a new slider
+for the line and the scope; the line keeps its 2.5. The scope uses Now
+Playing's strip (centred, 8 points round it) and the same bottom band as
+the bars in Stage and the full window, with 15% of the band (4 to 32
+points) kept free at the top and bottom and the trace fading out through
+the side margins. Settings show Channels and Sensitivity for the scope
+instead of the bars' rows; `YTFAST_GPUI_SCOPE=mono|stereo|xy` overrides.
+
+**Cost** (`scripts/gpui-measure.sh`, profiling build, test audio, signed
+out, dark, 1280x1000, the visualiser in Now Playing and the full window
+(V), two rounds run back to back with Bars, app closed 8.9-9.0%, load
+3-5):
+
+| State | GPU Bars | GPU Scope mono | stereo | X/Y | CPU Bars | CPU Scope |
+|---|---|---|---|---|---|---|
+| Now Playing | 29.2-30.0% | 29.9-30.2% | 30.0% | 29.6-30.2% | 9.7-9.8% | 9.5-9.8% |
+| Full window | 29.4-29.9% | 28.7-29.1% | 31.4-32.1% | 30.1-30.7% | 8.6-8.7% | 8.5-9.0% |
+
+Mono and X/Y cost what Bars do; left over right in the full window about
+2 points more (two traces over the whole band; before the culling about
+6). The scope's own CPU (copying 72 ms of frames, the trigger search)
+doesn't show against the frame's.
+
+Captures (`artifacts/gpui/`, gitignored): `sc1-*` (dark, vivid cover,
+mono: Now Playing, full window), `sc2-*` (light, muted cover, stereo: Now
+Playing, Stage, full window), `sc3-*` (dark, X/Y, dual-mono audio),
+`sc4-*` (X/Y with a synthetic stereo file), `sc5-*` (three traces a
+second apart), `sd-*` and `sl-*` (dark muted and light vivid, mono, all
+three places), `sc9-tab` (Settings), `m5*` (the measured states).
 
 # The spike (2026-10-06)
 

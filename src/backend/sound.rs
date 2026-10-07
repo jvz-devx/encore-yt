@@ -127,8 +127,6 @@ impl super::Worker {
         }
         self.state.gain = Some(gain);
         self.emit(true);
-        #[cfg(feature = "e2e")]
-        self.probe_gain();
     }
 
     pub(super) async fn set_normalize(&mut self, on: bool) {
@@ -172,8 +170,6 @@ impl super::Worker {
             Ok(()) => self.af = Some(equalizer),
             Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
         }
-        #[cfg(feature = "e2e")]
-        self.probe_af();
     }
 
     pub(super) async fn set_equalizer(&mut self, equalizer: Equalizer) {
@@ -214,8 +210,6 @@ impl super::Worker {
         }
         let equalizer = self.state.equalizer.clone();
         self.update_settings(|s| s.equalizer = equalizer);
-        #[cfg(feature = "e2e")]
-        self.probe_af();
     }
 
     /// Sets every deck's equalizer whole.
@@ -336,8 +330,6 @@ impl super::Worker {
         }
         self.fade = share;
         self.apply_volumes().await;
-        #[cfg(feature = "e2e")]
-        crate::e2e::probe_push("sleep_fade", json!(self.state.volume * share));
     }
 
     pub(super) async fn restore_fade(&mut self) {
@@ -358,8 +350,6 @@ impl super::Worker {
         self.restore_fade().await;
         self.emit(true);
         log::info!("sleep timer: paused");
-        #[cfg(feature = "e2e")]
-        self.probe_sleep();
     }
 
     /// End of song: the song ended. The next one waits at its start, paused.
@@ -388,8 +378,6 @@ impl super::Worker {
         self.emit(true);
         self.save_session(true);
         log::info!("sleep timer: stopped at the end of the song");
-        #[cfg(feature = "e2e")]
-        self.probe_sleep();
     }
 
     /// Makes `pos` current without playing it; Play starts it.
@@ -410,64 +398,5 @@ impl super::Worker {
         self.state.lyrics = None;
         self.state.related = None;
         self.fetch_watch_info(&track.video_id);
-    }
-
-    // ---- E2E probes: what mpv actually has ----
-
-    #[cfg(feature = "e2e")]
-    pub(super) fn probe_gain(&self) {
-        let (Some(mpv), Some(track)) = (self.mpv.clone(), self.current().cloned()) else {
-            return;
-        };
-        let expected = self.state.gain;
-        let normalize = self.state.normalize;
-        let loudness = self.players.get(&track.video_id).and_then(|p| p.loudness);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(1500)).await;
-            let applied = mpv.property("volume-gain").await;
-            crate::e2e::probe_push(
-                "gains",
-                json!({
-                    "video_id": track.video_id,
-                    "normalize": normalize,
-                    "loudness_lkfs": loudness,
-                    "gain_db": expected,
-                    "mpv_volume_gain": applied,
-                }),
-            );
-        });
-    }
-
-    #[cfg(feature = "e2e")]
-    fn probe_af(&self) {
-        let Some(mpv) = self.mpv.clone() else { return };
-        let sent = self.af.as_ref().map(Equalizer::filter).unwrap_or_default();
-        let equalizer = self.state.equalizer.clone();
-        tokio::spawn(async move {
-            let applied = mpv.property("af").await;
-            crate::e2e::probe(
-                "af",
-                json!({
-                    "preset": equalizer.preset.label(),
-                    "enabled": equalizer.enabled,
-                    "sent": sent,
-                    "mpv_af": applied,
-                }),
-            );
-        });
-    }
-
-    #[cfg(feature = "e2e")]
-    fn probe_sleep(&self) {
-        let Some(mpv) = self.mpv.clone() else { return };
-        let volume = self.state.volume;
-        tokio::spawn(async move {
-            let pause = mpv.property("pause").await;
-            let mpv_volume = mpv.property("volume").await;
-            crate::e2e::probe(
-                "sleep_stopped",
-                json!({"mpv_pause": pause, "mpv_volume": mpv_volume, "volume": volume}),
-            );
-        });
     }
 }

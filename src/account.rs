@@ -41,18 +41,12 @@
 //! from [`AccountState::marks`] (an `Arc`, cheap to hand out each frame),
 //! [`own_playlists`] and [`playlist_title`] for the Add to playlist dialog,
 //! and [`AccountState::busy`] while writes are on their way.
-//!
-//! The egui app's `impl App` at the end of this file is the reference glue.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "egui")]
-use crate::app::{App, LibraryTab, View};
 use crate::backend::Command;
-#[cfg(feature = "egui")]
-use crate::model::Account;
 use crate::model::{
     Item, ItemKind, LibraryToggle, LikeStatus, Page, Run, Shelf, ShelfStyle, Subscription, Target,
     Track,
@@ -1543,118 +1537,6 @@ impl AccountState {
             ));
         }
         effects
-    }
-}
-
-#[cfg(feature = "egui")]
-impl CachedPage for crate::app::PageState {
-    fn page(&self) -> Option<&Page> {
-        self.page.as_ref()
-    }
-
-    fn page_mut(&mut self) -> Option<&mut Page> {
-        self.page.as_mut()
-    }
-
-    fn target(&self) -> &Target {
-        &self.target
-    }
-
-    fn start_more(&mut self, shelf: usize) -> bool {
-        self.more_loading.insert(Some(shelf))
-    }
-}
-
-/// The egui app's glue: it lends its pages and backend to [`AccountState`]
-/// and carries out the [`Effects`].
-#[cfg(feature = "egui")]
-impl App {
-    pub(crate) fn signed_in(&self) -> bool {
-        matches!(self.account, Account::SignedIn { .. })
-    }
-
-    /// The account's playlists that it can edit, from Library: (id, title).
-    pub fn own_playlists(&self) -> Vec<(String, String)> {
-        own_playlists(&self.pages)
-    }
-
-    pub fn playlist_title(&self, playlist_id: &str) -> String {
-        playlist_title(&self.pages, playlist_id)
-    }
-
-    /// Runs `call` with this app as the host, then carries out its effects.
-    fn with_account(
-        &mut self,
-        call: impl FnOnce(&mut AccountState, &mut Host<'_, crate::app::PageState>) -> Effects,
-    ) {
-        let signed_in = self.signed_in();
-        let backend = &self.backend;
-        let send = |command| backend.send(command);
-        let mut host = Host {
-            pages: &mut self.pages,
-            send: &send,
-            signed_in,
-        };
-        let effects = call(&mut self.account_state, &mut host);
-        self.carry_out(effects);
-    }
-
-    fn carry_out(&mut self, effects: Effects) {
-        for target in effects.refetch {
-            self.ensure_page(target, true);
-        }
-        for message in effects.messages {
-            self.push_error(message);
-        }
-    }
-
-    /// Likes the playing song, or removes its like (keyboard, command line, MPRIS).
-    pub(crate) fn toggle_like_current(&mut self) {
-        let Some(track) = self.playback.index.and_then(|i| self.queue.get(i)).cloned() else {
-            return;
-        };
-        let status = match self.account_state.marks.like(&track) {
-            LikeStatus::Like => LikeStatus::Indifferent,
-            _ => LikeStatus::Like,
-        };
-        self.account_action(AccountAction::Rate { track, status });
-    }
-
-    pub(crate) fn account_action(&mut self, action: AccountAction) {
-        // Leave the deleted playlist's page.
-        if let AccountAction::Delete { playlist_id } = &action
-            && self.signed_in()
-            && matches!(&self.view, View::Page(t) if playlist_keys(&self.pages, playlist_id).contains(&t.key()))
-        {
-            let back = self
-                .history
-                .pop()
-                .unwrap_or(View::Library(LibraryTab::Playlists));
-            self.view = back;
-            self.ensure_page(self.view.target(), false);
-        }
-        self.with_account(|state, host| state.act(host, action));
-    }
-
-    pub(crate) fn account_edited(&mut self, op: u64, result: Result<Done, Failure>) {
-        self.with_account(|state, host| state.edited(host, op, result));
-    }
-
-    pub(crate) fn account_likes(&mut self, likes: Vec<(String, LikeStatus)>) {
-        self.account_state.likes_fetched(likes);
-    }
-
-    pub(crate) fn account_refresh(&mut self, targets: Vec<Target>) {
-        let effects = AccountState::refresh(&self.pages, targets);
-        self.carry_out(effects);
-    }
-
-    pub(crate) fn account_page_arrived(&mut self, key: &str, cached: bool) {
-        self.with_account(|state, host| state.page_arrived(host, key, cached));
-    }
-
-    pub(crate) fn account_more_arrived(&mut self, key: &str) {
-        self.with_account(|state, host| state.more_arrived(host, key));
     }
 }
 

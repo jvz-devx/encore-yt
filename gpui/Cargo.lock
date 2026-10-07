@@ -9840,7 +9840,6 @@ dependencies = [
  "anyhow",
  "cbc",
  "directories",
- "fastframe-log",
  "fastrand",
  "ksni",
  "log",

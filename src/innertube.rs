@@ -447,10 +447,6 @@ impl Client {
 
     /// Whether YouTube Music answers at all (to tell a broken song from a lost connection).
     pub async fn reachable(&self) -> bool {
-        #[cfg(feature = "e2e")]
-        if crate::e2e::offline() {
-            return false;
-        }
         self.http
             .head(ORIGIN)
             .timeout(Duration::from_secs(5))

@@ -29,8 +29,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "e2e")]
-use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::equalizer::Equalizer;
@@ -151,9 +149,6 @@ pub enum Command {
     EndAudition,
     /// Settings: Smooth mixes on radios and mixes, and their length.
     Mixes(crate::model::Mixes),
-    /// E2E: read every deck's volume and position back five times a second.
-    #[cfg(feature = "e2e")]
-    SampleDecks(bool),
     /// Search YouTube Music for Play anything (Ctrl+K): answered with
     /// [`Event::QuickResults`], never saved to disk.
     QuickSearch(String),
@@ -307,12 +302,6 @@ impl Backend {
     /// it is valid: the waveform decodes it.
     pub fn stream_url(&self, video_id: &str) -> Option<String> {
         self.resolver.cached(video_id).map(|stream| stream.url)
-    }
-
-    /// E2E: drops a song's resolved stream; true if a click on it is now cold.
-    #[cfg(feature = "e2e")]
-    pub fn make_cold(&self, video_id: &str) -> bool {
-        self.resolver.make_cold(video_id)
     }
 
     /// Saves the session and stops playback. Runs when the backend is
@@ -849,8 +838,6 @@ impl Worker {
             Command::Audition { track, start } => self.audition(track, start).await,
             Command::EndAudition => self.end_audition().await,
             Command::Mixes(mixes) => self.set_mixes(mixes).await,
-            #[cfg(feature = "e2e")]
-            Command::SampleDecks(on) => self.sample_decks(on),
             Command::QuickSearch(query) => {
                 let client = self.client.clone();
                 let sink = self.sink.clone();

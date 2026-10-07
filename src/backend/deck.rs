@@ -43,9 +43,6 @@ pub(super) enum Message {
     },
     /// No audition since request `stamp` for a while: stop its deck.
     AuditionIdle { stamp: u64 },
-    /// Read every deck back for the E2E run.
-    #[cfg(feature = "e2e")]
-    Sample { stamp: u64 },
 }
 
 /// An amplitude share moving from one value to another.
@@ -125,8 +122,6 @@ pub(super) struct Decks {
     /// The volume clock: running, and the stamp that stops a stale one.
     ticking: bool,
     clock: Arc<AtomicU64>,
-    #[cfg(feature = "e2e")]
-    sampling: Arc<AtomicU64>,
 }
 
 impl Decks {
@@ -143,8 +138,6 @@ impl Decks {
             position_at: Instant::now(),
             ticking: false,
             clock: Arc::default(),
-            #[cfg(feature = "e2e")]
-            sampling: Arc::default(),
         }
     }
 
@@ -212,8 +205,6 @@ impl super::Worker {
             Message::Tick { stamp } => self.tick(stamp).await,
             Message::AuditionReady { stamp, stream } => self.audition_ready(stamp, stream).await,
             Message::AuditionIdle { stamp } => self.audition_idle(stamp),
-            #[cfg(feature = "e2e")]
-            Message::Sample { stamp } => self.sample(stamp),
         }
     }
 
@@ -497,70 +488,5 @@ impl super::Worker {
         if self.current_entry.is_some() {
             self.prefetch();
         }
-    }
-
-    // ---- E2E: what every deck has ----
-
-    /// Reads every deck back five times a second while on.
-    #[cfg(feature = "e2e")]
-    pub(super) fn sample_decks(&mut self, on: bool) {
-        let stamp = self.decks.sampling.fetch_add(1, Ordering::SeqCst) + 1;
-        if !on {
-            return;
-        }
-        let current = self.decks.sampling.clone();
-        let tx = self.internal_tx.clone();
-        tokio::spawn(async move {
-            while current.load(Ordering::SeqCst) == stamp
-                && tx.send(Internal::Deck(Message::Sample { stamp })).is_ok()
-            {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        });
-    }
-
-    #[cfg(feature = "e2e")]
-    fn sample(&mut self, stamp: u64) {
-        if stamp != self.decks.sampling.load(Ordering::SeqCst) {
-            return;
-        }
-        let roles: Vec<(&'static str, Arc<Player>)> = [
-            ("main", self.mpv.clone()),
-            ("tail", self.decks.tail.as_ref().map(|t| t.mpv.clone())),
-            ("cued", self.decks.cued.as_ref().map(|c| c.mpv.clone())),
-            ("audition", self.decks.audition.deck().cloned()),
-        ]
-        .into_iter()
-        .filter_map(|(role, mpv)| mpv.map(|m| (role, m)))
-        .collect();
-        let state = json!({
-            "ms": crate::e2e::clock_ms(),
-            "volume": self.state.volume,
-            "index": self.state.index,
-            "current": self.current().map(|t| t.video_id.clone()),
-            "position": self.state.position,
-            "playing": self.state.playing,
-            "duck": self.decks.duck.now(),
-            "duration": self.state.duration,
-            "blend": self.blend_progress(),
-            "next_ready": self.appended.is_some() || self.decks.cued.is_some(),
-            "held": self.state.audition.as_ref().map(|a| json!({"id": a.video_id, "playing": a.playing})),
-        });
-        tokio::spawn(async move {
-            let mut sample = state;
-            for (role, mpv) in roles {
-                let number = |v: Option<serde_json::Value>| v.and_then(|v| v.as_f64());
-                let volume = number(mpv.property("volume").await);
-                let position = number(mpv.property("time-pos").await);
-                let pause = mpv.property("pause").await;
-                sample[role] = json!({
-                    "serial": mpv.serial(),
-                    "volume": volume,
-                    "time_pos": position,
-                    "pause": pause,
-                });
-            }
-            crate::e2e::probe_push("decks", sample);
-        });
     }
 }

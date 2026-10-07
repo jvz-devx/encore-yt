@@ -5,8 +5,8 @@
 //! has the focus: the song is on screen already.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::watch;
@@ -14,15 +14,6 @@ use zbus::zvariant::Value;
 
 use crate::desktop::{Flags, Now};
 use crate::paths::Paths;
-
-/// The last notification sent: the server's id and its title.
-static LAST_SENT: Mutex<Option<(u32, String)>> = Mutex::new(None);
-
-/// The id the notification server gave the last song notification, and the
-/// song's title (for the E2E run).
-pub fn last_sent() -> Option<(u32, String)> {
-    LAST_SENT.lock().ok().and_then(|last| last.clone())
-}
 
 pub(crate) async fn run(
     connection: zbus::Connection,
@@ -96,9 +87,6 @@ pub(crate) async fn run(
             Ok(id) => {
                 replaces = id;
                 log::info!("notified song change (notification {id})");
-                if let Ok(mut last) = LAST_SENT.lock() {
-                    *last = Some((id, title));
-                }
             }
             Err(error) => log::warn!("couldn't show a song notification: {error}"),
         }

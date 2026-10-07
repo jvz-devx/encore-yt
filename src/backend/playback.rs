@@ -435,8 +435,6 @@ impl super::Worker {
                                 self.state.gain = gain;
                                 self.emit(true);
                                 self.prefetch();
-                                #[cfg(feature = "e2e")]
-                                self.probe_gain();
                             }
                             Err(error) => {
                                 let error = format!("{error:#}");
@@ -713,8 +711,6 @@ impl super::Worker {
         self.prefetch();
         self.maybe_extend();
         self.save_session(true);
-        #[cfg(feature = "e2e")]
-        self.probe_gain();
     }
 
     pub(super) async fn mpv_event(&mut self, event: PlayerEvent) {

@@ -19,6 +19,7 @@ use super::queue::{self, Place};
 use super::widgets;
 use crate::app::MusicApp;
 use crate::playback::Tab;
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 use crate::visuals::{self, Slot};
 
@@ -46,7 +47,7 @@ pub fn now_playing(
     }
     let c = theme::colors(cx);
     let side = cover_side(app, window);
-    h_flex()
+    let view = h_flex()
         .relative()
         .flex_1()
         .w_full()
@@ -57,13 +58,13 @@ pub fn now_playing(
         .pb(space::XL)
         .gap(space::XXL)
         .child(song(app, side, &c, cx))
-        .child(tabs_column(app, window, &c, cx))
-        .with_animation(
-            "enter:now-playing",
-            Animation::new(motion::BASE).with_easing(motion::ease_out),
-            |el, t| el.opacity(t),
-        )
-        .into_any_element()
+        .child(tabs_column(app, window, &c, cx));
+    view.with_motion(
+        "enter:now-playing",
+        motion::Kind::NowPlaying,
+        motion::BASE,
+        |el, t| el.opacity(t),
+    )
 }
 
 /// The cover as large as fits beside the tabs and above the song's lines.

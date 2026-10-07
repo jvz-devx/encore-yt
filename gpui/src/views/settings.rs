@@ -87,7 +87,11 @@ pub fn settings(
     Some(
         widgets::scrim("settings-scrim", &c)
             .on_click(cx.listener(|this, _, window, cx| this.open_settings(false, window, cx)))
-            .child(widgets::settle_in("settings-in", panel))
+            .child(widgets::settle_in(
+                "settings-in",
+                theme::motion::Kind::Panels,
+                panel,
+            ))
             .into_any_element(),
     )
 }

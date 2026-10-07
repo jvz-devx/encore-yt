@@ -57,7 +57,11 @@ fn layer(app: &MusicApp, body: AnyElement, c: &Colors, cx: &mut Context<MusicApp
         .child(body);
     widgets::scrim("account-dialog-scrim", c)
         .on_click(cx.listener(|this, _, window, cx| this.close_account_dialog(window, cx)))
-        .child(widgets::settle_in("account-dialog-in", panel))
+        .child(widgets::settle_in(
+            "account-dialog-in",
+            theme::motion::Kind::Panels,
+            panel,
+        ))
         .into_any_element()
 }
 

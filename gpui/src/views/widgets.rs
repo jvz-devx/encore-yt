@@ -173,21 +173,23 @@ pub fn cover(url: Option<SharedString>, side: Pixels, round: bool, c: &Colors) -
         )
 }
 
-/// A pulsing placeholder block for content that is loading.
+/// A pulsing placeholder block for content that is loading; it holds
+/// still when Settings → Motion turns the pulse off.
 pub fn skeleton(w: Pixels, h: Pixels, corner: Pixels, c: &Colors) -> impl IntoElement {
-    div()
-        .flex_none()
-        .w(w)
-        .h(h)
-        .rounded(corner)
-        .bg(c.raised)
-        .with_animation(
-            "skeleton",
-            Animation::new(std::time::Duration::from_millis(1600))
-                .repeat()
-                .with_easing(pulsating_between(0.55, 1.)),
-            |el, opacity| el.opacity(opacity),
-        )
+    const PULSE: std::time::Duration = std::time::Duration::from_millis(1600);
+    let block = div().flex_none().w(w).h(h).rounded(corner).bg(c.raised);
+    match motion::scaled(motion::Kind::Skeleton, PULSE) {
+        Some(period) => block
+            .with_animation(
+                "skeleton",
+                Animation::new(period)
+                    .repeat()
+                    .with_easing(pulsating_between(0.55, 1.)),
+                |el, opacity| el.opacity(opacity),
+            )
+            .into_any_element(),
+        None => block.opacity(0.8).into_any_element(),
+    }
 }
 
 /// A muted line of text, one line, ellipsised.
@@ -254,13 +256,12 @@ pub fn scrim(id: impl Into<ElementId>, c: &Colors) -> Stateful<Div> {
 /// A panel's entrance: it fades in and settles up from 8 px below.
 pub fn settle_in<E: Styled + IntoElement + 'static>(
     id: impl Into<ElementId>,
+    kind: motion::Kind,
     el: E,
-) -> AnimationElement<E> {
-    el.with_animation(
-        id,
-        Animation::new(motion::BASE).with_easing(motion::ease_out),
-        |el, t| el.opacity(t).mt(px(8.) * (1. - t)),
-    )
+) -> AnyElement {
+    motion::animate(el, id, kind, motion::BASE, |el, t| {
+        el.opacity(t).mt(px(8.) * (1. - t))
+    })
 }
 
 /// A tooltip builder for `.tooltip(..)`: a short label in the kit's

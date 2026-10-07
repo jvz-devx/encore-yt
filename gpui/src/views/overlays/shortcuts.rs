@@ -7,6 +7,7 @@ use gpui_kit::*;
 use super::keycap::{combo, keycap};
 use crate::app::MusicApp;
 use crate::desktop::{Group, SHORTCUTS};
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, space};
 
 /// The sheet's widest.
@@ -46,9 +47,10 @@ pub fn sheet(window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
                 .overflow_y_scroll()
                 .children(COLUMNS.iter().map(|groups| column(groups, &c))),
         )
-        .with_animation(
+        .with_motion(
             "shortcuts-panel",
-            Animation::new(motion::BASE).with_easing(motion::ease_out),
+            motion::Kind::Panels,
+            motion::BASE,
             |el, t| el.top(space::SM * (1. - t)),
         );
     super::scrim("shortcuts-scrim", &c)
@@ -58,12 +60,12 @@ pub fn sheet(window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
             cx.listener(|this, _, window, cx| this.show_shortcuts(false, window, cx)),
         )
         .child(panel)
-        .with_animation(
+        .with_motion(
             "shortcuts-scrim",
-            Animation::new(motion::BASE).with_easing(motion::ease_out),
+            motion::Kind::Panels,
+            motion::BASE,
             |el, t| el.opacity(t),
         )
-        .into_any_element()
 }
 
 /// The title, and how to close.

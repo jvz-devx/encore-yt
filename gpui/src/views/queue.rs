@@ -13,6 +13,7 @@ use ytfast::backend::Command;
 use super::widgets::{self, Pill};
 use crate::app::MusicApp;
 use crate::playback::QueueScroll;
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, radius, size, space};
 
 /// The panel's width.
@@ -85,12 +86,12 @@ pub fn panel(
             )
             .child(controls(app, &c, cx).px(space::XL).pb(space::MD))
             .child(list(app, Place::Panel, &c, cx).px(space::SM).pb(space::SM))
-            .with_animation(
+            .with_motion(
                 "up-next-open",
-                Animation::new(theme::motion::BASE).with_easing(theme::motion::ease_out),
+                theme::motion::Kind::Panels,
+                theme::motion::BASE,
                 |el, t| el.opacity(t),
-            )
-            .into_any_element(),
+            ),
     )
 }
 

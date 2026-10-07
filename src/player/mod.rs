@@ -99,7 +99,8 @@ pub struct FileOptions {
 }
 
 /// The audio engines. Both always parse from settings; a build without
-/// the `rust-audio` feature plays on mpv whatever is chosen.
+/// the `rust-audio` feature plays on mpv whatever is chosen. (`Default` is
+/// mpv, for state that has no engine yet; see [`Kind::preferred`].)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -135,8 +136,20 @@ impl Kind {
         }
     }
 
+    /// The default: the Rust engine in builds that have it (the GPUI app),
+    /// mpv otherwise. Installers still ship mpv, which plays what the Rust
+    /// engine can't.
+    pub fn preferred() -> Kind {
+        if Kind::Rust.available() {
+            Kind::Rust
+        } else {
+            Kind::Mpv
+        }
+    }
+
     /// The engine to use: `YTFAST_PLAYER=rust|mpv`, else the saved
-    /// setting, else the default; mpv when the choice isn't in this build.
+    /// setting, else [`Kind::preferred`]; mpv when the choice isn't in this
+    /// build.
     pub fn choose(setting: Option<Kind>) -> Kind {
         let env = std::env::var("YTFAST_PLAYER").ok();
         let chosen = match env.as_deref() {
@@ -149,7 +162,7 @@ impl Kind {
             None => None,
         }
         .or(setting)
-        .unwrap_or_default();
+        .unwrap_or_else(Kind::preferred);
         if chosen.available() {
             chosen
         } else {

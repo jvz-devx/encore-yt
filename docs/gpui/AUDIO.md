@@ -141,3 +141,51 @@ About 2,600 lines of backend code touch mpv today (`mpv.rs`, `playback.rs`, `dec
 ## Recommendation
 
 Replace mpv with `ytfast-audio`, in the five tasks above, behind a cargo feature with mpv as the fallback until a real-stream check of each itag passes (gapless, seeking, played length). Then drop mpv from the installers. It costs ~3.8 MB, uses half the CPU and a fifth of the memory, makes gapless joins and per-track gain exact, gives the visuals an in-process tap and a waveform without ffmpeg, and removes the one runtime dependency we can't bundle on macOS and Linux. Do the engine hardening first. The fragmented-MP4 seek and `DiscardPadding` gaps are upstream symphonia work worth sending.
+
+## M19: the Rust engine in the backend (2026-10-07)
+
+The backend now plays through `src/player/` (`Player`, one deck). mpv is one engine, unchanged in behaviour; `ytfast-audio` is the other, behind the root crate's `rust-audio` feature, which the GPUI app turns on. There it is the default; `YTFAST_PLAYER=rust|mpv` and Settings' Audio player (Built-in or mpv, from the next song) choose. The egui app builds without the feature and stays on mpv.
+
+`src/player/rust.rs` keeps mpv's playlist model on top of the engine, so `playback.rs`, `deck.rs`, `audition.rs` and `sound.rs` work unchanged on either engine:
+
+| Backend asks | mpv | Rust engine |
+|---|---|---|
+| `load` replace / append | `loadfile` with per-file options | `Engine::load` / `queue` on the deck; entry ids kept here |
+| gapless change | playlist position 1, then remove 0 | the engine's join; the same `EndFile eof`, `StartFile`, `PlaylistPos(1)` events |
+| `skip` (Next with the next song queued) | `playlist-next force` | `Engine::skip`: the queued track, already downloading, plays at once |
+| repeat one | `loop-file=inf` | the next track stays out of the engine; the song loads again at its end |
+| start, gain, user agent | per-file options | `Load.start` / `start_share` (Audition's "a third in"), `gain_db`, `headers` |
+| live gain | `volume-gain` | `Engine::set_gain` |
+| volume | `volume` (cubic) | the same cubic scale as amplitude |
+| equalizer | `af`, `af-command` per deck | the engine's one output EQ, set when the gains change |
+| position, duration, buffering | observed properties | a 100 ms poll of the engine's counters; a playing track that hasn't moved for 3 polls is buffering |
+| errors | `end-file error` | `Event::Error` as `EndFile error`; a queued track's error surfaces when it would start |
+
+The engine gained what this needed: local files and Ogg (so `YTFAST_FAKE_STREAM` works), `skip`, `set_gain`, the track's length (WebM gives it for the segment only), a start as a share of the length, six decks, and `take_events`.
+
+Which engine plays a song (`src/backend/engines.rs`): the chosen one, except that with Rust chosen, formats it has no decoder for (HE-AAC 139 and 599) and songs it failed on in this run play on mpv, logged once per song. A song on the other engine than the main deck starts as a new song (no gapless change). Smooth mixes and Audition start their deck on the song's engine. Installers still ship mpv for this.
+
+Visuals: the waveform decodes the resolved stream's URL (`Backend::stream_url`) instead of asking mpv; the spectrum tap also links the engine's PipeWire stream, which pipewire-pulse names `cpal-pulseaudio-<pid>`.
+
+### Checked
+
+In the GPUI app with `YTFAST_FAKE_STREAM` (the test Ogg file), signed in, controlled through MPRIS (`playerctl`) and the window: play, pause, seek, Next (skip to the queued track), Previous, Space, a gapless join with each song's own loudness gain (−4.23 dB, then −2.90 dB), the Bass boost preset at start and a live change to Vocal from Settings, a smooth mix (equal-power volumes on both decks over 6 s, then the old deck cued with the next song), Audition (main deck ducked to 58.5, audition faded in over 250 ms from a third in, both back on release), the sleep timer at the end of the song (fade over the last 8 s, pause, next song parked), switching to mpv in Settings (the main deck moved to mpv at the next song), Now Playing's spectrum and waveform, and the fallback (an MP3 file the engine has no reader for played on mpv, logged once per song).
+
+Real streams, signed out, one public music video resolved with yt-dlp (`examples/stream_check.rs`, no playback tracking):
+
+| itag | first audio | seek right after start (range request) | seek, downloaded | played vs container | join |
+|---|---|---|---|---|---|
+| 251 Opus | 40 ms | 87 ms | 29 ms | −16.4 ms (end padding trimmed) | 0 frames |
+| 250 Opus | 48 ms | 86 ms | 27 ms | −16.4 ms | 0 frames |
+| 249 Opus | 132 ms | 86 ms | 29 ms | −16.4 ms | 0 frames |
+| 140 AAC | 49 ms | 344 ms (fragment scan) | 32 ms | ±0 | 0 frames |
+
+Premium 774 and 141 need a signed-in resolve: `cargo run --example stream_check --no-default-features --features rust-audio -- --signed-in --formats 774,141 VIDEO_ID`.
+
+CPU and memory in the app (profiling build, Home showing, a song playing, load average ~1): mpv 6.0 % (app) + 1.6 % (mpv) of a core, 234 + 86 MB PSS; Rust engine 7.3 % and 209 MB PSS, the engine included.
+
+### Still open
+
+- The engine's output stream stays open while the app runs (silence when nothing plays); mpv's closes when idle.
+- A seek ahead of the download can fetch some bytes twice (itag 251 downloaded 4.25 MB of a 3.43 MB file after an early seek).
+- From the engine hardening list above: no allocation or free in the callback, device loss, a memory cap for long mixes, swapping an expired URL in place. Windows and macOS output untested.

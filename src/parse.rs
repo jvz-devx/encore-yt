@@ -1028,6 +1028,50 @@ pub fn account(v: &Value) -> Option<(String, Option<String>)> {
     (!name.is_empty()).then(|| (name, thumbnail(header.get("accountPhoto"))))
 }
 
+/// The channels in a `getAccountSwitcherEndpoint` answer, in its order,
+/// with `isSelected` as `current`. A brand account carries a
+/// `pageIdToken`; the Google account's own channel has none.
+pub fn channels(v: &Value) -> Vec<crate::model::Channel> {
+    let mut found = Vec::new();
+    collect_channels(v, &mut found);
+    found
+}
+
+fn collect_channels(v: &Value, found: &mut Vec<crate::model::Channel>) {
+    match v {
+        Value::Object(map) => {
+            if let Some(item) = map.get("accountItem") {
+                let name = text(item.get("accountName"));
+                if !name.is_empty() {
+                    let handle = Some(text(item.get("channelHandle"))).filter(|h| !h.is_empty());
+                    let page_id = array(at(
+                        item,
+                        &[
+                            "serviceEndpoint",
+                            "selectActiveIdentityEndpoint",
+                            "supportedTokens",
+                        ],
+                    ))
+                    .iter()
+                    .find_map(|t| at(t, &["pageIdToken", "pageId"])?.as_str())
+                    .map(str::to_owned);
+                    found.push(crate::model::Channel {
+                        name,
+                        handle,
+                        photo: thumbnail(item.get("accountPhoto")),
+                        page_id,
+                        current: item.get("isSelected").and_then(Value::as_bool) == Some(true),
+                    });
+                }
+                return;
+            }
+            map.values().for_each(|x| collect_channels(x, found));
+        }
+        Value::Array(list) => list.iter().for_each(|x| collect_channels(x, found)),
+        _ => {}
+    }
+}
+
 /// Whether YouTube treated the request as signed in.
 pub fn logged_in(v: &Value) -> Option<bool> {
     array(at(v, &["responseContext", "serviceTrackingParams"]))

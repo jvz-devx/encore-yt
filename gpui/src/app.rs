@@ -197,6 +197,7 @@ impl MusicApp {
                 self.error = Some(error);
             }
             Event::Profiles { list, current } => self.on_profiles(list, current),
+            Event::Channels(channels) => self.on_channels(channels),
             Event::AccountEdited { op, result } => self.on_account_edited(op, result, cx),
             Event::Likes(likes) => self.on_likes(likes),
             Event::AccountRefresh(targets) => self.on_account_refresh(targets),

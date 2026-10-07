@@ -10,6 +10,12 @@ pub struct Settings {
     /// unset means the most recently used signed-in profile.
     #[serde(default)]
     pub browser_profile: Option<String>,
+    /// The YouTube channel to act as: a brand account's page id, or `""`
+    /// for the Google account's own channel. Unset (or a channel the
+    /// account no longer has) means the one YouTube has selected for the
+    /// session, as the browser's account switcher left it.
+    #[serde(default)]
+    pub channel: Option<String>,
     /// Show a desktop notification when the song changes (off by default).
     #[serde(default)]
     pub notifications: bool,

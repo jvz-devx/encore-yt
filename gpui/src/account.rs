@@ -1,5 +1,5 @@
 //! M3: the signed-in account, browser profiles, Settings, and changes to
-//! the account.
+//! the account; M12: the account's channels.
 //!
 //! The optimistic logic is the backend crate's [`AccountState`] (shared with
 //! the egui app): this module lends it the page cache and the backend
@@ -16,7 +16,7 @@ use ytfast::account::{
 };
 use ytfast::auth::Profile;
 use ytfast::backend::Command;
-use ytfast::model::{Account, LikeStatus, Page, Target, Track};
+use ytfast::model::{Account, Channel, LikeStatus, Page, Target, Track};
 
 use crate::app::MusicApp;
 use crate::nav::{LibraryTab, PageState, View};
@@ -51,6 +51,8 @@ pub struct AccountUi {
     pub account: Account,
     pub profiles: Vec<Profile>,
     pub profile: Option<String>,
+    /// The account's YouTube channels, the one requests act as `current`.
+    pub channels: Vec<Channel>,
     /// Likes, library state, subscriptions as shown, and the open dialog.
     pub state: AccountState,
     /// The account menu under the chip is open.
@@ -86,6 +88,7 @@ impl AccountUi {
                 account: Account::Checking,
                 profiles: Vec::new(),
                 profile: None,
+                channels: Vec::new(),
                 state: AccountState::default(),
                 menu: false,
                 menu_closed: None,
@@ -138,6 +141,10 @@ impl MusicApp {
     pub(crate) fn on_profiles(&mut self, list: Vec<Profile>, current: Option<String>) {
         self.account.profiles = list;
         self.account.profile = current;
+    }
+
+    pub(crate) fn on_channels(&mut self, channels: Vec<Channel>) {
+        self.account.channels = channels;
     }
 
     pub(crate) fn on_account_edited(
@@ -423,6 +430,26 @@ impl MusicApp {
             self.send(Command::UseProfile(id));
             cx.notify();
         }
+    }
+
+    /// Acts as another of the account's channels (`page_id` from
+    /// [`Channel::page_id`]). The backend reconnects; once the account is
+    /// confirmed again, Home, Library and the page shown are fetched anew
+    /// (see `on_account`), and every other page on its next visit.
+    pub fn use_channel(&mut self, page_id: Option<String>, cx: &mut Context<Self>) {
+        self.account.menu = false;
+        let current = self.account.channels.iter().find(|c| c.current);
+        if current.is_none_or(|c| c.page_id != page_id) {
+            for channel in &mut self.account.channels {
+                channel.current = channel.page_id == page_id;
+            }
+            for state in self.pages.states.values_mut() {
+                state.fetched = None;
+            }
+            self.account.account = Account::Checking;
+            self.send(Command::UseChannel(page_id));
+        }
+        cx.notify();
     }
 
     /// Settings: song-change notifications (read by the desktop module).

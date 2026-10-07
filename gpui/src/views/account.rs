@@ -6,6 +6,7 @@
 //! [`library_actions`] (M1) and Up next's [`save_queue_button`]. Context
 //! menus open the playlist picker with `crate::account::add_to_playlist`.
 
+mod channels;
 mod chip;
 mod controls;
 mod dialogs;
@@ -15,6 +16,7 @@ use gpui_kit::*;
 
 use crate::app::MusicApp;
 
+pub use channels::rows as channel_rows;
 pub use chip::chip;
 pub use controls::{header_actions, library_actions, like_button, save_queue_button};
 

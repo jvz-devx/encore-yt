@@ -85,6 +85,10 @@ pub enum Command {
     Prepare(String),
     /// Use this browser profile's YouTube session from now on, and reconnect.
     UseProfile(String),
+    /// Act as this channel of the account from now on (a page id from
+    /// [`Event::Channels`]; `None` for the account's own channel), and
+    /// reconnect.
+    UseChannel(Option<String>),
     /// Settings: song-change notifications on or off (saved for next time).
     Notifications(bool),
     /// A change to the signed-in account; `op` stamps the answer. On success
@@ -179,6 +183,9 @@ pub enum Event {
         list: Vec<crate::auth::Profile>,
         current: Option<String>,
     },
+    /// The signed-in account's YouTube channels, the one requests act as
+    /// marked `current`; empty while signed out.
+    Channels(Vec<crate::model::Channel>),
     /// The answer to `Command::AccountEdit` number `op`.
     AccountEdited {
         op: u64,
@@ -715,6 +722,16 @@ impl Worker {
                 if let Err(error) = settings.save(&self.paths) {
                     self.sink.send(Event::Error(format!(
                         "Couldn't save the account choice: {error}"
+                    )));
+                }
+                self.connect();
+            }
+            Command::UseChannel(page_id) => {
+                let mut settings = crate::settings::Settings::load(&self.paths);
+                settings.channel = Some(page_id.unwrap_or_default());
+                if let Err(error) = settings.save(&self.paths) {
+                    self.sink.send(Event::Error(format!(
+                        "Couldn't save the channel choice: {error}"
                     )));
                 }
                 self.connect();

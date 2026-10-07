@@ -574,6 +574,7 @@ impl App {
                 self.profiles = list;
                 self.profile = current;
             }
+            Event::Channels(_) => {}
             Event::AccountEdited { op, result } => self.account_edited(op, result),
             Event::Likes(likes) => self.account_likes(likes),
             Event::AccountRefresh(targets) => self.account_refresh(targets),

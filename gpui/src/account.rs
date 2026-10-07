@@ -118,6 +118,9 @@ impl MusicApp {
                 Account::Unverified { .. } => "unverified",
             }
         );
+        if !matches!(account, Account::Checking) {
+            crate::startup::mark(crate::startup::Milestone::AccountChecked);
+        }
         self.account.account = account;
         if self.account.signed_in() && !was {
             // Pages fetched before the session was confirmed may be public

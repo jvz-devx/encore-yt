@@ -16,6 +16,7 @@ mod nav;
 mod pages;
 mod playback;
 mod sidebar;
+mod startup;
 mod theme;
 mod views;
 mod visuals;
@@ -28,6 +29,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 
 fn main() -> anyhow::Result<()> {
+    startup::begin();
     // Bundled mpv, yt-dlp and deno win over the system's.
     desktop::tools::add_bundled_to_path();
     let paths = ytfast::paths::Paths::new()?;
@@ -41,13 +43,16 @@ fn main() -> anyhow::Result<()> {
         .panic_log(paths.cache.join("panics-gpui.log"))
         .init()
         .map_err(|e| anyhow!("logging: {e}"))?;
+    startup::mark(startup::Milestone::Logging);
 
     gpui_kit::application()
         .with_assets(assets::AppAssets)
         .run(move |cx| {
+            startup::mark(startup::Milestone::Platform);
             gpui_kit::init(cx);
             // Fonts, colours and gpui-component's theme (YTFAST_GPUI_THEME=light).
             theme::init(cx);
+            startup::mark(startup::Milestone::Theme);
             // Each area binds its own shortcuts in the "Music" key context
             // and handles them in its `on_actions`.
             pages::bind_keys(cx);

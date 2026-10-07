@@ -37,6 +37,7 @@ pub fn start(paths: Paths, link: Option<String>, cx: &mut App) {
             return;
         }
     };
+    crate::startup::mark(crate::startup::Milestone::WindowOpen);
     if let Some(link) = link {
         app.read(cx).desktop.remote.request(Request::Open(link));
     }

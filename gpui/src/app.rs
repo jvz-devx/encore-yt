@@ -70,6 +70,7 @@ impl MusicApp {
             Ok(backend) => backend,
             Err(e) => panic!("starting the backend: {e:#}"),
         };
+        crate::startup::mark(crate::startup::Milestone::Backend);
         // Not tied to a window: the app outlives its window (desktop).
         let events = cx.spawn(async move |this, cx| {
             while wake_rx.recv().await.is_ok() {
@@ -143,6 +144,7 @@ impl MusicApp {
             _clock: clock,
         };
         app.ensure_page(app.pages.view.target(), false);
+        crate::startup::mark(crate::startup::Milestone::AppBuilt);
         app
     }
 
@@ -234,6 +236,7 @@ fn drain_events(app: &Entity<MusicApp>, cx: &mut App) {
 
 impl Render for MusicApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::startup::rendered(self, window);
         // The app's views sit in a cached view between the effects layers
         // (see `visuals`), so an effects frame doesn't re-render them.
         crate::visuals::shell(self, window, cx)

@@ -1,29 +1,36 @@
-//! What mpv is playing, as spectrum bands at 60 Hz.
+//! What the engine plays, as spectrum bands at 60 Hz.
 //!
-//! Samples come from a PipeWire tap on mpv's stream (`crate::pipewire`): raw
-//! f32 stereo at 48 kHz. A thread reads hops of 800 samples (1/60 s), runs a
+//! Samples come from the audio engine in this process (`ytfast_audio::Tap`,
+//! on every OS): the mono mix as it goes to the device, at the device's
+//! rate. A thread takes a hop of 1/60 s of samples each frame, runs a
 //! 4096-point FFT over the newest 4096 and folds it into log-spaced bands,
-//! plus a bass level and a beat pulse ("kick") for the backdrop.
+//! plus a bass level and a beat pulse ("kick") for the backdrop. The output
+//! callback hands over a period (~43 ms) at a time; taking one hop per
+//! frame spreads it evenly and keeps the bands about a period behind, near
+//! what the device is playing.
 //!
-//! Dropping the [`AudioTap`] kills `pw-record`, which ends the thread.
+//! Dropping the [`AudioTap`] ends the thread, and with no tap open the
+//! engine skips the copy.
 
-use std::process::Child;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::pipewire;
+use ytfast_audio::Tap;
 
 pub const BANDS: usize = 32;
-const RATE: f32 = 48_000.0;
+/// Frames per second the bands move at.
+const HOPS_PER_SEC: u32 = 60;
 const FFT: usize = 4096;
-const HOP: usize = 800;
 const LOW_HZ: f32 = 50.0;
 const HIGH_HZ: f32 = 16_000.0;
 /// Levels count as current for this long after the last hop; after that
-/// (paused, stopped) [`AudioTap::bands`] reports silence.
+/// (no engine yet) [`AudioTap::bands`] reports silence.
 const STALE: Duration = Duration::from_millis(150);
+/// Waiting samples beyond this many seconds are dropped (the thread was
+/// held up), so the bands don't lag behind the music.
+const MAX_LAG: f32 = 0.2;
 
 /// The newest analysis.
 #[derive(Clone, Copy, Debug, Default)]
@@ -36,14 +43,13 @@ pub struct Bands {
     pub kick: f32,
     /// The mean of all bands, 0..1.
     pub level: f32,
-    /// mpv streams the tap is linked to.
+    /// 1 while the engine's output runs and the tap hears it, else 0.
     pub linked: usize,
 }
 
 #[derive(Default)]
 struct Shared {
     stop: AtomicBool,
-    child: Mutex<Option<Child>>,
     bands: Mutex<(Bands, Option<Instant>)>,
     linked: AtomicUsize,
 }
@@ -54,7 +60,7 @@ pub struct AudioTap {
 }
 
 impl AudioTap {
-    /// Starts tapping mpv's stream on a background thread.
+    /// Starts analysing what the engine plays on a background thread.
     pub fn start() -> Self {
         let shared = Arc::new(Shared::default());
         let thread_shared = shared.clone();
@@ -84,51 +90,57 @@ impl AudioTap {
 impl Drop for AudioTap {
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::Relaxed);
-        kill(&self.shared);
     }
 }
 
-fn kill(shared: &Shared) {
-    if let Some(mut child) = shared.child.lock().expect("child").take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-}
-
-fn run(shared: &Arc<Shared>) {
+/// One hop per frame from the engine's tap until the [`AudioTap`] goes.
+fn run(shared: &Shared) {
+    let mut tap = Tap::open();
+    let mut analyser: Option<Analyser> = None;
+    let mut hop = Vec::new();
+    let frame = Duration::from_secs(1) / HOPS_PER_SEC;
+    let mut next = Instant::now();
     while !shared.stop.load(Ordering::Relaxed) {
-        match pipewire::record() {
-            Ok((child, mut stdout)) => {
-                *shared.child.lock().expect("child") = Some(child);
-                // The tap may have been dropped while pw-record started.
-                if shared.stop.load(Ordering::Relaxed) {
-                    kill(shared);
-                    break;
-                }
-                let linker_stop = Arc::new(AtomicBool::new(false));
-                let (stop, owner) = (linker_stop.clone(), shared.clone());
-                let _ = thread::Builder::new()
-                    .name("visuals-linker".into())
-                    .spawn(move || pipewire::link_loop(&stop, &owner.linked));
-                let mut analyser = Analyser::new();
-                analyser.run(&mut stdout, &shared.bands);
-                linker_stop.store(true, Ordering::Relaxed);
-                kill(shared);
-            }
-            Err(e) => log::warn!("visuals: no PipeWire tap: {e:#}"),
+        next += frame;
+        let now = Instant::now();
+        if next > now {
+            thread::sleep(next - now);
+        } else {
+            next = now;
         }
-        // pw-record ended (PipeWire restarted?): start over unless stopped.
-        for _ in 0..20 {
-            if shared.stop.load(Ordering::Relaxed) {
-                return;
-            }
-            thread::sleep(Duration::from_millis(100));
+        let rate = tap.rate();
+        shared
+            .linked
+            .store(usize::from(rate > 0), Ordering::Relaxed);
+        if rate == 0 {
+            continue;
+        }
+        let analyser = match &mut analyser {
+            Some(a) if a.rate == rate => a,
+            slot => slot.insert(Analyser::new(rate)),
+        };
+        let size = (rate / HOPS_PER_SEC) as usize;
+        tap.skip_to((rate as f32 * MAX_LAG) as usize);
+        if tap.available() < size {
+            continue;
+        }
+        hop.clear();
+        tap.read(size, &mut hop);
+        let bands = analyser.hop(hop.iter().copied());
+        *shared.bands.lock().expect("bands") = (bands, Some(Instant::now()));
+        if analyser.hops % 600 == 1 {
+            log::info!(
+                "visuals: spectrum hop {}: {}",
+                analyser.hops,
+                bars(&bands.levels)
+            );
         }
     }
 }
 
 /// The FFT state between hops.
 struct Analyser {
+    rate: u32,
     edges: Vec<(usize, usize)>,
     window: Vec<f32>,
     /// The FFT's twiddle factors ([`twiddles`]): worked out once rather
@@ -143,9 +155,10 @@ struct Analyser {
 }
 
 impl Analyser {
-    fn new() -> Self {
+    fn new(rate: u32) -> Self {
         Self {
-            edges: band_edges(),
+            rate,
+            edges: band_edges(rate as f32),
             window: (0..FFT)
                 .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FFT as f32).cos())
                 .collect(),
@@ -159,37 +172,17 @@ impl Analyser {
         }
     }
 
-    fn run(&mut self, stdout: &mut impl std::io::Read, out: &Mutex<(Bands, Option<Instant>)>) {
-        let mut bytes = vec![0u8; HOP * 2 * 4];
-        while stdout.read_exact(&mut bytes).is_ok() {
-            // Frames of two f32 (left, right) to mono.
-            let mono = bytes.as_chunks::<8>().0.iter().map(|frame| {
-                let (l, r) = frame.split_at(4);
-                let sample = |b: &[u8]| f32::from_ne_bytes(b.try_into().expect("4 bytes"));
-                (sample(l) + sample(r)) * 0.5
-            });
-            let bands = self.hop(mono);
-            *out.lock().expect("bands") = (bands, Some(Instant::now()));
-            if self.hops % 600 == 1 {
-                log::info!(
-                    "visuals: spectrum hop {}: {}",
-                    self.hops,
-                    bars(&bands.levels)
-                );
-            }
-        }
-    }
-
-    /// Takes the next `HOP` samples and returns the new bands.
-    fn hop(&mut self, samples: impl Iterator<Item = f32>) -> Bands {
-        self.history.drain(..HOP);
+    /// Takes the next hop of samples and returns the new bands.
+    fn hop(&mut self, samples: impl ExactSizeIterator<Item = f32>) -> Bands {
+        self.history.drain(..samples.len().min(FFT));
         self.history.extend(samples);
-        self.history.resize(FFT, 0.0);
+        let excess = self.history.len().saturating_sub(FFT);
+        self.history.drain(..excess);
         self.hops += 1;
         let power = spectrum(&self.history, &self.window, &self.twiddles);
         let raw = fold(&power, &self.edges);
-        // Automatic gain: mpv's volume is applied before PipeWire sees the
-        // samples, so levels are relative to the recent loudest band.
+        // Automatic gain: the tap hears the mix after the volume, so levels
+        // are relative to the recent loudest band.
         let loudest = raw.iter().copied().fold(0.0f32, f32::max);
         self.peak = (self.peak * 0.995).max(loudest).max(1e-4);
         for (level, value) in self.levels.iter_mut().zip(raw) {
@@ -223,8 +216,8 @@ fn bars(levels: &[f32; BANDS]) -> String {
 }
 
 /// FFT bin ranges for log-spaced bands from `LOW_HZ` to `HIGH_HZ`.
-fn band_edges() -> Vec<(usize, usize)> {
-    let bin = |hz: f32| ((hz / RATE * FFT as f32).round() as usize).clamp(1, FFT / 2);
+fn band_edges(rate: f32) -> Vec<(usize, usize)> {
+    let bin = |hz: f32| ((hz / rate * FFT as f32).round() as usize).clamp(1, FFT / 2);
     (0..BANDS)
         .map(|b| {
             let f = |i: usize| LOW_HZ * (HIGH_HZ / LOW_HZ).powf(i as f32 / BANDS as f32);
@@ -312,7 +305,10 @@ fn fft(re: &mut [f32], im: &mut [f32], twiddles: &[(f32, f32)]) {
 mod tests {
     use super::*;
 
-    fn tone(hz: f32, hop: u64) -> impl Iterator<Item = f32> {
+    const RATE: f32 = 48_000.0;
+    const HOP: usize = 800;
+
+    fn tone(hz: f32, hop: u64) -> impl ExactSizeIterator<Item = f32> {
         (0..HOP).map(move |i| {
             let t = (hop as usize * HOP + i) as f32 / RATE;
             (std::f32::consts::TAU * hz * t).sin() * 0.5
@@ -323,7 +319,7 @@ mod tests {
     /// the bass (and so the kick) quiet.
     #[test]
     fn a_tone_lands_in_its_band() {
-        let mut analyser = Analyser::new();
+        let mut analyser = Analyser::new(RATE as u32);
         let mut bands = Bands::default();
         for hop in 0..12 {
             bands = analyser.hop(tone(1000.0, hop));
@@ -331,7 +327,7 @@ mod tests {
         let loudest = (0..BANDS)
             .max_by(|&a, &b| bands.levels[a].total_cmp(&bands.levels[b]))
             .expect("bands");
-        let (lo, hi) = band_edges()[loudest];
+        let (lo, hi) = band_edges(RATE)[loudest];
         let (lo_hz, hi_hz) = (lo as f32 * RATE / FFT as f32, hi as f32 * RATE / FFT as f32);
         assert!(lo_hz <= 1000.0 && 1000.0 <= hi_hz, "{lo_hz}..{hi_hz} Hz");
         assert!(bands.bass < 0.3, "bass {}", bands.bass);
@@ -340,7 +336,7 @@ mod tests {
     /// Bass bursts after silence give a kick that then decays.
     #[test]
     fn a_bass_onset_kicks() {
-        let mut analyser = Analyser::new();
+        let mut analyser = Analyser::new(RATE as u32);
         for hop in 0..10 {
             analyser.hop(tone(1000.0, hop).map(|s| s * 0.01));
         }

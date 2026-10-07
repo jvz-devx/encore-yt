@@ -33,7 +33,7 @@ const RING_SECS: u32 = 2;
 /// converge after a reset, AAC one frame for its overlap.
 const PREROLL: f64 = 0.08;
 
-static CODECS: LazyLock<CodecRegistry> = LazyLock::new(|| {
+pub(crate) static CODECS: LazyLock<CodecRegistry> = LazyLock::new(|| {
     let mut registry = CodecRegistry::new();
     symphonia::default::register_enabled_codecs(&mut registry);
     registry.register_audio_decoder::<OpusDecoder>();
@@ -452,14 +452,14 @@ fn to_stereo(samples: &[f32], channels: usize, out: &mut Vec<f32>) {
 }
 
 /// A local file (a path or a `file://` URL) instead of an HTTP stream.
-fn local_path(url: &str) -> Option<&str> {
+pub(crate) fn local_path(url: &str) -> Option<&str> {
     if let Some(path) = url.strip_prefix("file://") {
         return Some(path);
     }
     (!url.starts_with("http://") && !url.starts_with("https://")).then_some(url)
 }
 
-fn hint(url: &str) -> Hint {
+pub(crate) fn hint(url: &str) -> Hint {
     let mut hint = Hint::new();
     let path = url.split(['?', '#']).next().unwrap_or(url);
     let mime = url

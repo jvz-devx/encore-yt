@@ -1,5 +1,6 @@
-//! A pure Rust playback engine, as a spike for replacing mpv (PLAN M11,
-//! docs/gpui/AUDIO.md).
+//! The app's pure Rust playback engine (PLAN M11, M19, M23;
+//! docs/gpui/AUDIO.md). [`Tap`] hands what it plays to the visualiser and
+//! [`decode_mono`] decodes a whole stream for the waveform (M22).
 //!
 //! ```text
 //! HttpSource (Range requests, read-ahead) → symphonia demux (WebM, MP4)
@@ -19,6 +20,8 @@ mod mixer;
 mod output;
 mod padding;
 mod resample;
+mod tap;
+mod whole;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -34,6 +37,8 @@ use rtrb::{Consumer, Producer, RingBuffer};
 pub use eq::{BANDS, RANGE};
 pub use http::HttpStats;
 pub use mixer::DECKS;
+pub use tap::Tap;
+pub use whole::{Decoded, decode_mono};
 
 use decode::{Control, Ending, Job};
 use http::StatsHandle;
@@ -49,9 +54,9 @@ pub struct Load {
     /// Start at this share of the track's length instead (0 to 1), once the
     /// container gives the length; `start` otherwise.
     pub start_share: Option<f64>,
-    /// Loudness gain in dB for this track only (mpv's `volume-gain`).
+    /// Loudness gain in dB for this track only (the backend's loudness levelling).
     pub gain_db: f32,
-    /// Extra request headers (the user agent yt-dlp resolved with).
+    /// Extra request headers (a user agent the resolver asks for).
     pub headers: Vec<(String, String)>,
 }
 

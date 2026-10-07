@@ -2,8 +2,9 @@
 //! press a whole 3D scene into the backdrop's luminance 0.645-0.8 so text
 //! kept 4.5:1 on top of it, and the scenes lost their shape. With the
 //! scrim on, a scene keeps the visualiser's full tone and only the text
-//! blocks the app names get that light range, under a soft-edged rounded
-//! mask that fades into the scene (`scene_common.wgsl`, `scrim_mask`).
+//! blocks the app names get that light range, under a mask that fades
+//! into the scene over each block's feather, faster up and down than
+//! sideways (`scene_common.wgsl`, `scrim_mask`).
 //!
 //! The rectangles are in points from the scene's top left, so the mask
 //! keeps its size whatever resolution the scene renders at.
@@ -25,25 +26,30 @@ pub struct Scrim {
     /// Text blocks: left, top, right, bottom in points; unused ones are
     /// empty.
     pub blocks: [[f32; 4]; SCRIM_BLOCKS],
+    /// How far each block's light falls off round it, in points: wide
+    /// round a lone title, short round a panel with its own background.
+    pub feathers: [f32; SCRIM_BLOCKS],
     /// The theme's surface colour, display space, for strengths over 1.
     pub surface: [f32; 3],
 }
 
 impl Scrim {
-    /// Adds a text block, if there is room for one more and it isn't
-    /// empty.
-    pub fn add(&mut self, block: [f32; 4]) {
+    /// Adds a text block whose light falls off over `feather` points, if
+    /// there is room for one more and it isn't empty.
+    pub fn add(&mut self, block: [f32; 4], feather: f32) {
         if block[2] <= block[0] || block[3] <= block[1] {
             return;
         }
-        if let Some(free) = self.blocks.iter_mut().find(|b| b[2] <= b[0]) {
-            *free = block;
+        if let Some(i) = self.blocks.iter().position(|b| b[2] <= b[0]) {
+            self.blocks[i] = block;
+            self.feathers[i] = feather.max(1.0);
         }
     }
 
-    /// The shader's `scrim`, `scrim_blocks` and `scrim_surface` (8 vec4s).
-    pub(crate) fn floats(&self) -> [f32; 32] {
-        let mut out = [0.0; 32];
+    /// The shader's `scrim`, `scrim_blocks`, `scrim_feathers` and
+    /// `scrim_surface` (10 vec4s).
+    pub(crate) fn floats(&self) -> [f32; 40] {
+        let mut out = [0.0; 40];
         out[..4].copy_from_slice(&[
             if self.on { 1.0 } else { 0.0 },
             self.strength,
@@ -53,8 +59,9 @@ impl Scrim {
         for (i, b) in self.blocks.iter().enumerate() {
             out[4 + i * 4..8 + i * 4].copy_from_slice(b);
         }
-        out[28..31].copy_from_slice(&self.surface);
-        out[31] = 1.0;
+        out[28..28 + SCRIM_BLOCKS].copy_from_slice(&self.feathers);
+        out[36..39].copy_from_slice(&self.surface);
+        out[39] = 1.0;
         out
     }
 }
@@ -78,14 +85,15 @@ mod tests {
     #[test]
     fn blocks_fill_free_places_and_skip_empty_ones() {
         let mut s = Scrim::default();
-        s.add([10.0, 10.0, 10.0, 40.0]);
+        s.add([10.0, 10.0, 10.0, 40.0], 100.0);
         assert_eq!(s.blocks[0], [0.0; 4]);
         for i in 0..SCRIM_BLOCKS + 2 {
-            s.add([0.0, 0.0, 1.0 + i as f32, 1.0]);
+            s.add([0.0, 0.0, 1.0 + i as f32, 1.0], 100.0);
         }
         assert_eq!(s.blocks[SCRIM_BLOCKS - 1][2], SCRIM_BLOCKS as f32);
         let f = s.floats();
         assert_eq!(&f[4..8], &[0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(f[28], 100.0);
     }
 
     /// Under the scrim the darkest pixel keeps `text_muted` at 4.5:1, in
@@ -150,7 +158,7 @@ mod tests {
             surface: [0.99, 0.99, 0.995],
             ..Scrim::default()
         };
-        scrim.add(block);
+        scrim.add(block, 40.0);
         let text = text_muted_luminance();
         let mut worst = f32::MAX;
         for kind in [SceneKind::Xmb, SceneKind::Ridges, SceneKind::Aurora] {

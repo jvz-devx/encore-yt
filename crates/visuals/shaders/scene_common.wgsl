@@ -34,6 +34,8 @@ struct Params {
     scrim: vec4<f32>,
     // Text blocks: left, top, right, bottom in points; empty ones unused
     scrim_blocks: array<vec4<f32>, 6>,
+    // Each block's falloff in points, four to a vec4
+    scrim_feathers: array<vec4<f32>, 2>,
     // The theme's surface colour, display space (strengths over 1)
     scrim_surface: vec4<f32>,
 };
@@ -52,11 +54,12 @@ const LIGHT_CHROMA: f32 = 0.9;
 // keeps 4.5:1 with room for the dither (it needs 0.643).
 const SCRIM_FLOOR: f32 = 0.7;
 const SCRIM_TOP: f32 = 0.86;
-// The mask in points: solid this far round a text block, then a soft
-// fall to nothing over SCRIM_FEATHER, its corners rounded.
-const SCRIM_PAD: f32 = 16.0;
-const SCRIM_FEATHER: f32 = 88.0;
-const SCRIM_RADIUS: f32 = 28.0;
+// The mask in points: solid this far round a text block, then a long
+// Gaussian fall over about the block's feather, so it reads as light round
+// the words rather than a panel.
+const SCRIM_PAD: f32 = 8.0;
+// The falloff up and down, of the one sideways.
+const SCRIM_TALL: f32 = 0.5;
 const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
 // The visualiser's chroma cap in OKLab: cover colours, no neon.
 const CHROMA_CAP: f32 = 0.14;
@@ -220,44 +223,42 @@ fn squeezed() -> bool {
     return params.output.z > 0.5 && params.output.w < 0.5 && !scrim_on();
 }
 
-// A rounded box's signed distance: `p` from its centre, `half` its half
-// size, `r` its corner radius.
-fn round_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
-    let q = abs(p) - half + vec2<f32>(r);
-    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
-}
-
 // How much of the scrim covers this pixel, 0..1: solid over the text
-// blocks and SCRIM_PAD round them, falling off smoothly over
-// SCRIM_FEATHER (a quintic, so no edge shows).
+// blocks and SCRIM_PAD round them, then a Gaussian of the distance in
+// feathers (flat where it leaves the block, so no edge shows), gone by
+// 1.6 feathers. It falls off twice as fast up and down as sideways, the
+// way a line of text is long: a lens of light, not a cloud.
 fn scrim_mask(frag: vec2<f32>) -> f32 {
     if !scrim_on() {
         return 0.0;
     }
     let p = frag / params.output.xy * params.scrim.zw;
-    var d = 1e6;
+    var t = 1e6;
     for (var i = 0; i < 6; i++) {
         let b = params.scrim_blocks[i];
         if b.z <= b.x {
             continue;
         }
         let half = 0.5 * (b.zw - b.xy) + vec2<f32>(SCRIM_PAD);
-        d = min(d, round_box(p - 0.5 * (b.xy + b.zw), half, SCRIM_RADIUS));
+        let out = max(abs(p - 0.5 * (b.xy + b.zw)) - half, vec2<f32>(0.0));
+        let feather = params.scrim_feathers[i / 4][i % 4];
+        t = min(t, length(out / vec2<f32>(feather, feather * SCRIM_TALL)));
     }
-    let t = clamp(d / SCRIM_FEATHER, 0.0, 1.0);
-    return 1.0 - t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    return exp(-2.5 * t * t) * (1.0 - smoothstep(1.2, 1.6, t));
 }
 
-// `out` (display space) with the scrim laid over it: under the text the
-// scene's own colour pressed into SCRIM_FLOOR..SCRIM_TOP, hue kept, and
-// past strength 1 the theme's surface colour over that.
-fn scrimmed(out: vec3<f32>, lin: vec3<f32>, frag: vec2<f32>) -> vec3<f32> {
+// `out` (display space) with the scrim laid over it: under the text what
+// shows there pressed into SCRIM_FLOOR..SCRIM_TOP, hue and saturation
+// kept (from the shown colour, so the light matches the scene round it),
+// and past strength 1 the theme's surface colour over that.
+fn scrimmed(out: vec3<f32>, frag: vec2<f32>) -> vec3<f32> {
     let m = scrim_mask(frag);
     if m <= 0.0 {
         return out;
     }
     let strength = params.scrim.y;
-    let core = mix(tone_light_range(lin, SCRIM_FLOOR, SCRIM_TOP), params.scrim_surface.rgb,
+    let shown = pow(max(out, vec3<f32>(0.0)), vec3<f32>(2.2));
+    let core = mix(tone_light_range(shown, SCRIM_FLOOR, SCRIM_TOP), params.scrim_surface.rgb,
         clamp(strength - 1.0, 0.0, 0.5));
     return mix(out, core, m * clamp(strength, 0.0, 1.0));
 }
@@ -273,7 +274,7 @@ fn finish(lin: vec3<f32>, frag: vec2<f32>) -> vec4<f32> {
     } else {
         out = tone_dark(lin);
     }
-    out = scrimmed(out, lin, frag);
+    out = scrimmed(out, frag);
     let dither = (hash21(floor(frag)) - 0.5) / 255.0;
     return vec4<f32>(out + vec3<f32>(dither), 1.0);
 }

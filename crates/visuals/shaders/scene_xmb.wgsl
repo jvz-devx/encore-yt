@@ -134,7 +134,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         // The visualiser shows the gradient as the PS3 does, untouched by
         // the filmic curve.
         let dither = (hash21(floor(in.position.xy)) - 0.5) / 255.0;
-        let out = scrimmed(pow(lin, vec3<f32>(1.0 / 2.2)), lin, in.position.xy);
+        let out = scrimmed(pow(lin, vec3<f32>(1.0 / 2.2)), in.position.xy);
         return vec4<f32>(out + vec3<f32>(dither), 1.0);
     }
     return finish(lin, in.position.xy);

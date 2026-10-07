@@ -18,9 +18,9 @@ use crate::scrim::Scrim;
 use crate::spectrum::BANDS;
 use crate::target::{Frame, Target};
 
-/// 27 vec4s: audio, output, tune, env, seed, clock, 4 palette colours,
-/// 8 of bands, the motion clocks and the scrim's 8 ([`Scrim`]).
-const PARAMS_SIZE: u64 = 27 * 16;
+/// 29 vec4s: audio, output, tune, env, seed, clock, 4 palette colours,
+/// 8 of bands, the motion clocks and the scrim's 10 ([`Scrim`]).
+const PARAMS_SIZE: u64 = 29 * 16;
 /// The XMB wave's grid: 100 x 100 vertices, two triangles a cell.
 const XMB_WAVE_VERTICES: u32 = 99 * 99 * 6;
 const XMB_SPARKLES: u32 = 2000;

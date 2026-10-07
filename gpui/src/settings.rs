@@ -63,7 +63,9 @@ impl Category {
     pub fn blurb(self) -> &'static str {
         match self {
             Category::Account => "Who is signed in, and the YouTube session Music uses",
-            Category::Playback => "Loudness, smooth mixes, the sleep timer and notifications",
+            Category::Playback => {
+                "Loudness, smooth mixes, the sleep timer, notifications and loading ahead"
+            }
             Category::Equalizer => "Shape the sound of every song",
             Category::Visuals => "Backdrops, glows and the visualiser that move with the music",
             Category::Motion => "How things move, and how timed lyrics glide",

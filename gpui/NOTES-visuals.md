@@ -631,7 +631,15 @@ scene with its readback at the sizes the app uses (one window at 2x), to
 run on the UHD 630 and a MacBook with the app closed. On the M5 Pro:
 XMB 0.74 ms a frame (2560x1600) and 0.58 ms (Now Playing's panel), Ridges
 1.35 / 0.89 ms, Aurora 1.06 / 0.88 ms. Not measured yet: the UHD 630
-(Linux), Windows, and Stage and Now Playing with a scene in the app.
+(Linux) and Windows.
+
+Now Playing with a scene (captured on the Mac, dark and light; the scenes
+run at Now Playing's pace, about 90 frames a second there): the cover,
+title, waveform and Up next read over all three in both looks. In the
+light look the scenes nearly vanish (XMB a faint wave, Ridges and Aurora a
+pale haze): `tone_light` presses them into luminance 0.645-0.8. Keeping
+them there needs a scrim behind the text instead of the whole-panel
+squeeze (SPIKE-3D.md).
 
 ## 1. wgpu output inside the GPUI window
 

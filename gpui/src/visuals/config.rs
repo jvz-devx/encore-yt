@@ -52,6 +52,16 @@ impl Preset {
         }
     }
 
+    /// What the preset does, in a line (Settings, Play anything).
+    pub fn summary(self) -> &'static str {
+        match self {
+            Preset::Off => "No effects: plain backgrounds and no visualiser",
+            Preset::Calm => "Slower, softer effects",
+            Preset::Default => "The effects as they come",
+            Preset::Vivid => "More colour, more motion",
+        }
+    }
+
     fn parse(s: &str) -> Option<Self> {
         Self::ALL
             .into_iter()

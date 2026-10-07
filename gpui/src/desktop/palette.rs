@@ -17,6 +17,7 @@ use ytfast::model::{Item, ItemKind, Page, Target, Track};
 use super::control::{self, FromPage};
 use crate::app::MusicApp;
 use crate::nav::LibraryTab;
+use crate::visuals::config::Preset;
 
 /// Typing pauses this long before YouTube Music is asked.
 const DEBOUNCE: Duration = Duration::from_millis(150);
@@ -62,6 +63,8 @@ pub enum Cmd {
     Mini,
     /// Like the playing song, or remove its like.
     Like,
+    /// `visuals <preset>`: Settings → Visuals' look.
+    Visuals(Preset),
 }
 
 /// What choosing a result does.
@@ -428,6 +431,11 @@ impl MusicApp {
             }
             Cmd::Mini => self.toggle_mini(cx),
             Cmd::Like => self.toggle_like_current(cx),
+            Cmd::Visuals(preset) => {
+                let saved = crate::visuals::config::saved();
+                crate::visuals::config::set(saved.with_preset(preset), true);
+                cx.notify();
+            }
         }
     }
 }
@@ -597,6 +605,9 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
         }
         _ => {}
     }
+    if visuals(&word, rest, &mut push) {
+        return;
+    }
     let simple: [(&str, &str, &str, Go); 7] = [
         (
             "like",
@@ -671,6 +682,34 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
             }
         }
     }
+}
+
+/// `visuals <preset>` (or `visuals:`): the presets that start with what
+/// follows, every one for the bare word. True when the word was `visuals`
+/// or the start of it.
+fn visuals(word: &str, rest: &str, push: &mut impl FnMut(Hit, Source, u8)) -> bool {
+    let word = word.trim_end_matches(':');
+    if word.chars().count() < 3 || !"visuals".starts_with(word) {
+        return false;
+    }
+    let (source, tier) = if word == "visuals" {
+        (Source::Command, 0)
+    } else {
+        (Source::Suggestion, 1)
+    };
+    let rest = rest.to_lowercase();
+    for preset in Preset::ALL {
+        if preset.label().to_lowercase().starts_with(&rest) {
+            let hit = command_hit(
+                &format!("visuals:{}", preset.label()),
+                format!("Visuals: {}", preset.label()),
+                preset.summary(),
+                Go::Command(Cmd::Visuals(preset)),
+            );
+            push(hit, source, tier);
+        }
+    }
+    word == "visuals" || rest.is_empty()
 }
 
 /// The library pages loaded so far: Library's sections and Liked Music.

@@ -81,12 +81,7 @@ fn look(saved: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
     let detail = if !saved.is_preset() {
         format!("Your own, from {}", preset.label())
     } else {
-        match preset {
-            Preset::Off => "No effects: plain backgrounds and no visualiser".into(),
-            Preset::Calm => "Slower, softer effects".into(),
-            Preset::Default => "The effects as they come".into(),
-            Preset::Vivid => "More colour, more motion".into(),
-        }
+        preset.summary().into()
     };
     let reset = (!saved.is_preset()).then(|| {
         widgets::pill_button(

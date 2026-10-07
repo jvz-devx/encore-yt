@@ -25,7 +25,7 @@ use ytfast::backend::Backend;
 use ytfast::desktop::{Flags, Remote, Request};
 use ytfast::paths::Paths;
 
-use crate::app::MusicApp;
+use crate::app::{Link, MusicApp};
 
 pub use cli::command_line;
 pub use control::Layers;
@@ -50,7 +50,7 @@ pub struct Desktop {
 
 impl Desktop {
     pub fn new(
-        backend: &Backend,
+        backend: &Link,
         paths: &Paths,
         _window: &mut Window,
         cx: &mut Context<MusicApp>,
@@ -64,13 +64,16 @@ impl Desktop {
         let (wake_tx, wake_rx) = smol::channel::bounded::<()>(1);
         let remote = Remote::new(
             backend.commands(),
-            backend.now.clone(),
+            backend.now(),
             request_tx,
             Arc::new(move || {
                 let _ = wake_tx.try_send(());
             }),
         );
-        start_services(backend, paths, &remote, &flags);
+        // The UI tests run without them (`Link::Fake`).
+        if let Some(backend) = backend.live() {
+            start_services(backend, paths, &remote, &flags);
+        }
         let task = cx.spawn(async move |this, cx| {
             while wake_rx.recv().await.is_ok() {
                 let Some(app) = this.upgrade() else { break };

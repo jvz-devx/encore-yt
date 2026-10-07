@@ -22,6 +22,8 @@ use gpui_kit::*;
 use ytfast::backend::{Backend, Command, Event};
 use ytfast::paths::Paths;
 
+pub use crate::link::Link;
+
 use crate::account::AccountUi;
 use crate::desktop::Desktop;
 use crate::extras::Extras;
@@ -33,7 +35,7 @@ use crate::sidebar::Sidebar;
 const POSITION_TICK: Duration = Duration::from_millis(500);
 
 pub struct MusicApp {
-    pub backend: Backend,
+    pub backend: Link,
     #[allow(
         dead_code,
         reason = "settings and the desktop modules read it (M3, M4)"
@@ -75,6 +77,18 @@ impl MusicApp {
                 cx.update(|cx| drain_events(&app, cx));
             }
         });
+        Self::with_link(Link::Live(backend), events, paths, window, cx)
+    }
+
+    /// The app on `backend`; `events` drains what it reports (the UI tests
+    /// drain by hand).
+    pub(crate) fn with_link(
+        backend: Link,
+        events: Task<()>,
+        paths: Paths,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let clock = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(POSITION_TICK).await;
@@ -147,7 +161,7 @@ impl MusicApp {
         {
             changed |= self.on_playback(playback, window, cx);
         }
-        while let Ok(event) = self.backend.events.try_recv() {
+        while let Some(event) = self.backend.next_event() {
             changed |= self.handle(event, window.as_deref_mut(), cx);
         }
         if changed {

@@ -371,9 +371,18 @@ impl<T: Styled + Sized> Type for T {}
 /// Loads the bundled fonts, applies the desktop's look (or the pinned one)
 /// and keeps following the desktop while the app runs.
 pub fn init(cx: &mut App) {
+    setup(portal::Portal::connect(), cx);
+}
+
+/// The look without the desktop's portal (D-Bus), for the UI tests.
+#[cfg(test)]
+pub fn init_without_desktop(cx: &mut App) {
+    setup(None, cx);
+}
+
+fn setup(portal: Option<portal::Portal>, cx: &mut App) {
     load_fonts(cx);
     let pinned = Mode::from_env();
-    let portal = portal::Portal::connect();
     let desktop = portal.as_ref().map(|p| p.desktop).unwrap_or_default();
     let mode = pinned.or(desktop.scheme).unwrap_or(Mode::Dark);
     cx.set_global(Look {

@@ -202,9 +202,10 @@ fn uncached() -> bool {
     std::env::var_os("YTFAST_GPUI_VISUALS_UNCACHED").is_some_and(|v| v == "1")
 }
 
-/// Effects are on unless `YTFAST_GPUI_VISUALS=0`.
+/// Effects are on unless `YTFAST_GPUI_VISUALS=0`, and off in the UI tests
+/// (they need a GPU device and PipeWire).
 fn enabled() -> bool {
-    std::env::var_os("YTFAST_GPUI_VISUALS").is_none_or(|v| v != "0")
+    !cfg!(test) && std::env::var_os("YTFAST_GPUI_VISUALS").is_none_or(|v| v != "0")
 }
 
 /// Motion is reduced when the desktop asks for it ([`theme::reduced_motion`])

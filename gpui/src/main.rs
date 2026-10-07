@@ -11,6 +11,7 @@ mod app;
 mod assets;
 mod desktop;
 mod extras;
+mod link;
 mod nav;
 mod pages;
 mod playback;
@@ -18,6 +19,9 @@ mod sidebar;
 mod theme;
 mod views;
 mod visuals;
+
+#[cfg(test)]
+mod ui_tests;
 
 use std::sync::Arc;
 

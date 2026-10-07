@@ -32,7 +32,7 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 # Wakes the foreground task that drains backend events.
 smol = "2"
 # SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
-tokio = { version = "1", features = ["signal"] }
+tokio = { version = "1", features = ["signal", "sync"] }
 anyhow = "1"
 log = "0.4"
 # Recently played in the sidebar (already in the tree).
@@ -45,6 +45,11 @@ ytfast-visuals = { path = "crates/visuals" }
 # Builds the BGRA frames GPUI paints (`RenderImage` holds `image::Frame`s).
 # Already in the lock through gpui-pre, at the same version.
 image = { version = "0.25", default-features = false }
+
+# The headless UI tests (src/ui_tests): GPUI's test platform, `#[gpui::test]`
+# and the kit's test helpers.
+[dev-dependencies]
+gpui-kit = { version = "=0.7.1", features = ["test-support"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Light/dark and reduced motion from the XDG desktop portal's Settings

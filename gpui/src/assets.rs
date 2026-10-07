@@ -70,7 +70,8 @@ gpui_kit::assets::icon_assets!(
         AudioWaveform,
         WifiOff,
         CircleUserRound,
-        Lock
+        Lock,
+        CircleArrowUp
     ]
 );
 

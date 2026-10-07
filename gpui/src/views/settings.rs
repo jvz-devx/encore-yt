@@ -1,7 +1,7 @@
 //! Settings, over the window: one scrolling panel of sections (Account,
 //! Equalizer, Sleep timer, Loudness levelling, Smooth mixes,
-//! Notifications). Each section lives in its own file under `settings/`
-//! and draws its rows with [`row`] and its choices with [`choice`]; a new
+//! Notifications, Updates). Each section lives in its own file under
+//! `settings/` and draws its rows with [`row`] and its choices with [`choice`]; a new
 //! section is one more file and one more entry in [`settings`].
 
 mod account;
@@ -9,6 +9,7 @@ mod equalizer;
 mod mixes;
 mod playback;
 mod sleep;
+pub mod updates;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
@@ -39,6 +40,7 @@ pub fn settings(
         playback::section(app, &c, cx),
         mixes::section(app, &c, window, cx),
         playback::notifications(app, &c, cx),
+        updates::section(app, &c, cx),
     ];
     let panel = widgets::floating(&c)
         .id("settings")

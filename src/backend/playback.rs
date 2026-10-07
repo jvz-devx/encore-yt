@@ -124,7 +124,7 @@ impl super::Worker {
         self.emit(true);
         if let Some(mpv) = &self.mpv {
             // Stop the previous song at once; the new one follows when resolved.
-            let _ = mpv.command(json!(["stop"])).await;
+            let _ = mpv.stop().await;
         }
         if self.sleeping_at_song_end() {
             // The timer now waits for this song's end.
@@ -235,9 +235,10 @@ impl super::Worker {
         }
     }
 
-    async fn ensure_mpv(&mut self) -> Option<Arc<Mpv>> {
+    async fn ensure_mpv(&mut self) -> Option<Arc<Player>> {
         if self.mpv.is_none() {
-            match Mpv::spawn(
+            match Player::spawn(
+                self.player,
                 &self.paths.runtime.join("mpv.sock"),
                 self.main_volume(),
                 self.mpv_tx.clone(),
@@ -288,7 +289,7 @@ impl super::Worker {
             if let (Some(appended), Some(mpv), false) = (&self.appended, &self.mpv, self.idle)
                 && self.queue.position(appended.id) == Some(pos + 1)
             {
-                let _ = mpv.command(json!(["playlist-next", "force"])).await;
+                let _ = mpv.skip().await;
                 return;
             }
             self.start(pos + 1).await;
@@ -314,7 +315,7 @@ impl super::Worker {
         let seconds = seconds.max(0.0);
         self.finish_blend().await;
         if let (Some(mpv), Some(_)) = (&self.mpv, self.current_entry) {
-            let _ = mpv.command(json!(["seek", seconds, "absolute"])).await;
+            let _ = mpv.seek(seconds).await;
             self.state.position = seconds;
             self.emit(true);
             self.save_session(true);
@@ -331,7 +332,7 @@ impl super::Worker {
         if self.appended.take().is_some()
             && let Some(mpv) = &self.mpv
         {
-            let _ = mpv.command(json!(["playlist-remove", 1])).await;
+            let _ = mpv.remove(1).await;
         }
         self.drop_cued().await;
     }
@@ -412,7 +413,7 @@ impl super::Worker {
                         self.appended = None;
                         let (options, gain) =
                             self.file_options(&track.video_id, &stream, self.resume_at);
-                        match mpv.load(&stream.url, "replace", &options).await {
+                        match mpv.load(&stream.url, LoadMode::Replace, &options).await {
                             Ok(entry) => {
                                 log::info!(
                                     "starting {} {:.1}s after it was asked for",
@@ -421,7 +422,7 @@ impl super::Worker {
                                 );
                                 self.resume_at = None;
                                 self.current_entry = Some(entry);
-                                let _ = mpv.set("pause", json!(false)).await;
+                                let _ = mpv.set_pause(false).await;
                                 self.state.format = Some(resolver::describe(stream.itag));
                                 self.state.gain = gain;
                                 self.emit(true);
@@ -466,7 +467,7 @@ impl super::Worker {
                 }
                 let (options, gain) = self.file_options(&video_id, &stream, None);
                 if let Some(mpv) = &self.mpv
-                    && let Ok(entry) = mpv.load(&stream.url, "append", &options).await
+                    && let Ok(entry) = mpv.load(&stream.url, LoadMode::Append, &options).await
                 {
                     self.appended = Some(Appended {
                         id,
@@ -674,8 +675,7 @@ impl super::Worker {
         // in the same batch as, and before, the change of file (observed
         // order), where it was taken as the old song's: ask for it again.
         if let Some(mpv) = &self.mpv
-            && let Ok(duration) = mpv.get("duration").await
-            && let Some(duration) = duration.as_f64()
+            && let Some(duration) = mpv.duration().await
         {
             self.state.duration = duration;
         }
@@ -695,90 +695,84 @@ impl super::Worker {
         self.probe_gain();
     }
 
-    pub(super) async fn mpv_event(&mut self, event: MpvEvent) {
+    pub(super) async fn mpv_event(&mut self, event: PlayerEvent) {
         match event {
-            MpvEvent::Property { name, data } => match name.as_str() {
-                "time-pos" => {
-                    // Before the current file loads, positions belong to the previous one.
-                    let (Some(position), Some(_)) = (data.as_f64(), self.current_entry) else {
-                        return;
-                    };
-                    self.state.position = position;
-                    if self.deck_position().await {
-                        // The next song took over on the second deck.
-                        return;
-                    }
-                    if !self.reported && position >= 10.0 {
-                        self.reported = true;
-                        self.report_play();
-                    }
-                    self.song_end_fade().await;
-                    self.emit(false);
-                    self.save_session(false);
+            PlayerEvent::Position(position) => {
+                // Before the current file loads, positions belong to the previous one.
+                let (Some(position), Some(_)) = (position, self.current_entry) else {
+                    return;
+                };
+                self.state.position = position;
+                if self.deck_position().await {
+                    // The next song took over on the second deck.
+                    return;
                 }
-                "duration" => {
-                    if let (Some(duration), Some(_)) = (data.as_f64(), self.current_entry) {
-                        self.state.duration = duration;
-                        self.emit(true);
-                    }
+                if !self.reported && position >= 10.0 {
+                    self.reported = true;
+                    self.report_play();
                 }
-                "pause" => {
-                    self.paused = data.as_bool() == Some(true);
-                    self.state.playing = !self.paused && !self.idle && self.pos.is_some();
+                self.song_end_fade().await;
+                self.emit(false);
+                self.save_session(false);
+            }
+            PlayerEvent::Duration(duration) => {
+                if let (Some(duration), Some(_)) = (duration, self.current_entry) {
+                    self.state.duration = duration;
                     self.emit(true);
-                    if self.paused {
-                        self.save_session(true);
-                    }
                 }
-                "paused-for-cache" | "seeking" => {
-                    if !self.waiting_for_network {
-                        self.state.loading = data.as_bool() == Some(true);
-                        self.emit(true);
-                    }
+            }
+            PlayerEvent::Pause(paused) => {
+                self.paused = paused;
+                self.state.playing = !self.paused && !self.idle && self.pos.is_some();
+                self.emit(true);
+                if self.paused {
+                    self.save_session(true);
                 }
-                "idle-active" => {
-                    self.idle = data.as_bool() == Some(true);
-                    if !self.idle {
-                        self.state.loading = false;
-                    }
-                    self.state.playing = !self.paused && !self.idle && self.pos.is_some();
+            }
+            PlayerEvent::Buffering(buffering) => {
+                if !self.waiting_for_network {
+                    self.state.loading = buffering;
                     self.emit(true);
-                    // Safety net: mpv ran out of tracks although one was thought
-                    // to be queued behind the current one. Move on ourselves.
-                    if self.idle
-                        && !self.state.loading
-                        && self.appended.is_some()
-                        && self.pos.is_some()
-                    {
-                        log::warn!("mpv went idle with a track thought queued; advancing");
-                        self.appended = None;
-                        self.next(true).await;
-                    }
                 }
-                "playlist-pos" => {
-                    // mpv moved on to the track appended behind the current one.
-                    if data.as_i64() == Some(1)
-                        && let Some(appended) = self.appended.take()
-                    {
-                        self.current_entry = Some(appended.entry);
-                        if let Some(mpv) = &self.mpv {
-                            let _ = mpv.command(json!(["playlist-remove", 0])).await;
-                        }
-                        // A short song that ends while it blends in: the old
-                        // one stops before the position starts again at 0.
-                        self.stop_tail().await;
-                        self.advanced(appended).await;
-                    }
+            }
+            PlayerEvent::Idle(idle) => {
+                self.idle = idle;
+                if !self.idle {
+                    self.state.loading = false;
                 }
-                _ => {}
-            },
-            MpvEvent::EndFile {
+                self.state.playing = !self.paused && !self.idle && self.pos.is_some();
+                self.emit(true);
+                // Safety net: mpv ran out of tracks although one was thought
+                // to be queued behind the current one. Move on ourselves.
+                if self.idle && !self.state.loading && self.appended.is_some() && self.pos.is_some()
+                {
+                    log::warn!("mpv went idle with a track thought queued; advancing");
+                    self.appended = None;
+                    self.next(true).await;
+                }
+            }
+            PlayerEvent::PlaylistPos(pos) => {
+                // mpv moved on to the track appended behind the current one.
+                if pos == Some(1)
+                    && let Some(appended) = self.appended.take()
+                {
+                    self.current_entry = Some(appended.entry);
+                    if let Some(mpv) = &self.mpv {
+                        let _ = mpv.remove(0).await;
+                    }
+                    // A short song that ends while it blends in: the old
+                    // one stops before the position starts again at 0.
+                    self.stop_tail().await;
+                    self.advanced(appended).await;
+                }
+            }
+            PlayerEvent::EndFile {
                 reason,
                 error,
                 entry,
             } => {
                 log::debug!(
-                    "mpv end-file {entry} {reason} {error:?}; current {:?}, queued {:?}",
+                    "mpv end-file {entry} {reason:?} {error:?}; current {:?}, queued {:?}",
                     self.current_entry,
                     self.appended.as_ref().map(|a| a.entry)
                 );
@@ -786,15 +780,15 @@ impl super::Worker {
                 if Some(entry) != self.current_entry {
                     return;
                 }
-                match reason.as_str() {
-                    "eof"
+                match reason {
+                    EndReason::Eof
                         if self.appended.is_none()
                             && (self.state.repeat != Repeat::One
                                 || self.sleeping_at_song_end()) =>
                     {
                         self.next(true).await
                     }
-                    "error" => {
+                    EndReason::Error => {
                         // Keep mpv from moving on to the queued track: this one is
                         // retried or skipped first.
                         self.drop_appended().await;
@@ -807,10 +801,10 @@ impl super::Worker {
                     _ => {}
                 }
             }
-            MpvEvent::StartFile { entry } => log::debug!("mpv start-file {entry}"),
-            MpvEvent::Died => {
+            PlayerEvent::StartFile { entry } => log::debug!("mpv start-file {entry}"),
+            PlayerEvent::Died => {
                 self.mpv = None;
-                self.af.clear();
+                self.af = None;
                 self.appended = None;
                 self.current_entry = None;
                 self.idle = true;

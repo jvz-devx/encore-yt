@@ -1,4 +1,4 @@
-//! More than one mpv at once ("decks"): Smooth mixes, and the volume of
+//! More than one player at once ("decks"): Smooth mixes, and the volume of
 //! every deck (ducking under an audition, blends, the sleep timer's fade).
 //!
 //! The current song always plays on `Worker::mpv`, the main deck, and the
@@ -15,9 +15,10 @@
 //! holds the blend. When the blend is done the tail is stopped and kept as
 //! the spare deck for the next cue.
 //!
-//! mpv maps its `volume` property cubically to amplitude, so a deck playing
-//! at an amplitude share `a` of the user's volume `V` is set to `V·∛a`.
-//! Per-song loudness gains stay per-file `volume-gain` options on each deck.
+//! A player's volume maps cubically to amplitude (mpv's `volume`, and the
+//! Rust engine does the same), so a deck playing at an amplitude share `a`
+//! of the user's volume `V` is set to `V·∛a`. Per-song loudness gains stay
+//! per-file options on each deck.
 
 use std::collections::HashSet;
 use std::f64::consts::FRAC_PI_2;
@@ -95,13 +96,13 @@ impl Ramp {
 
 /// The next song, cued paused and silent on a second deck.
 pub(super) struct Cued {
-    pub mpv: Arc<Mpv>,
+    pub mpv: Arc<Player>,
     pub next: Appended,
 }
 
 /// The song before, playing out under the new one.
 pub(super) struct Tail {
-    mpv: Arc<Mpv>,
+    mpv: Arc<Player>,
     /// Seconds the blend lasts, on the incoming song's clock.
     length: f64,
 }
@@ -115,7 +116,7 @@ pub(super) struct Decks {
     pub cued: Option<Cued>,
     tail: Option<Tail>,
     /// A stopped deck kept for the next cue.
-    spare: Option<Arc<Mpv>>,
+    spare: Option<Arc<Player>>,
     /// The main and tail decks' share under an audition.
     pub duck: Ramp,
     pub audition: super::audition::Audition,
@@ -161,30 +162,30 @@ impl super::Worker {
     // ---- routing ----
 
     /// An event from one of the decks, by its serial.
-    pub(super) async fn deck_event(&mut self, serial: u64, event: MpvEvent) {
-        let is = |mpv: Option<&Arc<Mpv>>| mpv.is_some_and(|m| m.serial() == serial);
+    pub(super) async fn deck_event(&mut self, serial: u64, event: PlayerEvent) {
+        let is = |mpv: Option<&Arc<Player>>| mpv.is_some_and(|m| m.serial() == serial);
         if is(self.mpv.as_ref()) {
             self.mpv_event(event).await;
         } else if is(self.decks.tail.as_ref().map(|t| &t.mpv)) {
             // The old song played out (or its deck went): the blend is over.
             match event {
-                MpvEvent::Died => {
+                PlayerEvent::Died => {
                     self.decks.tail = None;
                     self.blend_over().await;
                 }
-                MpvEvent::EndFile { .. } => self.finish_blend().await,
+                PlayerEvent::EndFile { .. } => self.finish_blend().await,
                 _ => {}
             }
         } else if is(self.decks.cued.as_ref().map(|c| &c.mpv)) {
             let failed = match &event {
-                MpvEvent::Died => true,
-                MpvEvent::EndFile { reason, .. } => reason == "error",
+                PlayerEvent::Died => true,
+                PlayerEvent::EndFile { reason, .. } => *reason == EndReason::Error,
                 _ => false,
             };
             if failed {
                 log::warn!("the cued song failed; it will start the usual way");
                 if let Some(cued) = self.decks.cued.take()
-                    && !matches!(event, MpvEvent::Died)
+                    && !matches!(event, PlayerEvent::Died)
                 {
                     self.decks.spare = Some(cued.mpv);
                 }
@@ -192,7 +193,7 @@ impl super::Worker {
             }
         } else if is(self.decks.audition.deck()) {
             self.audition_event(event).await;
-        } else if is(self.decks.spare.as_ref()) && matches!(event, MpvEvent::Died) {
+        } else if is(self.decks.spare.as_ref()) && matches!(event, PlayerEvent::Died) {
             self.decks.spare = None;
         }
     }
@@ -207,8 +208,8 @@ impl super::Worker {
         }
     }
 
-    /// Every running mpv: the equalizer goes to all of them.
-    pub(super) fn decks(&self) -> Vec<Arc<Mpv>> {
+    /// Every running player: the equalizer goes to all of them.
+    pub(super) fn decks(&self) -> Vec<Arc<Player>> {
         self.mpv
             .iter()
             .chain(self.decks.tail.as_ref().map(|t| &t.mpv))
@@ -246,14 +247,14 @@ impl super::Worker {
     /// fade, the duck, the blend and the audition's fades.
     pub(super) async fn apply_volumes(&mut self) {
         if let Some(mpv) = &self.mpv {
-            let _ = mpv.set("volume", json!(self.main_volume())).await;
+            let _ = mpv.set_volume(self.main_volume()).await;
         }
         if let Some(tail) = &self.decks.tail {
-            let _ = tail.mpv.set("volume", json!(self.tail_volume())).await;
+            let _ = tail.mpv.set_volume(self.tail_volume()).await;
         }
         if let Some(deck) = self.decks.audition.deck() {
             let volume = self.audition_volume();
-            let _ = deck.set("volume", json!(volume)).await;
+            let _ = deck.set_volume(volume).await;
         }
     }
 
@@ -342,7 +343,8 @@ impl super::Worker {
     pub(super) async fn cue(&mut self, id: u64, video_id: &str, stream: &Stream) {
         let deck = match self.decks.spare.take() {
             Some(deck) => deck,
-            None => match Mpv::spawn(
+            None => match Player::spawn(
+                self.player,
                 &self.paths.runtime.join("mpv-cue.sock"),
                 0.0,
                 self.mpv_tx.clone(),
@@ -350,13 +352,7 @@ impl super::Worker {
             .await
             {
                 Ok(deck) => {
-                    let filter = self.state.equalizer.filter();
-                    let af = if self.af.is_empty() {
-                        &filter
-                    } else {
-                        &self.af
-                    };
-                    let _ = deck.set("af", json!(af)).await;
+                    let _ = deck.set_equalizer(&self.deck_equalizer()).await;
                     deck
                 }
                 Err(error) => {
@@ -365,11 +361,11 @@ impl super::Worker {
                 }
             },
         };
-        let _ = deck.set("pause", json!(true)).await;
-        let _ = deck.set("volume", json!(0.0)).await;
-        let _ = deck.set("loop-file", json!("no")).await;
+        let _ = deck.set_pause(true).await;
+        let _ = deck.set_volume(0.0).await;
+        let _ = deck.set_loop(false).await;
         let (options, gain) = self.file_options(video_id, stream, None);
-        match deck.load(&stream.url, "replace", &options).await {
+        match deck.load(&stream.url, LoadMode::Replace, &options).await {
             Ok(entry) => {
                 self.decks.cued = Some(Cued {
                     mpv: deck,
@@ -392,7 +388,7 @@ impl super::Worker {
     /// Stops the cued song; its deck is kept as the spare.
     pub(super) async fn drop_cued(&mut self) {
         if let Some(cued) = self.decks.cued.take() {
-            let _ = cued.mpv.command(json!(["stop"])).await;
+            let _ = cued.mpv.stop().await;
             self.decks.spare = Some(cued.mpv);
         }
     }
@@ -440,7 +436,7 @@ impl super::Worker {
                 self.decks.tail = Some(Tail { mpv: old, length });
                 self.keep_time();
             } else {
-                let _ = old.command(json!(["stop"])).await;
+                let _ = old.stop().await;
                 if self.decks.mixes.on {
                     self.decks.spare = Some(old);
                 }
@@ -448,13 +444,12 @@ impl super::Worker {
         }
         self.apply_loop().await;
         self.apply_volumes().await;
-        let _ = cued.mpv.set("pause", json!(false)).await;
+        let _ = cued.mpv.set_pause(false).await;
         let entry = cued.next.entry;
         self.advanced(cued.next).await;
         // The cued file's length arrived while it waited; ask for it again.
         if self.current_entry == Some(entry)
-            && let Ok(duration) = cued.mpv.get("duration").await
-            && let Some(duration) = duration.as_f64()
+            && let Some(duration) = cued.mpv.duration().await
         {
             self.state.duration = duration;
             self.emit(true);
@@ -477,7 +472,7 @@ impl super::Worker {
         let Some(tail) = self.decks.tail.take() else {
             return false;
         };
-        let _ = tail.mpv.command(json!(["stop"])).await;
+        let _ = tail.mpv.stop().await;
         if self.decks.mixes.on {
             self.decks.spare = Some(tail.mpv);
         }
@@ -519,7 +514,7 @@ impl super::Worker {
         if stamp != self.decks.sampling.load(Ordering::SeqCst) {
             return;
         }
-        let roles: Vec<(&'static str, Arc<Mpv>)> = [
+        let roles: Vec<(&'static str, Arc<Player>)> = [
             ("main", self.mpv.clone()),
             ("tail", self.decks.tail.as_ref().map(|t| t.mpv.clone())),
             ("cued", self.decks.cued.as_ref().map(|c| c.mpv.clone())),
@@ -545,9 +540,9 @@ impl super::Worker {
             let mut sample = state;
             for (role, mpv) in roles {
                 let number = |v: Option<serde_json::Value>| v.and_then(|v| v.as_f64());
-                let volume = number(mpv.get("volume").await.ok());
-                let position = number(mpv.get("time-pos").await.ok());
-                let pause = mpv.get("pause").await.ok();
+                let volume = number(mpv.property("volume").await);
+                let position = number(mpv.property("time-pos").await);
+                let pause = mpv.property("pause").await;
                 sample[role] = json!({
                     "serial": mpv.serial(),
                     "volume": volume,

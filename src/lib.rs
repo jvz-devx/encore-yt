@@ -31,6 +31,7 @@ pub mod palette;
 pub mod parse;
 pub mod paths;
 pub mod platform;
+pub mod player;
 pub mod resolver;
 pub mod searches;
 pub mod settings;

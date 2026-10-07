@@ -16,7 +16,7 @@ use crate::model::Audition as Shown;
 const KEEP: Duration = Duration::from_secs(120);
 
 pub(super) struct Audition {
-    deck: Option<Arc<Mpv>>,
+    deck: Option<Arc<Player>>,
     /// Bumped by every request and release; late answers for older ones are dropped.
     stamp: u64,
     /// The song held and where it starts.
@@ -45,7 +45,7 @@ impl Default for Audition {
 }
 
 impl Audition {
-    pub fn deck(&self) -> Option<&Arc<Mpv>> {
+    pub fn deck(&self) -> Option<&Arc<Player>> {
         self.deck.as_ref()
     }
 
@@ -132,7 +132,8 @@ impl super::Worker {
         };
         let deck = match self.decks.audition.deck.clone() {
             Some(deck) => deck,
-            None => match Mpv::spawn(
+            None => match Player::spawn(
+                self.player,
                 &self.paths.runtime.join("mpv-audition.sock"),
                 0.0,
                 self.mpv_tx.clone(),
@@ -140,13 +141,7 @@ impl super::Worker {
             .await
             {
                 Ok(deck) => {
-                    let filter = self.state.equalizer.filter();
-                    let af = if self.af.is_empty() {
-                        &filter
-                    } else {
-                        &self.af
-                    };
-                    let _ = deck.set("af", json!(af)).await;
+                    let _ = deck.set_equalizer(&self.deck_equalizer()).await;
                     self.decks.audition.deck = Some(deck.clone());
                     deck
                 }
@@ -162,18 +157,16 @@ impl super::Worker {
         }
         // Another song may still be fading out on the deck: it stops here.
         self.decks.audition.level = Ramp::steady(0.0);
-        let _ = deck.set("volume", json!(0.0)).await;
-        let gain = self.gain_for(&video_id).unwrap_or(0.0);
-        let mut options = vec![("volume-gain", format!("{gain:.2}"))];
-        if let Some(agent) = &stream.user_agent {
-            options.push(("user-agent", agent.clone()));
-        }
-        // mpv takes "33%" as a third of the way in, once it knows the length.
-        let at = start.map_or_else(|| "33%".to_owned(), |s| format!("{:.2}", s.max(0.0)));
-        options.push(("start", at));
-        match deck.load(&stream.url, "replace", &options).await {
+        let _ = deck.set_volume(0.0).await;
+        let options = FileOptions {
+            gain: self.gain_for(&video_id).unwrap_or(0.0),
+            user_agent: stream.user_agent.clone(),
+            // A third of the way in, once the length is known.
+            start: Some(start.map_or(Start::Share(0.33), |s| Start::Seconds(s.max(0.0)))),
+        };
+        match deck.load(&stream.url, LoadMode::Replace, &options).await {
             Ok(entry) => {
-                let _ = deck.set("pause", json!(false)).await;
+                let _ = deck.set_pause(false).await;
                 self.decks.audition.entry = Some(entry);
                 self.decks.audition.started = false;
                 log::info!("auditioning {video_id}");
@@ -185,17 +178,17 @@ impl super::Worker {
         }
     }
 
-    pub(super) async fn audition_event(&mut self, event: MpvEvent) {
+    pub(super) async fn audition_event(&mut self, event: PlayerEvent) {
         let a = &mut self.decks.audition;
         match event {
-            MpvEvent::StartFile { entry } => {
+            PlayerEvent::StartFile { entry } => {
                 if Some(entry) == a.entry {
                     a.started = true;
                 }
             }
-            MpvEvent::Property { name, data } if name == "time-pos" => {
+            PlayerEvent::Position(position) => {
                 // Audio is coming: fade in over the ducking current song.
-                if a.started && a.held.is_some() && data.as_f64().is_some() {
+                if a.started && a.held.is_some() && position.is_some() {
                     a.started = false;
                     a.level = a.level.toward(1.0, FADE);
                     self.decks.duck = self.decks.duck.toward(DUCK, FADE);
@@ -206,8 +199,8 @@ impl super::Worker {
                     self.keep_time();
                 }
             }
-            MpvEvent::EndFile { entry, reason, .. } => {
-                if Some(entry) == a.entry && reason != "stop" {
+            PlayerEvent::EndFile { entry, reason, .. } => {
+                if Some(entry) == a.entry && reason != EndReason::Stop {
                     // The song ended or failed while held.
                     a.entry = None;
                     if a.held.is_some() {
@@ -215,14 +208,14 @@ impl super::Worker {
                     }
                 }
             }
-            MpvEvent::Died => {
+            PlayerEvent::Died => {
                 a.deck = None;
                 a.entry = None;
                 if a.held.is_some() {
                     self.end_audition().await;
                 }
             }
-            MpvEvent::Property { .. } => {}
+            _ => {}
         }
     }
 
@@ -236,7 +229,7 @@ impl super::Worker {
         if a.held.is_none() && a.entry.is_some() && a.level.target() == 0.0 && !a.level.moving() {
             a.entry = None;
             if let Some(deck) = &a.deck {
-                let _ = deck.command(json!(["stop"])).await;
+                let _ = deck.stop().await;
             }
         }
     }
@@ -256,7 +249,7 @@ impl super::Worker {
             return;
         }
         if let (Some(deck), Some(gain)) = (&a.deck, self.gain_for(video_id)) {
-            let _ = deck.set("volume-gain", json!(gain)).await;
+            let _ = deck.set_gain(gain).await;
         }
     }
 }

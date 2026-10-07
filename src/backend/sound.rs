@@ -1,16 +1,16 @@
 //! How playback sounds: loudness levelled between songs from YouTube's own
 //! loudness data, the equalizer, and the sleep timer's fade.
 //!
-//! Each song's gain is an mpv per-file `volume-gain`, so it holds exactly
-//! for that song, including a gapless handoff to the song queued behind.
-//! The equalizer is one labelled lavfi graph in `af`: band edits go to the
-//! running graph with `af-command` (no gap) and `af` itself is rewritten
-//! once edits stop, so a graph mpv rebuilds starts from the same values.
+//! Each song's gain is a per-file option (mpv's `volume-gain`), so it holds
+//! exactly for that song, including a gapless handoff to the song queued
+//! behind. The equalizer is set whole on new decks; band edits change the
+//! running equalizer in place (mpv: `af-command` on its labelled lavfi
+//! graph, no gap) and once edits stop it is set whole again, so a graph mpv
+//! rebuilds starts from the same values.
 
 use serde_json::Value;
 
 use super::*;
-use crate::equalizer::LABEL;
 use crate::model::SleepTimer;
 
 /// The level songs are evened out to, in LKFS.
@@ -62,22 +62,19 @@ impl super::Worker {
             .map(|p| p.loudness.map_or(0.0, level))
     }
 
-    /// mpv's per-file options for a stream of `video_id`, and the gain in them.
+    /// The per-file options for a stream of `video_id`, and the gain in them.
     pub(super) fn file_options(
         &self,
         video_id: &str,
         stream: &Stream,
         start: Option<f64>,
-    ) -> (Vec<(&'static str, String)>, Option<f64>) {
+    ) -> (FileOptions, Option<f64>) {
         let gain = self.gain_for(video_id);
-        // Always set, so a gain changed while the song plays ends with it.
-        let mut options = vec![("volume-gain", format!("{:.2}", gain.unwrap_or(0.0)))];
-        if let Some(agent) = &stream.user_agent {
-            options.push(("user-agent", agent.clone()));
-        }
-        if let Some(at) = start.filter(|s| *s >= 1.0) {
-            options.push(("start", format!("{at:.2}")));
-        }
+        let options = FileOptions {
+            gain: gain.unwrap_or(0.0),
+            user_agent: stream.user_agent.clone(),
+            start: start.filter(|s| *s >= 1.0).map(Start::Seconds),
+        };
         (options, gain)
     }
 
@@ -126,7 +123,7 @@ impl super::Worker {
     /// Sets the current song's gain while it plays.
     async fn apply_gain(&mut self, gain: f64) {
         if let Some(mpv) = &self.mpv {
-            let _ = mpv.set("volume-gain", json!(gain)).await;
+            let _ = mpv.set_gain(gain).await;
         }
         self.state.gain = Some(gain);
         self.emit(true);
@@ -168,11 +165,11 @@ impl super::Worker {
 
     // ---- equalizer ----
 
-    /// Gives a newly started mpv the equalizer.
-    pub(super) async fn apply_equalizer(&mut self, mpv: &Mpv) {
-        let filter = self.state.equalizer.filter();
-        match mpv.set("af", json!(filter)).await {
-            Ok(()) => self.af = filter,
+    /// Gives a newly started main deck the equalizer.
+    pub(super) async fn apply_equalizer(&mut self, mpv: &Player) {
+        let equalizer = self.state.equalizer.clone();
+        match mpv.set_equalizer(&equalizer).await {
+            Ok(()) => self.af = Some(equalizer),
             Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
         }
         #[cfg(feature = "e2e")]
@@ -186,37 +183,14 @@ impl super::Worker {
         let decks = self.decks();
         if !decks.is_empty() {
             let now = &self.state.equalizer;
-            if before.active() && now.active() && !self.af.is_empty() {
+            if before.active() && now.active() && self.af.as_ref().is_some_and(Equalizer::active) {
                 // The same graph: change its bands in place, without a gap.
                 for mpv in &decks {
-                    for (i, (old, new)) in before.gains.iter().zip(now.gains).enumerate() {
-                        if (old - new).abs() >= 0.05 {
-                            let _ = mpv
-                                .command(json!([
-                                    "af-command",
-                                    LABEL,
-                                    "g",
-                                    format!("{new:.1}"),
-                                    format!("equalizer@b{i}")
-                                ]))
-                                .await;
-                        }
-                    }
-                    if (before.preamp() - now.preamp()).abs() >= 0.05 {
-                        let _ = mpv
-                            .command(json!([
-                                "af-command",
-                                LABEL,
-                                "volume",
-                                format!("{:.1}dB", now.preamp()),
-                                "volume@pre"
-                            ]))
-                            .await;
-                    }
+                    mpv.edit_equalizer(&before, now).await;
                 }
             } else {
-                let filter = now.filter();
-                self.set_af(&decks, filter).await;
+                let now = now.clone();
+                self.set_af(&decks, now).await;
             }
         }
         let stamp = self.eq_stamp;
@@ -233,9 +207,10 @@ impl super::Worker {
             return;
         }
         let filter = self.state.equalizer.filter();
-        if filter != self.af {
+        if self.af.as_ref().map(Equalizer::filter).unwrap_or_default() != filter {
             let decks = self.decks();
-            self.set_af(&decks, filter).await;
+            let equalizer = self.state.equalizer.clone();
+            self.set_af(&decks, equalizer).await;
         }
         let equalizer = self.state.equalizer.clone();
         self.update_settings(|s| s.equalizer = equalizer);
@@ -243,17 +218,25 @@ impl super::Worker {
         self.probe_af();
     }
 
-    /// Gives every deck the equalizer graph `filter`.
-    async fn set_af(&mut self, decks: &[Arc<Mpv>], filter: String) {
+    /// Sets every deck's equalizer whole.
+    async fn set_af(&mut self, decks: &[Arc<Player>], equalizer: Equalizer) {
         let mut applied = false;
         for mpv in decks {
-            match mpv.set("af", json!(filter)).await {
+            match mpv.set_equalizer(&equalizer).await {
                 Ok(()) => applied = true,
                 Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
             }
         }
         if applied {
-            self.af = filter;
+            self.af = Some(equalizer);
+        }
+    }
+
+    /// The equalizer a new deck starts with: the one every deck has.
+    pub(super) fn deck_equalizer(&self) -> Equalizer {
+        match &self.af {
+            Some(af) if af.active() => af.clone(),
+            _ => self.state.equalizer.clone(),
         }
     }
 
@@ -269,13 +252,11 @@ impl super::Worker {
         )
     }
 
-    /// Repeat one loops the song in mpv, unless the timer waits for its end.
+    /// Repeat one loops the song, unless the timer waits for its end.
     pub(super) async fn apply_loop(&self) {
         let looping = self.state.repeat == Repeat::One && !self.sleeping_at_song_end();
         if let Some(mpv) = &self.mpv {
-            let _ = mpv
-                .set("loop-file", json!(if looping { "inf" } else { "no" }))
-                .await;
+            let _ = mpv.set_loop(looping).await;
         }
     }
 
@@ -372,7 +353,7 @@ impl super::Worker {
         self.state.sleep = None;
         self.finish_blend().await;
         if let (Some(mpv), false) = (&self.mpv, self.idle) {
-            let _ = mpv.set("pause", json!(true)).await;
+            let _ = mpv.set_pause(true).await;
         }
         self.restore_fade().await;
         self.emit(true);
@@ -443,7 +424,7 @@ impl super::Worker {
         let loudness = self.players.get(&track.video_id).and_then(|p| p.loudness);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(1500)).await;
-            let applied = mpv.get("volume-gain").await.ok();
+            let applied = mpv.property("volume-gain").await;
             crate::e2e::probe_push(
                 "gains",
                 json!({
@@ -460,10 +441,10 @@ impl super::Worker {
     #[cfg(feature = "e2e")]
     fn probe_af(&self) {
         let Some(mpv) = self.mpv.clone() else { return };
-        let sent = self.af.clone();
+        let sent = self.af.as_ref().map(Equalizer::filter).unwrap_or_default();
         let equalizer = self.state.equalizer.clone();
         tokio::spawn(async move {
-            let applied = mpv.get("af").await.ok();
+            let applied = mpv.property("af").await;
             crate::e2e::probe(
                 "af",
                 json!({
@@ -481,8 +462,8 @@ impl super::Worker {
         let Some(mpv) = self.mpv.clone() else { return };
         let volume = self.state.volume;
         tokio::spawn(async move {
-            let pause = mpv.get("pause").await.ok();
-            let mpv_volume = mpv.get("volume").await.ok();
+            let pause = mpv.property("pause").await;
+            let mpv_volume = mpv.property("volume").await;
             crate::e2e::probe(
                 "sleep_stopped",
                 json!({"mpv_pause": pause, "mpv_volume": mpv_volume, "volume": volume}),

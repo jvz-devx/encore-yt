@@ -6,10 +6,12 @@
 //! Playback state belongs to the worker. Results of asynchronous work carry
 //! the stamp they were started under, so a late answer never acts on newer
 //! state: `generation` changes with the current track, `epoch` with the
-//! queue (each play request), and mpv's playlist entry ids tell the current
-//! file's events from those of replaced or queued ones. Several mpv
-//! processes can run at once (Smooth mixes, Audition: see [`deck`]); their
-//! events carry the process's serial and reach the deck's current role.
+//! queue (each play request), and the player's playlist entry ids tell the
+//! current file's events from those of replaced or queued ones. Several
+//! players (decks: an mpv process each, or decks of the Rust engine, see
+//! [`crate::player`]) can run at once (Smooth mixes, Audition: see
+//! [`deck`]); their events carry the deck's serial and reach its current
+//! role.
 
 mod account;
 mod audition;
@@ -26,15 +28,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "e2e")]
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::equalizer::Equalizer;
 use crate::innertube::{ApiError, Client, Stream};
 use crate::model::{Account, Lyrics, Page, Playback, Repeat, Sleep, Target, Track, WatchNext};
-use crate::mpv::{Mpv, MpvEvent};
 use crate::parse::{self, More};
 use crate::paths::Paths;
+use crate::player::{EndReason, Events, FileOptions, Kind, LoadMode, Player, PlayerEvent, Start};
 use crate::resolver::{self, Resolver};
 
 pub enum Command {
@@ -384,11 +387,13 @@ struct Worker {
     sink: Sink,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
-    /// Events of every mpv process, tagged with its serial.
-    mpv_tx: mpsc::UnboundedSender<(u64, MpvEvent)>,
-    mpv_rx: Option<mpsc::UnboundedReceiver<(u64, MpvEvent)>>,
+    /// Events of every player (deck), tagged with its serial.
+    mpv_tx: Events,
+    mpv_rx: Option<mpsc::UnboundedReceiver<(u64, PlayerEvent)>>,
     /// The main deck: the current song plays on it.
-    mpv: Option<Arc<Mpv>>,
+    mpv: Option<Arc<Player>>,
+    /// The audio engine new decks start on.
+    player: Kind,
     last_connect: Option<Instant>,
     last_death: Option<Instant>,
 
@@ -428,8 +433,9 @@ struct Worker {
     asked: Instant,
     /// Loudness and play tracking from player responses, by video id.
     players: HashMap<String, sound::PlayerInfo>,
-    /// The `af` value every deck has.
-    af: String,
+    /// The equalizer every deck was set to as a whole (mpv's `af`); band
+    /// edits since then went to the running graphs.
+    af: Option<Equalizer>,
     /// Bumped by every equalizer change.
     eq_stamp: u64,
     /// Bumped by every sleep timer change; its clock stops on a stale one.
@@ -456,6 +462,7 @@ impl Worker {
             mpv_tx,
             mpv_rx: Some(mpv_rx),
             mpv: None,
+            player: Kind::choose(settings.player),
             last_connect: None,
             last_death: None,
             queue: queue::Queue::default(),
@@ -486,7 +493,7 @@ impl Worker {
             prefetching: None,
             asked: Instant::now(),
             players: HashMap::new(),
-            af: String::new(),
+            af: None,
             eq_stamp: 0,
             sleep_stamp: Arc::default(),
             fade: 1.0,
@@ -657,7 +664,7 @@ impl Worker {
                         // Pausing in a blend ends it: the new song pauses alone.
                         self.finish_blend().await;
                     }
-                    let _ = mpv.set("pause", json!(self.state.playing)).await;
+                    let _ = mpv.set_pause(self.state.playing).await;
                 } else if let Some(pos) = self.pos {
                     // Nothing loaded (a restored session, the queue ended, or
                     // mpv restarted): play, from where a restored song was.

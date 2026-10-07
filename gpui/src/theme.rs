@@ -370,8 +370,23 @@ impl<T: Styled + Sized> Type for T {}
 
 /// Loads the bundled fonts, applies the desktop's look (or the pinned one)
 /// and keeps following the desktop while the app runs.
-pub fn init(cx: &mut App) {
-    setup(portal::Portal::connect(), cx);
+pub fn init(asking: Asking, cx: &mut App) {
+    let portal = match asking.0 {
+        Some(thread) => thread.join().ok().flatten(),
+        None => portal::Portal::connect(),
+    };
+    setup(portal, cx);
+}
+
+/// The desktop's look being read from its portal on a thread of its own,
+/// started from `main` (M17), so the D-Bus round trip overlaps the
+/// platform's start instead of holding up the window.
+pub struct Asking(Option<std::thread::JoinHandle<Option<portal::Portal>>>);
+
+/// Starts reading the desktop's look; [`init`] takes the answer.
+pub fn ask_desktop() -> Asking {
+    let thread = std::thread::Builder::new().name("ytfast-portal".into());
+    Asking(thread.spawn(portal::Portal::connect).ok())
 }
 
 /// The look without the desktop's portal (D-Bus), for the UI tests.

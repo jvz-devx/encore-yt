@@ -44,6 +44,15 @@ fn main() -> anyhow::Result<()> {
         .init()
         .map_err(|e| anyhow!("logging: {e}"))?;
     startup::mark(startup::Milestone::Logging);
+    // Slow parts of the start, on threads of their own while the platform
+    // starts (M17): the desktop's look and the cover art client.
+    let asking = theme::ask_desktop();
+    let http = std::thread::spawn(|| {
+        reqwest_client::ReqwestClient::user_agent(concat!(
+            "ytfast-gpui/",
+            env!("CARGO_PKG_VERSION")
+        ))
+    });
 
     gpui_kit::application()
         .with_assets(assets::AppAssets)
@@ -51,7 +60,7 @@ fn main() -> anyhow::Result<()> {
             startup::mark(startup::Milestone::Platform);
             gpui_kit::init(cx);
             // Fonts, colours and gpui-component's theme (YTFAST_GPUI_THEME=light).
-            theme::init(cx);
+            theme::init(asking, cx);
             startup::mark(startup::Milestone::Theme);
             // Each area binds its own shortcuts in the "Music" key context
             // and handles them in its `on_actions`.
@@ -61,10 +70,10 @@ fn main() -> anyhow::Result<()> {
             desktop::bind_keys(cx);
             extras::bind_keys(cx);
             // img("https://...") fetches cover art through this client.
-            match reqwest_client::ReqwestClient::user_agent(concat!(
-                "ytfast-gpui/",
-                env!("CARGO_PKG_VERSION")
-            )) {
+            match http
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            {
                 Ok(http) => cx.set_http_client(Arc::new(http)),
                 Err(e) => log::warn!("no HTTP client for cover art: {e}"),
             }

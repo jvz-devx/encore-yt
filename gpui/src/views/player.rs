@@ -28,6 +28,7 @@ pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElemen
         .gap(space::XL)
         .bg(c.base)
         .child(song(app, &c))
+        .children(app.player.current().cloned().and_then(|t| super::account::like_button(app, &t, cx)))
         .child(
             v_flex()
                 .flex_1()

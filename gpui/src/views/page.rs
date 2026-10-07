@@ -20,6 +20,8 @@ const ROWS_PER_COLUMN: usize = 4;
 
 /// What a frame needs to know besides the page: which song is playing.
 struct Ctx<'a> {
+    app: &'a MusicApp,
+    pg: &'a Page,
     key: &'a str,
     playing: Option<&'a str>,
     c: Colors,
@@ -39,6 +41,8 @@ pub fn page(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
         return loading(&c).into_any_element();
     };
     let ctx = Ctx {
+        app,
+        pg: page,
         key: &key,
         playing: app.player.current().map(|t| t.video_id.as_str()),
         c,
@@ -54,6 +58,8 @@ pub fn page(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
         .pb(space::XXXL)
         .gap(space::XXL + space::SM)
         .children(page.header.as_ref().map(|h| header(h, &c, cx)))
+        .children(page.header.as_ref().and_then(|h| super::account::header_actions(app, h, cx)))
+        .children(matches!(app.pages.view, crate::nav::View::Library(crate::nav::LibraryTab::Playlists)).then(|| super::account::library_actions(app, cx)).flatten())
         .children(message(page, &c))
         .children(
             page.shelves
@@ -528,6 +534,7 @@ fn row(ctx: &Ctx, shelf: usize, i: usize, item: &Item, cx: &mut Context<MusicApp
                 )
                 .child(widgets::muted_line(runs_text(&item.subtitle), c)),
         )
+        .children(super::account::row_actions(ctx.app, ctx.pg, item, cx))
         .children(duration.map(|d| {
             div()
                 .flex_none()

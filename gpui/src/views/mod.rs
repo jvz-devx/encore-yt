@@ -3,7 +3,7 @@
 //! - sidebar, top bar, page (M1: `sidebar`, `top_bar`, `page`)
 //! - player bar, Up next, Now Playing, error strip (M2: `player`, `queue`,
 //!   `now_playing`)
-//! - account chip and dialogs (M3: `account`)
+//! - account chip, dialogs and Settings (M3: `account`, `settings`)
 //! - overlays: Play anything, shortcuts, menus (M4: `overlays`)
 //! - Stage, equalizer, sleep timer (M6: `extras`)
 //!
@@ -17,6 +17,7 @@ mod overlays;
 mod page;
 mod player;
 mod queue;
+mod settings;
 mod sidebar;
 mod top_bar;
 mod widgets;
@@ -76,7 +77,9 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
                 .children(queue::panel(app, window, cx)),
         )
         .child(player::player_bar(app, cx))
-        .children(overlays::overlays(app, window, cx));
+        .children(overlays::overlays(app, window, cx))
+        // Dialogs and Settings (M3).
+        .children(account::layer(app, window, cx));
     let root = crate::pages::on_actions(root, cx);
     let root = crate::playback::on_actions(root, cx);
     let root = crate::account::on_actions(root, cx);

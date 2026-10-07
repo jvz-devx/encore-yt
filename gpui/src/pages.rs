@@ -136,10 +136,12 @@ impl MusicApp {
         self.pages.seq += 1;
         let seq = self.pages.seq;
         let state = self.pages.states.entry(key).or_insert_with(|| PageState {
+            target: target.clone(),
             page: None,
             loading: false,
             cached: false,
             error: None,
+            more_loading: Default::default(),
             fetched: None,
             seq,
         });
@@ -174,13 +176,17 @@ impl MusicApp {
                     state.loading = false;
                     state.error = None;
                     state.fetched = Some(Instant::now());
+                    state.more_loading.clear();
                 }
             }
             Err(error) => {
                 state.loading = false;
                 state.error = Some(error);
+                return;
             }
         }
+        // The account's changes still in force apply to the new copy (M3).
+        self.account_page_arrived(&key, cached);
     }
 
     pub(crate) fn on_more(

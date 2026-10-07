@@ -127,17 +127,9 @@ fn handle_requests(app: &Entity<MusicApp>, cx: &mut App) {
 }
 
 impl MusicApp {
-    /// `ytfast-gpui like`: likes need the account area (M3).
+    /// `ytfast-gpui like`: likes the playing song or removes its like (M3).
     fn like_playing(&mut self, cx: &mut Context<Self>) {
-        if !self.account.signed_in() {
-            self.error = Some(
-                "Sign in to YouTube Music in your browser, then Reconnect, to change your library."
-                    .into(),
-            );
-            cx.notify();
-        } else {
-            log::info!("liking from the command line isn't in this app yet");
-        }
+        self.toggle_like_current(cx);
     }
 }
 

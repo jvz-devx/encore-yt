@@ -4,6 +4,7 @@
 //! behind its feature. Keep the two in step until they move into the shared
 //! backend crate.
 
+use std::collections::HashSet;
 use std::time::Instant;
 
 use ytfast::model::{Page, Target};
@@ -62,11 +63,15 @@ impl View {
 }
 
 pub struct PageState {
+    /// What fetches this page (the account logic refetches through it).
+    pub target: Target,
     pub page: Option<Page>,
     pub loading: bool,
     /// The page shown is the saved copy and a refresh is under way or failed.
     pub cached: bool,
     pub error: Option<String>,
+    /// Continuations in flight: `None` for the page, `Some(i)` for shelf i.
+    pub more_loading: HashSet<Option<usize>>,
     pub fetched: Option<Instant>,
     /// The newest request for this page; older answers are ignored.
     pub seq: u64,

@@ -1,8 +1,13 @@
-//! The effects behind ytfast-gpui's Now Playing, without GPUI.
+//! The effects of ytfast-gpui, without GPUI.
 //!
-//! - [`Renderer`]: our own wgpu device draws the animated cover backdrop
-//!   (flowing blurred cover, palette gradient, bloom, particles) offscreen
-//!   and reads each frame back as BGRA bytes for the app to paint.
+//! - [`Gpu`]: our own offscreen wgpu device, shared by the renderers below.
+//!   Each draws offscreen and reads every frame back as BGRA bytes for the
+//!   app to paint.
+//! - [`Renderer`]: the animated cover backdrop behind Now Playing (flowing
+//!   blurred cover, palette gradient, bloom, particles).
+//! - [`Strip`]: the player bar's background in one pass (palette glow, the
+//!   seek bar with the song's waveform, beat halos).
+//! - [`Dissolve`]: a cover burning into the next one on a track change.
 //! - [`AudioTap`]: a PipeWire capture of mpv's stream, analysed into
 //!   spectrum bands plus bass and beat levels.
 //! - [`waveform`]: a whole song's loudness outline, decoded with ffmpeg and
@@ -11,12 +16,20 @@
 //! Findings and numbers: `gpui/NOTES-visuals.md`.
 
 mod cover;
+mod dissolve;
+mod gpu;
 mod mpv;
 mod pipewire;
 mod renderer;
 mod spectrum;
+mod strip;
+mod target;
 pub mod waveform;
 
 pub use cover::{COVER_SIZE, Cover};
-pub use renderer::{Frame, FrameCost, FrameParams, Look, Renderer};
+pub use dissolve::Dissolve;
+pub use gpu::Gpu;
+pub use renderer::{FrameParams, Look, Renderer};
 pub use spectrum::{AudioTap, BANDS, Bands};
+pub use strip::{Seek, Strip, StripColors, StripParams};
+pub use target::{Frame, FrameCost};

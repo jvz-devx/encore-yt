@@ -386,3 +386,93 @@ fn queue_ratings() {
     let likes: Vec<_> = next.tracks.iter().map(|t| t.like).collect();
     assert_eq!(likes, [Some(LikeStatus::Like), None]);
 }
+
+/// Search result rows signed in: most have no like button, and say whether
+/// the song is liked through their menu's liked-songs toggle, whose first
+/// action is the change a click makes ("Remove from liked songs" on a
+/// liked song). A hand-written response in the shape of a signed-in one.
+#[test]
+fn search_row_ratings() {
+    let toggle = |icon: &str, target: Value, status: &str| {
+        serde_json::json!({"toggleMenuServiceItemRenderer": {
+            "defaultIcon": {"iconType": icon},
+            "defaultServiceEndpoint": {"likeEndpoint": {"status": status, "target": target}},
+        }})
+    };
+    let keep = serde_json::json!({"toggleMenuServiceItemRenderer": {
+        "defaultIcon": {"iconType": "KEEP"},
+        "defaultServiceEndpoint": {"feedbackEndpoint": {"feedbackToken": "t"}},
+    }});
+    let row = |id: &str, buttons: Value, items: Vec<Value>| {
+        serde_json::json!({"musicResponsiveListItemRenderer": {
+            "flexColumns": [{"musicResponsiveListItemFlexColumnRenderer": {
+                "text": {"runs": [{"text": "Song"}]}
+            }}],
+            "playlistItemData": {"videoId": id},
+            "menu": {"menuRenderer": {"items": items, "topLevelButtons": buttons}},
+        }})
+    };
+    let song = |id: &str| serde_json::json!({"videoId": id});
+    let rows = vec![
+        // Liked: the toggle offers to remove the like.
+        row(
+            "aaaaaaaaaaa",
+            serde_json::json!([]),
+            vec![
+                keep.clone(),
+                toggle("UNFAVORITE", song("aaaaaaaaaaa"), "INDIFFERENT"),
+            ],
+        ),
+        // Not liked: the toggle offers the like.
+        row(
+            "bbbbbbbbbbb",
+            serde_json::json!([]),
+            vec![
+                toggle("FAVORITE", song("bbbbbbbbbbb"), "LIKE"),
+                keep.clone(),
+            ],
+        ),
+        // A like button wins over the menu.
+        row(
+            "ccccccccccc",
+            serde_json::json!([{"likeButtonRenderer": {
+                "target": {"videoId": "ccccccccccc"}, "likeStatus": "LIKE"
+            }}]),
+            vec![toggle("FAVORITE", song("ccccccccccc"), "LIKE")],
+        ),
+        // Only the library toggle of an album (a like of a playlist id).
+        row(
+            "ddddddddddd",
+            serde_json::json!([]),
+            vec![
+                keep,
+                toggle(
+                    "BOOKMARK_BORDER",
+                    serde_json::json!({"playlistId": "OLAK5uy_x"}),
+                    "LIKE",
+                ),
+            ],
+        ),
+    ];
+    let search = serde_json::json!({"contents": {"tabbedSearchResultsRenderer": {"tabs": [
+        {"tabRenderer": {"content": {"sectionListRenderer": {"contents": [
+            {"musicShelfRenderer": {"title": {"runs": [{"text": "Songs"}]}, "contents": rows}}
+        ]}}}}
+    ]}}});
+    let likes: Vec<_> = parse::page(&search)
+        .shelves
+        .iter()
+        .flat_map(|s| &s.items)
+        .filter_map(|i| i.track.as_ref())
+        .map(|t| (t.video_id.clone(), t.like))
+        .collect();
+    assert_eq!(
+        likes,
+        [
+            ("aaaaaaaaaaa".to_owned(), Some(LikeStatus::Like)),
+            ("bbbbbbbbbbb".to_owned(), Some(LikeStatus::Indifferent)),
+            ("ccccccccccc".to_owned(), Some(LikeStatus::Like)),
+            ("ddddddddddd".to_owned(), None),
+        ]
+    );
+}

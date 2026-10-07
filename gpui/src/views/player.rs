@@ -75,7 +75,13 @@ fn song(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElem
         Some(track) => v_flex()
             .min_w_0()
             .flex_1()
-            .child(div().truncate().type_label().child(track.title.clone()))
+            .child(
+                div()
+                    .debug_selector(|| format!("bar-title:{}", track.title))
+                    .truncate()
+                    .type_label()
+                    .child(track.title.clone()),
+            )
             .child(
                 links::track_links("bar", track, app, c, cx)
                     .type_small()
@@ -196,8 +202,14 @@ fn play_pause(playing: bool, loading: bool, c: &Colors) -> Stateful<Div> {
         widgets::glyph(Glyph::Play, size::ICON, fg).into_any_element()
     };
     let hover = c.primary_hover;
+    let shows = match (loading, playing) {
+        (true, _) => "loading",
+        (false, true) => "pause",
+        (false, false) => "play",
+    };
     h_flex()
         .id("play")
+        .debug_selector(|| format!("play-button:{shows}"))
         .relative()
         .mx(space::XS)
         .size(size::PLAY_BUTTON)
@@ -222,8 +234,9 @@ fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Into
     } else {
         player.position()
     };
-    let time = |t: String| {
+    let time = |which: &str, t: String| {
         div()
+            .debug_selector(|| format!("bar-{which}:{t}"))
             .w(px(40.))
             .flex_none()
             .type_caption()
@@ -244,11 +257,14 @@ fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Into
         .max_w(SEEK_MAX)
         .gap(space::SM)
         .child(
-            time(if known || elapsed > 0.0 {
-                clock(elapsed)
-            } else {
-                String::new()
-            })
+            time(
+                "elapsed",
+                if known || elapsed > 0.0 {
+                    clock(elapsed)
+                } else {
+                    String::new()
+                },
+            )
             .text_right(),
         )
         .child(
@@ -264,9 +280,12 @@ fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Into
                         .text_color(thumb),
                 ),
         )
-        .child(time(if known {
-            clock(duration)
-        } else {
-            String::new()
-        }))
+        .child(time(
+            "length",
+            if known {
+                clock(duration)
+            } else {
+                String::new()
+            },
+        ))
 }

@@ -80,6 +80,7 @@ pub fn card(
     });
     v_flex()
         .id(ctx.id(format!("card:{shelf}:{i}")))
+        .debug_selector(|| ctx.id(format!("card:{shelf}:{i}")).to_string())
         .group("card")
         .w(size::CARD)
         .flex_none()

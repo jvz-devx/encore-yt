@@ -179,6 +179,7 @@ fn suggestion_row(
         highlighted,
         c,
     )
+    .debug_selector(|| format!("suggestion:{run}"))
     .child(
         div()
             .flex_1()

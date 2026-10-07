@@ -125,7 +125,13 @@ pub fn title(index: usize, shelf: &Shelf, ctx: &Ctx, cx: &mut Context<MusicApp>)
                         .clone()
                         .map(|s| div().type_caption().text_color(c.text_muted).child(s)),
                 )
-                .child(div().type_title().truncate().child(shelf.title.clone())),
+                .child(
+                    div()
+                        .debug_selector(|| format!("shelf:{}", shelf.title))
+                        .type_title()
+                        .truncate()
+                        .child(shelf.title.clone()),
+                ),
         )
         .children(see_all)
         .into_any_element()

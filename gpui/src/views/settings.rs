@@ -42,6 +42,7 @@ pub fn settings(
     ];
     let panel = widgets::floating(&c)
         .id("settings")
+        .debug_selector(|| "settings".into())
         .key_context(crate::account::DIALOG_CONTEXT)
         .track_focus(&app.account.focus)
         .w(WIDTH)

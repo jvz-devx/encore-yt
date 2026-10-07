@@ -105,6 +105,7 @@ fn row(
 ) -> impl IntoElement {
     h_flex()
         .id(("menu-entry", i))
+        .debug_selector(|| format!("menu-entry:{}", e.label))
         .h(ENTRY)
         .px(space::MD)
         .gap(space::MD)

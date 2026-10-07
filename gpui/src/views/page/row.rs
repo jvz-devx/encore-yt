@@ -60,6 +60,7 @@ pub fn row(
     let title_color = if playing { c.signal } else { c.text };
     h_flex()
         .id(ctx.id(format!("row:{shelf}:{i}")))
+        .debug_selector(|| ctx.id(format!("row:{shelf}:{i}")).to_string())
         .group("row")
         .w_full()
         .h(size::ROW)

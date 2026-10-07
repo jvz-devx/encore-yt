@@ -1,0 +1,46 @@
+[package]
+name = "encore-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The backend of Encore, a native YouTube Music client"
+license.workspace = true
+authors = ["Tyler Mayberry"]
+repository.workspace = true
+publish = false
+
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+directories = "6"
+fastrand = "2"
+# The backend runtime: InnerTube requests, cover downloads and stream resolving.
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
+reqwest = { workspace = true, features = ["json", "gzip", "brotli"] }
+# MPRIS and desktop notifications over the session bus, served from the
+# backend's tokio runtime. The same zbus the app's AccessKit brings in, with
+# the same `async-io` reactor: zbus's `tokio` feature would apply to
+# AccessKit's zbus too, and accesskit_unix can't run its D-Bus thread with both.
+# `blocking-api`: sign-in reads KWallet from a blocking thread (src/auth.rs).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# The tray icon (StatusNotifierItem) while the window is closed; on the same
+# zbus and `async-io` reactor, for the same reason.
+ksni = { version = "0.3", default-features = false, features = ["async-io"] }
+# Reads the browser's cookie store (a copy; the browser keeps it open).
+rusqlite = "0.37"
+# Chromium's cookie encryption on Linux: PBKDF2-SHA1 key, AES-128-CBC.
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+sha1 = "0.10"
+sha2.workspace = true
+rquickjs = "0.14"
+# The audio engine (docs/gpui/AUDIO.md).
+encore-audio.workspace = true
+
+# Windows has no system SQLite to link; build it in.
+[target.'cfg(windows)'.dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }

@@ -5,7 +5,7 @@
 #
 #   scripts/gpui-input.sh setup             start ydotoold, flat pointer accel
 #   scripts/gpui-input.sh launch [BIN]      stop any running copy, start BIN
-#                                           (default gpui/target/debug/ytfast-gpui,
+#                                           (default target/debug/encore-yt,
 #                                           log in artifacts/gpui/run.log) and
 #                                           place its window at 0,0 1280x1000
 #   scripts/gpui-input.sh stop              stop the app (its audio stops with it)
@@ -63,6 +63,7 @@ setup() {
     kscreen-doctor --dpms on >/dev/null 2>&1 || true
 }
 
+# The name from before the rename, so checkouts on either side share it.
 LOCK="$XDG_RUNTIME_DIR/ytfast-gpui-desktop.lock"
 # The window's frame on screen after `launch`: x, y, width, height.
 GEOMETRY="0 0 1280 1000"
@@ -73,17 +74,17 @@ place() {
     read -r x y w h <<<"$GEOMETRY"
     cat >"$script" <<JS
 for (const w of workspace.windowList()) {
-    if (w.resourceClass === "ytfast-gpui") {
+    if (w.resourceClass === "io.github.jvz-devx.encore-yt") {
         w.frameGeometry = { x: $x, y: $y, width: $w, height: $h };
         workspace.activeWindow = w;
     }
 }
 JS
-    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript ytfast-place >/dev/null 2>&1 || true
-    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$script" ytfast-place >/dev/null
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript encore-place >/dev/null 2>&1 || true
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$script" encore-place >/dev/null
     qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null
     sleep 0.5
-    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript ytfast-place >/dev/null
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript encore-place >/dev/null
     rm -f "$script"
 }
 
@@ -94,7 +95,7 @@ app_pids() {
     local pid exe
     for pid in /proc/[0-9]*; do
         exe="$(readlink "$pid/exe" 2>/dev/null)" || continue
-        case "${exe##*/}" in ytfast-gpui*) echo "${pid#/proc/}" ;; esac
+        case "${exe##*/}" in encore-yt*) echo "${pid#/proc/}" ;; esac
     done
 }
 
@@ -106,7 +107,7 @@ stop() {
 }
 
 launch() {
-    local bin="${1:-gpui/target/debug/ytfast-gpui}"
+    local bin="${1:-target/debug/encore-yt}"
     stop
     mkdir -p artifacts/gpui
     setsid "$bin" >artifacts/gpui/run.log 2>&1 </dev/null &

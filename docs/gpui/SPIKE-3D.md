@@ -18,15 +18,15 @@ concepts discussed on 2026-10-07:
    colours; bass swells it, highs ripple its surface.
 4. **Flyover:** a slow flight over a terrain whose ridges are the spectrum.
 
-The taste rules in gpui/NOTES-visuals.md ("Taste") apply: slow camera,
+The taste rules in docs/gpui/VISUALS.md ("Taste") apply: slow camera,
 soft depth and fog, cover colours with capped chroma, nothing flashing on
 the beat, readable text over the backdrop.
 
 ## Question 1: can the 3D frame reach GPUI without a CPU copy?
 
 Today every effect renders on our own wgpu device and is read back to the
-CPU and handed to GPUI as an image (gpui/crates/visuals/src/target.rs,
-gpui/src/visuals/frames.rs). That is fine for a soft 528×448 backdrop but
+CPU and handed to GPUI as an image (crates/visuals/src/target.rs,
+crates/app/src/visuals/frames.rs). That is fine for a soft 528×448 backdrop but
 not for a sharp 3D scene at window size and 120 Hz.
 
 On macOS GPUI draws with Metal directly (`gpui-pre-macos`, `metal` crate),
@@ -60,11 +60,11 @@ song gives the same world.
 ## Setting up the Mac
 
 - Xcode command line tools, Rust via rustup (`rust-version` in
-  gpui/Cargo.toml), and CMake (`brew install cmake`; libopus builds from
+  crates/app/Cargo.toml), and CMake (`brew install cmake`; libopus builds from
   source).
-- `git clone https://github.com/jvz-devx/ytfast-gpui`, then `cd gpui` and
-  `cargo run --profile profiling` (the release-speed build without LTO).
-- `YTFAST_FAKE_STREAM=<an audio file>` plays a local file instead of
+- `git clone https://github.com/jvz-devx/encore-yt`, then
+  `cargo run --profile profiling` at the repository root (the release-speed build without LTO).
+- `ENCORE_FAKE_STREAM=<an audio file>` plays a local file instead of
   YouTube, so the spike doesn't touch the account.
 - Work on a branch (`spike-3d`), commit what you learn to this file, and
   keep captures out of the repository.

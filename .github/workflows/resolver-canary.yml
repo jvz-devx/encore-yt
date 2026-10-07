@@ -19,13 +19,13 @@ on:
         default: ""
   pull_request:
     paths:
-      - src/jsc.rs
-      - src/jsc/**
-      - src/streams.rs
-      - src/innertube.rs
-      - src/resolver.rs
-      - examples/resolve_rust.rs
-      - tests/resolver_offline.rs
+      - crates/core/src/jsc.rs
+      - crates/core/src/jsc/**
+      - crates/core/src/streams.rs
+      - crates/core/src/innertube.rs
+      - crates/core/src/resolver.rs
+      - crates/core/examples/resolve_rust.rs
+      - crates/core/tests/resolver_offline.rs
       - scripts/resolver-canary.sh
       - scripts/ejs-expected.sh
       - .github/workflows/resolver-canary.yml
@@ -67,8 +67,8 @@ jobs:
 
       - name: Build the test and the resolver
         run: |
-          cargo test --locked --test resolver_offline --no-run
-          cargo build --locked --example resolve_rust
+          cargo test --locked -p encore-core --test resolver_offline --no-run
+          cargo build --locked -p encore-core --example resolve_rust
 
       - name: Canary
         env:

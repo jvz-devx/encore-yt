@@ -1,4 +1,4 @@
-// The app's audio analysis (gpui/crates/visuals/src/spectrum.rs) on Web
+// The app's audio analysis (crates/visuals/src/spectrum.rs) on Web
 // Audio: 60 hops a second, a 4096-point FFT of the newest mono samples
 // folded into 32 log-spaced bands from 50 Hz to 16 kHz, automatic gain,
 // fast attack and slow release, then bass, kick and level. On top of that

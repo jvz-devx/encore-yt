@@ -1,0 +1,103 @@
+[package]
+name = "encore-yt"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Encore: a native YouTube Music client"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "encore-yt"
+path = "src/main.rs"
+
+[dependencies]
+# The backend (InnerTube, stream resolver, audio engine, sign-in, MPRIS).
+encore-core.workspace = true
+# GPUI with gpui-component, pinned as one set: gpui-kit pins gpui-pre and
+# gpui-pre-platform (wayland, x11). Move these together.
+gpui-kit = "=0.7.1"
+# The HTTP client img("https://...") fetches cover art with; same version as
+# the gpui-pre that gpui-kit pins.
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
+# Wakes the foreground task that drains backend events.
+smol = "2"
+# SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
+tokio = { workspace = true, features = ["rt", "signal", "sync"] }
+anyhow.workspace = true
+log.workspace = true
+# Recently played in the sidebar (already in the tree).
+serde_json.workspace = true
+# The log file and the panic log.
+fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+# M8 effects behind Now Playing (wgpu backdrop, the spectrum and waveform
+# from the audio engine), without GPUI; src/visuals wraps it in views.
+encore-visuals.workspace = true
+# M16 auto-update (src/update): the release feed and downloads (the
+# backend's reqwest, on its runtime, with a client of our own so no YouTube
+# state goes to GitHub), checksums, versions and the job file. All already
+# in the tree at these versions.
+reqwest.workspace = true
+sha2.workspace = true
+semver = "1"
+serde.workspace = true
+# Builds the BGRA frames GPUI paints (`RenderImage` holds `image::Frame`s).
+# Already in the lock through gpui-pre, at the same version.
+image = { version = "0.25", default-features = false }
+
+# The headless UI tests (src/ui_tests): GPUI's test platform, `#[gpui::test]`
+# and the kit's test helpers.
+[dev-dependencies]
+gpui-kit = { version = "=0.7.1", features = ["test-support"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Light/dark and reduced motion from the XDG desktop portal's Settings
+# (src/theme/portal.rs). Already in the tree through gpui-pre-linux and
+# gpui-base with these features, on zbus's `async-io` reactor.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+# M15: the system media controls (Windows System Media Transport Controls,
+# macOS Now Playing and media keys), src/desktop/media.rs. Linux has MPRIS in
+# the backend.
+souvlaki = { version = "0.8.3", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The main window's HWND for the media controls; the version gpui-pre uses.
+raw-window-handle = "0.6"
+
+# Linux packages (cargo-deb, cargo-generate-rpm), built by
+# .github/workflows/release.yml. The app lives in /usr/lib/encore-yt and
+# needs no other programs: it plays and resolves streams itself. cargo-deb
+# reads asset paths from this crate's directory, cargo-generate-rpm from the
+# workspace root (where release.yml runs it).
+[package.metadata.deb]
+name = "encore-yt"
+maintainer = "jvz-devx <jvz-devx@users.noreply.github.com>"
+copyright = "Tyler Mayberry and the encore-yt contributors"
+extended-description = "Encore: a native YouTube Music client, built with GPUI. Plays and resolves streams itself."
+section = "sound"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/encore-yt", "usr/lib/encore-yt/encore-yt", "755"],
+    ["../../packaging/linux/encore-yt.sh", "usr/bin/encore-yt", "755"],
+    ["../../packaging/linux/io.github.jvz-devx.encore-yt.desktop", "usr/share/applications/io.github.jvz-devx.encore-yt.desktop", "644"],
+    ["../../packaging/icons/encore-yt.svg", "usr/share/icons/hicolor/scalable/apps/encore-yt.svg", "644"],
+    ["../../packaging/icons/encore-yt.png", "usr/share/icons/hicolor/512x512/apps/encore-yt.png", "644"],
+    ["../../packaging/THIRD-PARTY.txt", "usr/share/doc/encore-yt/THIRD-PARTY.txt", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "encore-yt"
+summary = "Encore: a native YouTube Music client"
+auto-req = "builtin"
+assets = [
+    { source = "target/release/encore-yt", dest = "/usr/lib/encore-yt/encore-yt", mode = "755" },
+    { source = "packaging/linux/encore-yt.sh", dest = "/usr/bin/encore-yt", mode = "755" },
+    { source = "packaging/linux/io.github.jvz-devx.encore-yt.desktop", dest = "/usr/share/applications/io.github.jvz-devx.encore-yt.desktop", mode = "644" },
+    { source = "packaging/icons/encore-yt.svg", dest = "/usr/share/icons/hicolor/scalable/apps/encore-yt.svg", mode = "644" },
+    { source = "packaging/icons/encore-yt.png", dest = "/usr/share/icons/hicolor/512x512/apps/encore-yt.png", mode = "644" },
+    { source = "packaging/THIRD-PARTY.txt", dest = "/usr/share/doc/encore-yt/THIRD-PARTY.txt", mode = "644", doc = true },
+]

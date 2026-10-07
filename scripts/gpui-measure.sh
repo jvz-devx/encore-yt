@@ -1,7 +1,7 @@
 #!/bin/bash
 # measure LABEL: 10 s CPU % (of one core), PSS MB of the app (audio included), GPU render busy %.
 label=$1
-app=""; for p in /proc/[0-9]*; do e=$(readlink $p/exe 2>/dev/null); case "${e##*/}" in ytfast-gpui*) app=${p#/proc/};; esac; done
+app=""; for p in /proc/[0-9]*; do e=$(readlink $p/exe 2>/dev/null); case "${e##*/}" in encore-yt*) app=${p#/proc/};; esac; done
 ticks() { local t=0; for p in "$@"; do [ -r /proc/$p/stat ] && t=$((t + $(awk '{print $14+$15}' /proc/$p/stat))); done; echo $t; }
 pss() { local t=0; for p in "$@"; do [ -r /proc/$p/smaps_rollup ] && t=$((t + $(awk '/^Pss:/{print $2}' /proc/$p/smaps_rollup))); done; echo $((t/1024)); }
 a0=$(ticks $app)

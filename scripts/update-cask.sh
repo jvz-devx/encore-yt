@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Points Casks/ytfast-gpui.rb at a release: its version and the SHA-256 of
+# Points Casks/encore-yt.rb at a release: its version and the SHA-256 of
 # both disk images, taken from the release's checksums.txt. The release
 # workflow runs it after publishing a release and commits the result.
 #
@@ -9,11 +9,11 @@ set -euo pipefail
 
 tag="${1:?usage: update-cask.sh TAG CHECKSUMS}"
 sums="${2:?usage: update-cask.sh TAG CHECKSUMS}"
-cask="$(dirname "$0")/../Casks/ytfast-gpui.rb"
+cask="$(dirname "$0")/../Casks/encore-yt.rb"
 version="${tag#v}"
 
 sha_of() {
-	local file="ytfast-gpui-$version-macos-$1.dmg" sum
+	local file="encore-yt-$version-macos-$1.dmg" sum
 	sum="$(awk -v file="$file" '$2 == file || $2 == "*" file { print $1; exit }' "$sums")"
 	if [[ ! "$sum" =~ ^[0-9a-f]{64}$ ]]; then
 		echo "update-cask: no SHA-256 for $file in $sums" >&2

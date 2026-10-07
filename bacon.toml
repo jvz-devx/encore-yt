@@ -1,19 +1,41 @@
-# Background compiler feedback for the root crate (the backend). For the
-# GPUI app, run bacon in gpui/ instead (gpui/bacon.toml). Run it in your own
-# terminal, not from an agent task.
+# Background compiler feedback for the workspace. Run `bacon` at the
+# repository root in your own terminal (not from an agent task): it re-checks
+# the app on every save. Agents read its results instead of starting their
+# own checks.
 #
-#   c  check the backend (default)   t  backend tests
+#   c  check the app (default)     b  check the backend (core)
+#   v  check the visuals crate     l  clippy for the app
+#   t  core tests                  (`bacon test-visuals` for the visuals tests)
 
 default_job = "check"
 
 [jobs.check]
-command = ["cargo", "check", "--lib", "--features", "rust-audio"]
+command = ["cargo", "check", "-p", "encore-yt"]
 need_stdout = false
 
-[jobs.test]
-command = ["cargo", "test", "--lib", "--tests", "--features", "rust-audio"]
+[jobs.check-core]
+command = ["cargo", "check", "-p", "encore-core"]
+need_stdout = false
+
+[jobs.check-visuals]
+command = ["cargo", "check", "-p", "encore-visuals"]
+need_stdout = false
+
+[jobs.clippy]
+command = ["cargo", "clippy", "-p", "encore-yt", "--", "-D", "warnings"]
+need_stdout = false
+
+[jobs.test-core]
+command = ["cargo", "test", "-p", "encore-core", "--lib", "--tests"]
+need_stdout = true
+
+[jobs.test-visuals]
+command = ["cargo", "test", "-p", "encore-visuals"]
 need_stdout = true
 
 [keybindings]
 c = "job:check"
-t = "job:test"
+b = "job:check-core"
+v = "job:check-visuals"
+l = "job:clippy"
+t = "job:test-core"

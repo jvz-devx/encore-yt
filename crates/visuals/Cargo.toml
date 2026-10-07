@@ -1,0 +1,21 @@
+[package]
+name = "encore-visuals"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Now Playing effects for encore-yt: an offscreen wgpu renderer, a spectrum of what the audio engine plays and song waveforms"
+license.workspace = true
+publish = false
+
+# No GPUI here: `cargo check -p encore-visuals` and its tests build without
+# the app. The app wraps this crate in GPUI views (crates/app/src/visuals).
+[dependencies]
+# Our own offscreen device for the shader effects. Keep equal to the wgpu
+# that gpui-pre-wgpu uses, so the tree holds one wgpu.
+wgpu = "29.0.4"
+# Blocks on wgpu's adapter and device requests (already in the lock).
+pollster = "0.4"
+# The audio engine: its tap (the spectrum) and decoder (waveforms).
+encore-audio.workspace = true
+anyhow.workspace = true
+log.workspace = true

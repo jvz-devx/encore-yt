@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Encore
+GenericName=YouTube Music Player
+Comment=YouTube Music, native and fast
+Exec=encore-yt %U
+Icon=encore-yt
+Terminal=false
+StartupWMClass=io.github.jvz-devx.encore-yt
+Categories=AudioVideo;Audio;Player;
+Keywords=music;youtube;ytm;player;playlist;album;artist;

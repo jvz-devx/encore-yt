@@ -5,81 +5,64 @@
 #   scripts/dev.sh test   CRATE [FILTER] that crate's tests, optionally filtered
 #   scripts/dev.sh lint   CRATE          clippy -D warnings for that crate
 #   scripts/dev.sh verify CRATE          fmt, check, tests and clippy for it
-#   scripts/dev.sh verify-workspace      everything, both workspaces (final)
+#   scripts/dev.sh verify-workspace      everything in the workspace (final)
 #   scripts/dev.sh shaders               validate every .wgsl with naga
 #
 # CRATE is one of:
-#   gpui      the GPUI app (gpui/, package ytfast-gpui)
-#   visuals   the wgpu effects crate (gpui/crates/visuals, ytfast-visuals)
-#   audio     the Rust playback engine (gpui/crates/audio, ytfast-audio)
-#   backend   the root crate (the library gpui uses), with the Rust audio
-#             engine
-#
-# The root crate and gpui/ are still separate Cargo workspaces (one is
-# planned, PLAN M23), so "workspace" here means both.
+#   app       the GPUI app (crates/app, package encore-yt)
+#   core      the backend library the app uses (crates/core, package encore-core)
+#   visuals   the wgpu effects crate (crates/visuals, encore-visuals)
+#   audio     the Rust playback engine (crates/audio, encore-audio)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 jobs="${JOBS:-4}"
 
 step() { printf '== %s\n' "$*" >&2; }
 
-# Where a crate lives and how cargo selects it.
-crate_dir() {
+# The package cargo selects for a crate.
+package() {
     case "$1" in
-        gpui | visuals | audio) echo gpui ;;
-        backend) echo . ;;
-        *) echo "unknown crate '$1' (gpui, visuals, audio, backend)" >&2; exit 2 ;;
+        app) echo encore-yt ;;
+        core) echo encore-core ;;
+        visuals) echo encore-visuals ;;
+        audio) echo encore-audio ;;
+        *) echo "unknown crate '$1' (app, core, visuals, audio)" >&2; exit 2 ;;
     esac
-}
-crate_args() {
-    case "$1" in
-        gpui) echo "-p ytfast-gpui" ;;
-        visuals) echo "-p ytfast-visuals" ;;
-        audio) echo "-p ytfast-audio" ;;
-        backend) echo "--lib" ;;
-    esac
-}
-in_crate() {
-    local crate=$1
-    shift
-    local dir
-    dir="$(crate_dir "$crate")"
-    (cd "$dir" && "$@")
 }
 
 check() {
+    local pkg
+    pkg="$(package "$1")"
     step "check $1"
-    # shellcheck disable=SC2046
-    in_crate "$1" cargo check -j "$jobs" $(crate_args "$1")
+    cargo check -j "$jobs" -p "$pkg"
 }
 
 test_crate() {
-    local crate=$1 filter=${2:-}
+    local crate=$1 filter=${2:-} pkg
+    pkg="$(package "$crate")"
+    step "test $crate"
+    # app: the headless UI tests (crates/app/src/ui_tests), GPUI's test
+    # platform with no desktop, network or YouTube. core: the parser
+    # fixture tests (crates/core/tests) and unit tests.
+    # shellcheck disable=SC2086
     case "$crate" in
-        # The headless UI tests (gpui/src/ui_tests): GPUI's test platform, no
-        # desktop, network or YouTube.
-        gpui) step "test gpui"; in_crate gpui cargo test -j "$jobs" -p ytfast-gpui -- $filter ;;
-        visuals) step "test visuals"; in_crate gpui cargo test -j "$jobs" -p ytfast-visuals -- $filter ;;
-        audio) step "test audio"; in_crate gpui cargo test -j "$jobs" -p ytfast-audio -- $filter ;;
-        backend)
-            # The parser fixture tests (tests/) and unit tests.
-            step "test backend"
-            cargo test -j "$jobs" --lib --tests -- $filter
-            ;;
+        core) cargo test -j "$jobs" -p "$pkg" --lib --tests -- $filter ;;
+        *) cargo test -j "$jobs" -p "$pkg" -- $filter ;;
     esac
 }
 
 lint() {
+    local pkg
+    pkg="$(package "$1")"
     step "clippy $1"
-    case "$1" in
-        backend) cargo clippy -j "$jobs" --lib --tests --examples -- -D warnings ;;
-        *) in_crate "$1" cargo clippy -j "$jobs" $(crate_args "$1") --all-targets -- -D warnings ;;
-    esac
+    cargo clippy -j "$jobs" -p "$pkg" --all-targets -- -D warnings
 }
 
 fmt() {
+    local pkg
+    pkg="$(package "$1")"
     step "fmt $1"
-    in_crate "$1" cargo fmt --all
+    cargo fmt -p "$pkg"
 }
 
 shaders() {
@@ -98,7 +81,7 @@ shaders() {
                 ;;
             *) naga "$file" >/dev/null && echo "ok  $file" ;;
         esac
-    done < <(find gpui -name '*.wgsl' -not -path '*/target/*' -print0)
+    done < <(find crates -name '*.wgsl' -print0)
     [ "$found" = 1 ] || echo "no .wgsl files"
 }
 
@@ -112,15 +95,12 @@ verify() {
 }
 
 verify_workspace() {
-    step "fmt (check, both workspaces)"
+    step "fmt (check)"
     cargo fmt --all --check
-    (cd gpui && cargo fmt --all --check)
-    lint backend
-    test_crate backend
-    step "clippy gpui workspace"
-    (cd gpui && cargo clippy -j "$jobs" --workspace --all-targets -- -D warnings)
-    step "test gpui workspace"
-    (cd gpui && cargo test -j "$jobs" --workspace)
+    step "clippy (workspace)"
+    cargo clippy -j "$jobs" --workspace --all-targets -- -D warnings
+    step "test (workspace)"
+    cargo test -j "$jobs" --workspace --lib --bins --tests
     shaders
     printf '\nverify-workspace: passed\n'
 }
@@ -128,11 +108,11 @@ verify_workspace() {
 action="${1:-}"
 shift || true
 case "$action" in
-    check) check "${1:-gpui}" ;;
-    test) test_crate "${1:-backend}" "${2:-}" ;;
-    lint) lint "${1:-gpui}" ;;
-    verify) verify "${1:-gpui}" ;;
+    check) check "${1:-app}" ;;
+    test) test_crate "${1:-core}" "${2:-}" ;;
+    lint) lint "${1:-app}" ;;
+    verify) verify "${1:-app}" ;;
     verify-workspace) verify_workspace ;;
     shaders) shaders ;;
-    *) sed -n '2,20p' "$0"; exit 2 ;;
+    *) sed -n '2,15p' "$0"; exit 2 ;;
 esac

@@ -1,6 +1,6 @@
 // The cover and the song's identity: the picture, title and artist from
 // the mp3's ID3v2 tag, the app's four-colour palette
-// (gpui/crates/visuals/src/cover.rs: quadrant averages, saturation lifted
+// (crates/visuals/src/cover.rs: quadrant averages, saturation lifted
 // 1.4) and how much colour the tone mapping keeps (renderer.rs
 // colour_kept), and the seed from a video id.
 

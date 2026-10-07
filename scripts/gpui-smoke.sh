@@ -28,7 +28,7 @@ input=scripts/gpui-input.sh
 
 if [ -z "${SMOKE_LOCKED:-}" ]; then
     if [ -z "${SMOKE_NO_BUILD:-}" ]; then
-        (cd gpui && nice cargo build -j "${JOBS:-3}" --release)
+        nice cargo build -j "${JOBS:-3}" -p encore-yt --release
     fi
     export SMOKE_LOCKED=1
     exec "$input" locked "$0" "$@"
@@ -36,18 +36,18 @@ fi
 
 started=$(date +%s)
 # A short path: the app's sockets live under it (sun_path is 108 bytes).
-state="$(mktemp -d /tmp/ytfast-smoke.XXXXXX)"
-log="$state/cache/ytfast/ytfast-gpui.log"
+state="$(mktemp -d /tmp/encore-smoke.XXXXXX)"
+log="$state/cache/encore-yt/encore-yt.log"
 desktop_run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 wayland="${WAYLAND_DISPLAY:-wayland-0}"
 [[ "$wayland" == /* ]] || wayland="$desktop_run/$wayland"
 failures=0
 shots=0
 
-# The app's file name must stay ytfast-gpui (`gpui-input.sh stop` finds it so).
+# The app's file name must stay encore-yt (`gpui-input.sh stop` finds it so).
 mkdir -p "$state/bin" "$state/config" "$state/cache" "$state/run" artifacts/gpui
 chmod 700 "$state/run"
-cp gpui/target/release/ytfast-gpui "$state/bin/ytfast-gpui"
+cp target/release/encore-yt "$state/bin/encore-yt"
 rm -f artifacts/gpui/smoke-*.png
 
 finish() {
@@ -94,12 +94,12 @@ wait_log() {
 # Lines of the app log matching PATTERN.
 count_log() { grep -cE "$1" "$log" 2>/dev/null || true; }
 
-# Whether a ytfast-gpui process runs (as `gpui-input.sh stop` finds it).
+# Whether an encore-yt process runs (as `gpui-input.sh stop` finds it).
 app_running() {
     local p e
     for p in /proc/[0-9]*; do
         e="$(readlink "$p/exe" 2>/dev/null)" || continue
-        case "${e##*/}" in ytfast-gpui*) return 0 ;; esac
+        case "${e##*/}" in encore-yt*) return 0 ;; esac
     done
     return 1
 }
@@ -128,7 +128,7 @@ XDG_CONFIG_HOME="$state/config" XDG_CACHE_HOME="$state/cache" \
     WAYLAND_DISPLAY="$wayland" \
     PIPEWIRE_RUNTIME_DIR="$desktop_run" PULSE_SERVER="unix:$desktop_run/pulse/native" \
     DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$desktop_run/bus}" \
-    "$input" launch "$state/bin/ytfast-gpui"
+    "$input" launch "$state/bin/encore-yt"
 
 echo "== pages"
 # Never drive a signed-in app: plays would land in someone's history.
@@ -234,8 +234,8 @@ songs=$(grep -oE 'now playing [A-Za-z0-9_-]{11}' "$log" | sort -u | wc -l)
 grep -q 'account: signed out' "$log" && pass "signed out" ||
     fail "the account check didn't report signed out"
 # The app's own errors and panics (a cover that 404s is gpui's, and fine).
-errors='panicked|ERROR (ytfast|ytfast_gpui)[] :]'
-if grep -qE "$errors" "$log" || [ -s "$state/cache/ytfast/panics-gpui.log" ]; then
+errors='panicked|ERROR (encore_core|encore_yt)[] :]'
+if grep -qE "$errors" "$log" || [ -s "$state/cache/encore-yt/panics.log" ]; then
     fail "errors in the log: $(grep -E "$errors" "$log" | head -3)"
 else
     pass "no errors or panics in the log"

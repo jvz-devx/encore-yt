@@ -1,5 +1,5 @@
 # Weekly: if yt-dlp-ejs (github.com/yt-dlp/ejs) has a release newer than the
-# solver vendored in src/jsc/, vendors it and pins its hashes
+# solver vendored in crates/core/src/jsc/, vendors it and pins its hashes
 # (scripts/ejs-bump.sh), checks that QuickJS solves the current player like
 # yt-dlp's EJS in deno (scripts/resolver-canary.sh --solver-only), opens a
 # pull request and runs the resolver canary on its branch. Merging that
@@ -85,7 +85,7 @@ jobs:
           PREVIOUS: ${{ steps.bump.outputs.previous }}
           BASE: ${{ github.ref_name }}
         run: |
-          if git diff --quiet -- src/jsc; then
+          if git diff --quiet -- crates/core/src/jsc; then
             echo "EJS $VERSION is already vendored; nothing to propose"
             exit 0
           fi
@@ -93,14 +93,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add src/jsc
+          git add crates/core/src/jsc src/jsc/pins.txt
           git commit -m "Vendor yt-dlp-ejs $VERSION" \
             -m "scripts/ejs-bump.sh moved the solver from $PREVIOUS to $VERSION and pinned its hashes; QuickJS solves the current player like yt-dlp's EJS in deno."
           git push --force origin "$branch"
           {
             echo "yt-dlp-ejs $VERSION: <https://github.com/yt-dlp/ejs/releases/tag/$VERSION> (was $PREVIOUS)."
             echo
-            echo "- The files match GitHub's SHA-256 digests for the release assets and still carry the Unlicense header; \`src/jsc/pins.txt\` pins them."
+            echo "- The files match GitHub's SHA-256 digests for the release assets and still carry the Unlicense header; \`crates/core/src/jsc/pins.txt\` pins them."
             echo "- QuickJS solves the current player's challenges like yt-dlp's EJS in deno:"
             echo
             echo '```'

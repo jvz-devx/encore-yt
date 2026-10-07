@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Submits a release to winget (microsoft/winget-pkgs) by hand, with komac,
 # as the GitHub account `gh` is signed in to, through that account's fork
-# of winget-pkgs. See gpui/packaging/winget/README.md.
+# of winget-pkgs. See packaging/winget/README.md.
 #
 #   scripts/winget-submit.sh 0.1.0-alpha.2            # dry run: prints the manifests
 #   scripts/winget-submit.sh 0.1.0-alpha.2 --submit   # opens the pull request
@@ -12,10 +12,10 @@
 
 set -euo pipefail
 
-PACKAGE="jvz-devx.ytfast"
-REPO="jvz-devx/ytfast-gpui"
+PACKAGE="jvz-devx.encore-yt"
+REPO="jvz-devx/encore-yt"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-COMMITTED="$HERE/gpui/packaging/winget"
+COMMITTED="$HERE/packaging/winget"
 
 usage() {
 	echo "usage: winget-submit.sh VERSION [--submit]" >&2
@@ -50,7 +50,7 @@ export GITHUB_TOKEN
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 
-# PackageIdentifier jvz-devx.ytfast -> manifests/j/jvz-devx/ytfast
+# PackageIdentifier jvz-devx.encore-yt -> manifests/j/jvz-devx/encore-yt
 path="manifests/$(printf '%s' "${PACKAGE:0:1}" | tr '[:upper:]' '[:lower:]')/${PACKAGE//.//}"
 status="$(curl -s -o /dev/null -w '%{http_code}' "https://api.github.com/repos/microsoft/winget-pkgs/contents/$path")"
 
@@ -59,7 +59,7 @@ case "$status" in
 	# Already in winget: a new version from the release's setup program,
 	# with everything else carried over from the newest version there.
 	# komac prints the manifests it writes.
-	url="https://github.com/$REPO/releases/download/v$version/ytfast-gpui-$version-windows-x86_64-setup.exe"
+	url="https://github.com/$REPO/releases/download/v$version/encore-yt-$version-windows-x86_64-setup.exe"
 	komac update "$PACKAGE" --version "$version" --urls "$url" \
 		--release-notes-url "https://github.com/$REPO/releases/tag/v$version" \
 		--dry-run --output "$out"

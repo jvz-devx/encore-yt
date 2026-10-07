@@ -11,6 +11,7 @@ mod extras;
 mod nav;
 mod pages;
 mod playback;
+mod sidebar;
 mod theme;
 mod views;
 mod visuals;

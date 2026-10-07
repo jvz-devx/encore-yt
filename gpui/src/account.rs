@@ -132,6 +132,7 @@ impl MusicApp {
         } else if was && !self.account.signed_in() {
             self.ensure_page(self.pages.view.target(), true);
         }
+        self.sidebar_account();
     }
 
     pub(crate) fn on_profiles(&mut self, list: Vec<Profile>, current: Option<String>) {

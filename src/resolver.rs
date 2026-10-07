@@ -28,6 +28,27 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
 use crate::innertube::Stream;
 
+/// Development and testing: `YTFAST_FAKE_STREAM=<audio file>` plays that
+/// local file for every song instead of resolving streams with yt-dlp, so
+/// UI, performance and effects checks don't make stream requests to
+/// YouTube (whose rate limits an account can hit). Plays aren't reported to
+/// history in this mode.
+pub fn fake_stream() -> Option<Stream> {
+    static FAKE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    FAKE.get_or_init(|| {
+        let path = std::env::var("YTFAST_FAKE_STREAM").ok()?;
+        log::warn!("YTFAST_FAKE_STREAM is set: every song plays {path}");
+        Some(path)
+    })
+    .as_ref()
+    .map(|path| Stream {
+        itag: 251,
+        url: path.clone(),
+        user_agent: None,
+        expires: now() + 24 * 3600,
+    })
+}
+
 /// Runs at once for playback: a click can start while the song before it
 /// still resolves.
 const PLAYBACK_SLOTS: usize = 2;
@@ -237,6 +258,9 @@ impl Resolver {
 
     /// A cached stream still valid for ten minutes.
     pub fn cached(&self, video_id: &str) -> Option<Stream> {
+        if let Some(stream) = fake_stream() {
+            return Some(stream);
+        }
         let signed_in = self.signed_in();
         let cache = self.cache.lock().expect("cache lock");
         cache

@@ -21,10 +21,12 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::equalizer::Equalizer;
 use ytfast::heat::Heat;
+use ytfast::model::Mixes;
 
 use crate::app::MusicApp;
 
@@ -69,6 +71,10 @@ pub struct Extras {
     pub(crate) hold: audition::Hold,
     /// The mini player's window while it is open.
     mini: Option<AnyWindowHandle>,
+    /// Settings → Smooth mixes: the crossfade length slider, and the length
+    /// shown while it is dragged (sent to the backend on release).
+    pub mix_length: Entity<SliderState>,
+    pub mix_drag: Option<u8>,
 }
 
 /// Stage: the cover and large lyrics fill the window.
@@ -91,6 +97,31 @@ impl Extras {
     }
 
     pub fn new(_window: &mut Window, cx: &mut Context<MusicApp>) -> (Self, Vec<Subscription>) {
+        let mix_length = cx.new(|_| {
+            SliderState::new()
+                .min(f32::from(Mixes::SHORTEST))
+                .max(f32::from(Mixes::LONGEST))
+                .step(1.)
+                .default_value(f32::from(Mixes::default().seconds))
+        });
+        let subscriptions =
+            vec![cx.subscribe(
+                &mix_length,
+                |this, _, event: &SliderEvent, cx| match event {
+                    SliderEvent::Change(value) => {
+                        this.extras.mix_drag = Some(value.start().round() as u8);
+                        cx.notify();
+                    }
+                    SliderEvent::Release(value) => {
+                        this.extras.mix_drag = None;
+                        let seconds = value.start().round() as u8;
+                        let mixes = this.player.playback.mixes;
+                        if seconds != mixes.seconds {
+                            this.set_mixes(Mixes { seconds, ..mixes }, cx);
+                        }
+                    }
+                },
+            )];
         (
             Self {
                 heat: HashMap::new(),
@@ -107,8 +138,10 @@ impl Extras {
                 stage: Stage::default(),
                 hold: audition::Hold::default(),
                 mini: None,
+                mix_length,
+                mix_drag: None,
             },
-            Vec::new(),
+            subscriptions,
         )
     }
 }

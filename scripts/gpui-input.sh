@@ -119,10 +119,13 @@ launch() {
     stop
     mkdir -p artifacts/gpui
     setsid "$bin" >artifacts/gpui/run.log 2>&1 </dev/null &
-    # Wait for the window to map, then put it where checks expect it.
-    sleep 4
-    place
-    sleep 1
+    # Put the window where checks expect it once it maps. Placing is
+    # idempotent, so repeat it: a slow start maps the window late.
+    local i
+    for i in 1 2 3 4 5; do
+        sleep 2
+        place
+    done
 }
 
 move() {

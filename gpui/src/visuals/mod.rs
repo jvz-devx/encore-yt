@@ -36,7 +36,8 @@
 //! measure it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
 //! leaves single effects out (to measure them) and
 //! `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover down (to look at
-//! it).
+//! it) and `YTFAST_GPUI_FRAME_LOG=<ms>` logs frames slower than that
+//! ([`timing`]).
 
 mod backdrop;
 mod bar;
@@ -46,6 +47,7 @@ mod effects;
 mod flight;
 mod frames;
 mod slots;
+mod timing;
 mod waveform;
 
 use std::cell::Cell;
@@ -82,6 +84,7 @@ impl Global for Layers {}
 
 /// The window's content: effects under the app, the flying cover over it.
 pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
+    timing::frame_started();
     let layers = layers(app, cx);
     clear_root_background(window, cx);
     let showing = fills_panel(app);
@@ -128,6 +131,7 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .child(content)
         .child(overlay)
         .child(layers.flight.clone())
+        .children(timing::frame_end())
         .into_any_element()
 }
 

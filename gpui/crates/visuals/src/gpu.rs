@@ -3,6 +3,7 @@
 //! textures and a sampler.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context as _, Result, anyhow};
 
@@ -22,6 +23,7 @@ pub struct Gpu {
 impl Gpu {
     /// A low-power Vulkan (or GL) device without a surface.
     pub fn new() -> Result<Self> {
+        let started = Instant::now();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
             flags: wgpu::InstanceFlags::default(),
@@ -29,6 +31,8 @@ impl Gpu {
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
             display: None,
         });
+        let instance_ms = ms(started);
+        let started = Instant::now();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
@@ -36,6 +40,8 @@ impl Gpu {
         }))
         .map_err(|e| anyhow!("no GPU adapter: {e}"))?;
         let info = adapter.get_info();
+        let adapter_ms = ms(started);
+        let started = Instant::now();
         let (device, queue) = pollster::block_on(
             adapter.request_device(&wgpu::DeviceDescriptor {
                 label: Some("ytfast visuals"),
@@ -49,6 +55,10 @@ impl Gpu {
             }),
         )
         .context("creating the visuals device")?;
+        log::info!(
+            "visuals: instance {instance_ms:.1} ms, adapter {adapter_ms:.1} ms, device {:.1} ms",
+            ms(started)
+        );
         Ok(Self {
             device,
             queue,
@@ -62,11 +72,15 @@ impl Gpu {
     }
 
     pub(crate) fn shader(&self, label: &str, source: &'static str) -> wgpu::ShaderModule {
-        self.device
+        let started = Instant::now();
+        let module = self
+            .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
-            })
+            });
+        log::info!("visuals: {label} shader {:.1} ms", ms(started));
+        module
     }
 
     pub(crate) fn uniforms(&self, label: &str, size: u64) -> wgpu::Buffer {
@@ -200,6 +214,7 @@ impl Gpu {
         module: &wgpu::ShaderModule,
         layout: &wgpu::BindGroupLayout,
     ) -> wgpu::RenderPipeline {
+        let started = Instant::now();
         let pipeline_layout = self
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -207,7 +222,8 @@ impl Gpu {
                 bind_group_layouts: &[Some(layout)],
                 immediate_size: 0,
             });
-        self.device
+        let pipeline = self
+            .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&pipeline_layout),
@@ -232,7 +248,9 @@ impl Gpu {
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
                 cache: None,
-            })
+            });
+        log::info!("visuals: {label} pipeline {:.1} ms", ms(started));
+        pipeline
     }
 }
 
@@ -242,6 +260,11 @@ pub(crate) fn extent(width: u32, height: u32) -> wgpu::Extent3d {
         height,
         depth_or_array_layers: 1,
     }
+}
+
+/// Milliseconds since `started`, for the log.
+fn ms(started: Instant) -> f64 {
+    started.elapsed().as_secs_f64() * 1000.0
 }
 
 /// Floats as a uniform block's bytes.

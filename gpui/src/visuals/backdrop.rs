@@ -88,7 +88,10 @@ impl Backdrop {
         }
         let renderer = self.renderer.get_or_insert_with(|| {
             log::info!("visuals: backdrop {}x{}", size.0, size.1);
-            Renderer::new(tick.gpu, size.0, size.1)
+            let started = std::time::Instant::now();
+            let renderer = Renderer::new(tick.gpu, size.0, size.1);
+            super::timing::setup(started);
+            renderer
         });
         if renderer.size() != size {
             renderer.resize(size.0, size.1);

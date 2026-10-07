@@ -182,6 +182,7 @@ impl Effects {
         let gpu = self.gpu.get_or_insert_with(|| {
             let started = Instant::now();
             let made = Gpu::new().map_err(|e| format!("{e:#}"));
+            super::timing::setup(started);
             match &made {
                 Ok(gpu) => log::info!(
                     "visuals: GPU {} (set up in {:.0} ms)",

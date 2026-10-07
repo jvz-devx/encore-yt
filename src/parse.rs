@@ -1101,11 +1101,40 @@ fn like_status(v: Option<&Value>) -> Option<LikeStatus> {
 }
 
 /// A row's rating, from the like button in its menu (list rows and Up
-/// next's rows; `None` where the response has none).
+/// next's rows) or, where a row has no like button (most search results),
+/// from its menu's "Add to liked songs" toggle; `None` where the response
+/// has neither.
 fn row_like(r: &Value) -> Option<LikeStatus> {
-    array(at(r, &["menu", "menuRenderer", "topLevelButtons"]))
+    let menu = at(r, &["menu", "menuRenderer"]);
+    array(menu.and_then(|m| m.get("topLevelButtons")))
         .iter()
         .find_map(|b| like_status(at(b, &["likeButtonRenderer", "likeStatus"])))
+        .or_else(|| {
+            array(menu.and_then(|m| m.get("items")))
+                .iter()
+                .find_map(liked_songs_toggle)
+        })
+}
+
+/// The rating a menu's liked-songs toggle implies: its first action is
+/// what a click does, a like when the song isn't liked and "Remove from
+/// liked songs" (`INDIFFERENT`) when it is. A disliked song offers the like
+/// as well, so it reads as not liked.
+fn liked_songs_toggle(item: &Value) -> Option<LikeStatus> {
+    let like = at(
+        item,
+        &[
+            "toggleMenuServiceItemRenderer",
+            "defaultServiceEndpoint",
+            "likeEndpoint",
+        ],
+    )?;
+    str_at(like, &["target", "videoId"])?;
+    match like_status(like.get("status"))? {
+        LikeStatus::Indifferent => Some(LikeStatus::Like),
+        LikeStatus::Like => Some(LikeStatus::Indifferent),
+        LikeStatus::Dislike => None,
+    }
 }
 
 /// The requested song's rating, from the player's like button in `next`.

@@ -1,6 +1,6 @@
 # ytfast-gpui
 
-A native YouTube Music app for the desktop, written in Rust with [GPUI](https://www.gpui.rs), the UI framework behind the Zed editor. No Electron, no webview: GPUI draws the interface on the GPU, custom wgpu shaders draw the effects, and mpv plays the audio. It runs on Linux (built for KDE Plasma on Wayland, X11 works too), Windows and macOS.
+A native YouTube Music app for the desktop, written in Rust with [GPUI](https://www.gpui.rs), the UI framework behind the Zed editor. No Electron, no webview: GPUI draws the interface on the GPU, custom wgpu shaders draw the effects, and a built-in Rust audio engine plays the music. It runs on Linux (built for KDE Plasma on Wayland, X11 works too), Windows and macOS.
 
 ![Now Playing: the backdrop, spectrum and waveform come from the cover and the music](docs/screenshots/gpui-now-playing.png)
 
@@ -8,7 +8,7 @@ It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music
 
 ## Download
 
-[Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing: the AppImage, the macOS app and the Windows installer include mpv (which plays the audio) and yt-dlp and deno (which find the streams). The app looks next to itself for them before your `PATH`, and says so under the top bar if one is missing.
+[Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing: the AppImage, the macOS app and the Windows installer include yt-dlp and deno (which find the streams) and mpv (which plays the few formats the built-in engine can't, such as HE-AAC). The app looks next to itself for them before your `PATH`, and says so under the top bar if one is missing.
 
 **macOS** (Apple silicon on macOS 14 or newer, Intel on macOS 15 or newer). With Homebrew:
 
@@ -40,18 +40,18 @@ The script downloads the setup program, checks it against `checksums.txt` and in
 - macOS: open the `macos-arm64` or `macos-x86_64` `.dmg` and drag ytfast to Applications. The first time, macOS refuses to open it. On macOS 14, right-click the app and choose Open; on macOS 15 and later, try to open it once, then choose Open Anyway in System Settings → Privacy & Security. `xattr -dr com.apple.quarantine /Applications/ytfast.app` does the same in a terminal.
 - Windows: `…-setup.exe` installs for your user with a Start menu entry; SmartScreen warns about the unsigned installer: More info, Run anyway. `…-portable.zip` holds the same files.
 
-On Windows and macOS the tray, MPRIS, notifications and following the system's light/dark setting are Linux-only for now, and closing the window quits.
+Media keys and the system's media controls work everywhere (MPRIS on Linux, the media overlay on Windows, Now Playing on macOS). The tray, song-change notifications and following the system's light/dark setting are Linux-only for now, and on Windows and macOS closing the window quits.
 
 **Updates:** once a day Music looks at Releases for a newer version and shows "Update available" in the top bar; Settings → Updates has Check now and the release notes. The AppImage, the Windows installer and the macOS app update themselves with Update and restart, however you installed them (Homebrew, winget, the scripts or by hand): the download must match the release's `checksums.txt`, and if the new version doesn't open its window within a minute, the previous one comes back. The `.deb`, `.rpm` and portable zip only say a new version is out, so update those the way you installed them. Pre-releases are offered while you run one (every release so far is one); Settings can turn that and the daily check off.
 
 ## What it does
 
 - **Browse like YouTube Music:** Home with mood chips, Explore, Library (playlists, songs, albums, artists, history), album, artist, playlist and mood pages, search with suggestions and recent searches. The sidebar holds Liked music, your playlists and what you played recently.
-- **Play:** gapless playback at the best quality your account gets (Opus 256 kbps with Premium), a queue you can edit and reorder, autoplay radios, timed lyrics that follow the song, Related, and loudness levelling between songs.
+- **Play:** a built-in Rust player (mpv takes over for anything it can't decode) with gapless playback at the best quality your account gets (Opus 256 kbps with Premium), a queue you can edit and reorder, autoplay radios, timed lyrics that follow the song, Related, and loudness levelling between songs.
 - **Effects:** Now Playing has a slowly flowing backdrop made from the cover, a spectrum of the music and the song's waveform; the player bar glows in the cover's colours, its seek bar shows the waveform, and covers dissolve into each other on a new song. They stop when hidden or paused and honour reduced motion.
 - **Extras:** a 10-band equalizer, a sleep timer, smooth mixes (crossfades on radios), audition (hold Alt over a song to hear its best part), the most-replayed part on the seek bar, Stage (cover and big lyrics, full screen) and a mini player.
 - **Your account:** likes, saving albums and playlists, subscribing, and creating, editing and deleting playlists; plays count in your history.
-- **On the desktop:** media keys and the system's media controls (MPRIS), a tray icon so music keeps playing with the window closed, song-change notifications, a command line, and light and dark that follow KDE.
+- **On the desktop:** media keys and the system's media controls on Linux, Windows and macOS, a tray icon so music keeps playing with the window closed, song-change notifications, a command line, and light and dark that follow KDE.
 
 | | |
 | --- | --- |
@@ -87,7 +87,7 @@ YouTube rotates the cookies of a session that stays in use, so an exported file 
 
 ## Build from source
 
-You need Rust 1.98 or newer, CMake, a C compiler and, on Linux, the Wayland/X11, xkbcommon, Vulkan and fontconfig development packages. At runtime: `mpv`, `yt-dlp` with its EJS challenge solver (nixpkgs' `yt-dlp` has it; Fedora's doesn't), and `deno`.
+You need Rust 1.98 or newer, CMake, a C compiler and, on Linux, the Wayland/X11, xkbcommon, Vulkan and fontconfig development packages. At runtime: `yt-dlp` with its EJS challenge solver (nixpkgs' `yt-dlp` has it; Fedora's doesn't) and `deno`, plus `mpv` for the formats the built-in player can't decode (HE-AAC, or a song that fails to decode).
 
 ```sh
 git clone https://github.com/jvz-devx/ytfast-gpui
@@ -97,10 +97,10 @@ cargo run --release
 
 ## Development
 
-The repository has two Cargo workspaces: the root crate (the backend, plus the original egui app behind its default feature) and `gpui/` (the GPUI app and the `ytfast-visuals` effects crate). Common commands, via [just](https://github.com/casey/just):
+The repository has two Cargo workspaces: the root crate (the backend, plus the original egui app behind its default feature) and `gpui/` (the GPUI app, the `ytfast-visuals` effects crate and the `ytfast-audio` player). Common commands, via [just](https://github.com/casey/just):
 
 ```sh
-just check gpui          # cargo check of one crate (gpui, visuals, backend, egui)
+just check gpui          # cargo check of one crate (gpui, visuals, audio, backend, egui)
 just test backend        # one crate's tests (the parser runs against saved YouTube responses)
 just verify gpui         # fmt, check, tests and clippy for a crate, before you finish
 just verify-workspace    # everything, at the end
@@ -115,14 +115,18 @@ Further reading: [docs/gpui/PLAN.md](docs/gpui/PLAN.md) (milestones and their ev
 
 ## Where it comes from
 
-ytfast-gpui is a fork of [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry (MIT), a YouTube Music player for Omarchy written with egui. This fork keeps ytfast's backend (YouTube Music's API and parser, the yt-dlp resolver, mpv playback, sign-in, MPRIS) and adds the GPUI interface, the wgpu effects, Windows and macOS builds and installers. The original egui app still builds from the root crate (`cargo run --release`); see [docs/SPEC.md](docs/SPEC.md) for its product spec.
+ytfast-gpui is a fork of [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry (MIT), a YouTube Music player for Omarchy written with egui. This fork keeps ytfast's backend (YouTube Music's API and parser, the yt-dlp resolver, sign-in, MPRIS, mpv playback, now the fallback) and adds the GPUI interface, the wgpu effects, a Rust audio engine, an optional Rust stream resolver, self-updates, and Windows and macOS builds and installers. The original egui app still builds from the root crate (`cargo run --release`); see [docs/SPEC.md](docs/SPEC.md) for its product spec.
 
 Credits:
 
-- [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry, and through it [fastframe](https://github.com/crmne/fastframe), [ZapFast](https://github.com/crmne/zapfast) and [Spotifast](https://github.com/crmne/spotifast) by Carmine Paolino (MIT).
-- [GPUI](https://github.com/zed-industries/zed) by Zed Industries and [gpui-kit / gpui-component](https://gpui-kit.com) by Longbridge (Apache-2.0).
-- [mpv](https://mpv.io) plays the audio, [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) find the streams; they run as separate programs and the installers bundle them (licences and sources in `gpui/packaging/THIRD-PARTY.txt`).
+- [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry, and through it [fastframe](https://github.com/crmne/fastframe), [ZapFast](https://github.com/crmne/zapfast) and [Spotifast](https://github.com/crmne/spotifast) by Carmine Paolino (MIT). The self-updater is adapted from fastframe's `fastframe-update`.
+- [GPUI](https://github.com/zed-industries/zed) by Zed Industries and [gpui-kit](https://github.com/longbridge/gpui-kit) (gpui-component) by Longbridge (both Apache-2.0).
+- The player: [Symphonia](https://github.com/pdeljanov/Symphonia) (MPL-2.0) and [libopus](https://opus-codec.org) (BSD) decode, [cpal](https://github.com/RustAudio/cpal) (Apache-2.0) plays, [rubato](https://github.com/HEnquist/rubato) (MIT) resamples. [mpv](https://mpv.io) (LGPL build) is the fallback player.
+- The streams: [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) with [deno](https://deno.com) (MIT). The optional built-in resolver runs yt-dlp's EJS solver scripts (Unlicense) in QuickJS through [rquickjs](https://github.com/DelSkayn/rquickjs) (MIT).
+- Lyrics from [LRCLIB](https://lrclib.net); media controls on Windows and macOS through [souvlaki](https://github.com/Sinono3/souvlaki) (MIT).
 - The [Inter](https://rsms.me/inter/) typeface (OFL) and [Lucide](https://lucide.dev) icons (ISC).
+
+The installers bundle mpv, yt-dlp and deno as separate programs; their licences and sources are listed in `gpui/packaging/THIRD-PARTY.txt`.
 
 ## License
 

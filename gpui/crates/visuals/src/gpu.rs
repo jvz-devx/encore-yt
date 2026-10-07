@@ -1,28 +1,45 @@
-//! The one wgpu device every effect draws with, and the pieces their
-//! pipelines share: a full-screen triangle, and a bind group of uniforms,
-//! textures and a sampler.
+//! The one wgpu device every effect draws with, its compiled pipelines
+//! ([`crate::pipelines`]), and the pieces the effects share: uniforms,
+//! textures, a sampler and their bind group.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context as _, Result, anyhow};
 
+use crate::pipelines::{DiskCache, Pipelines};
+
 /// Pixel format of the frames: what GPUI's atlas stores on Vulkan.
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 
-/// Our own offscreen device (GPUI's isn't reachable, see NOTES-visuals.md).
-/// Cheap to clone: the renderers made from it share it, and it goes away
-/// with the last of them.
+/// Our own offscreen device (GPUI's isn't reachable, see NOTES-visuals.md)
+/// with every effect's pipeline compiled. Making one blocks for tens to
+/// hundreds of milliseconds, so the app makes it on a background thread
+/// (it is `Send`). Cheap to clone: the renderers made from it share it,
+/// and it goes away with the last of them.
 #[derive(Clone)]
 pub struct Gpu {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    pub(crate) pipelines: Arc<Pipelines>,
     adapter: Arc<str>,
 }
 
 impl Gpu {
-    /// A low-power Vulkan (or GL) device without a surface.
+    /// A low-power Vulkan (or GL) device without a surface, its pipelines
+    /// compiled without a persistent cache.
     pub fn new() -> Result<Self> {
+        Self::create(None)
+    }
+
+    /// Like [`Self::new`], with the pipelines going through a pipeline
+    /// cache kept in `dir` (Vulkan only).
+    pub fn with_pipeline_cache(dir: &Path) -> Result<Self> {
+        Self::create(Some(dir))
+    }
+
+    fn create(cache_dir: Option<&Path>) -> Result<Self> {
         let started = Instant::now();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
@@ -42,10 +59,16 @@ impl Gpu {
         let info = adapter.get_info();
         let adapter_ms = ms(started);
         let started = Instant::now();
+        let cache_dir =
+            cache_dir.filter(|_| adapter.features().contains(wgpu::Features::PIPELINE_CACHE));
+        let required_features = match cache_dir {
+            Some(_) => wgpu::Features::PIPELINE_CACHE,
+            None => wgpu::Features::empty(),
+        };
         let (device, queue) = pollster::block_on(
             adapter.request_device(&wgpu::DeviceDescriptor {
                 label: Some("ytfast visuals"),
-                required_features: wgpu::Features::empty(),
+                required_features,
                 required_limits: wgpu::Limits::downlevel_defaults()
                     .using_resolution(adapter.limits())
                     .using_alignment(adapter.limits()),
@@ -59,9 +82,25 @@ impl Gpu {
             "visuals: instance {instance_ms:.1} ms, adapter {adapter_ms:.1} ms, device {:.1} ms",
             ms(started)
         );
+        let started = Instant::now();
+        let disk = cache_dir.and_then(|dir| DiskCache::open(&device, &info, dir));
+        let pipelines = Pipelines::new(&device, disk.as_ref().map(|d| &d.cache));
+        log::info!(
+            "visuals: pipelines {:.1} ms ({})",
+            ms(started),
+            match &disk {
+                Some(d) if d.loaded() > 0 => format!("cache of {} KB", d.loaded() / 1024),
+                Some(_) => "empty cache".into(),
+                None => "no pipeline cache".into(),
+            }
+        );
+        if let Some(disk) = &disk {
+            disk.save();
+        }
         Ok(Self {
             device,
             queue,
+            pipelines: Arc::new(pipelines),
             adapter: format!("{} ({:?})", info.name, info.backend).into(),
         })
     }
@@ -69,18 +108,6 @@ impl Gpu {
     /// The GPU and API in use, for the log.
     pub fn adapter(&self) -> &str {
         &self.adapter
-    }
-
-    pub(crate) fn shader(&self, label: &str, source: &'static str) -> wgpu::ShaderModule {
-        let started = Instant::now();
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(label),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
-            });
-        log::info!("visuals: {label} shader {:.1} ms", ms(started));
-        module
     }
 
     pub(crate) fn uniforms(&self, label: &str, size: u64) -> wgpu::Buffer {
@@ -142,42 +169,6 @@ impl Gpu {
         );
     }
 
-    /// Binding 0 the uniforms, 1..=`textures` the textures, then the sampler.
-    pub(crate) fn layout(&self, label: &str, textures: u32) -> wgpu::BindGroupLayout {
-        let fragment = wgpu::ShaderStages::FRAGMENT;
-        let mut entries = vec![wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: fragment,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }];
-        entries.extend((1..=textures).map(|binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: fragment,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        }));
-        entries.push(wgpu::BindGroupLayoutEntry {
-            binding: textures + 1,
-            visibility: fragment,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        });
-        self.device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(label),
-                entries: &entries,
-            })
-    }
-
     /// A bind group for [`Self::layout`]: the uniforms, `textures`, `sampler`.
     pub(crate) fn bind_group(
         &self,
@@ -206,52 +197,6 @@ impl Gpu {
             entries: &entries,
         })
     }
-
-    /// A pipeline drawing `vs_main`'s full-screen triangle with `fs_main`.
-    pub(crate) fn pipeline(
-        &self,
-        label: &str,
-        module: &wgpu::ShaderModule,
-        layout: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let started = Instant::now();
-        let pipeline_layout = self
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(label),
-                bind_group_layouts: &[Some(layout)],
-                immediate_size: 0,
-            });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            });
-        log::info!("visuals: {label} pipeline {:.1} ms", ms(started));
-        pipeline
-    }
 }
 
 pub(crate) fn extent(width: u32, height: u32) -> wgpu::Extent3d {
@@ -263,7 +208,7 @@ pub(crate) fn extent(width: u32, height: u32) -> wgpu::Extent3d {
 }
 
 /// Milliseconds since `started`, for the log.
-fn ms(started: Instant) -> f64 {
+pub(crate) fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
 }
 

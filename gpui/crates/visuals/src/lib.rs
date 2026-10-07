@@ -19,6 +19,7 @@ mod cover;
 mod dissolve;
 mod gpu;
 mod mpv;
+mod pipelines;
 mod pipewire;
 mod renderer;
 mod spectrum;

@@ -94,7 +94,7 @@ Trust model:
 - No remote code runs without a hash pin. The scripts come from yt-dlp-ejs's releases, but what may run is decided only by the pins, and changing the pins on `main` takes a commit to this repository (the EJS bump's pull request, reviewed and merged). Anyone who can push to `main` can already change the app's next release, so this adds no new party to trust.
 - What the pins rely on: GitHub's TLS and access control for this repository. There is no signature yet. Signing `pins.txt` (for example minisign, with the public key in the app and the secret key as a repository secret used by the bump workflow) would remove the trust in raw.githubusercontent.com and in whoever can push to `main`; it needs a key the maintainer holds.
 - Files on disk are trusted as much as the user's home directory: whoever can write `~/.cache/ytfast/ejs/pins.txt` can also change the user's shell profile.
-- The solver runs in QuickJS without network, file or process access (no `std`/`os` modules), with a 1 GB memory limit. A pinned but buggy solver can at worst give wrong answers, and then streams fail and fall back to yt-dlp.
+- The solver runs in QuickJS without network, file or process access (no `std`/`os` modules), with a 1 GB memory limit and a 16 MB stack limit. A pinned but buggy solver can at worst give wrong answers, and then streams fail and fall back to yt-dlp.
 - Fetches happen only with `YTFAST_RESOLVER=rust` on and only after a solver failure, so the app doesn't call home.
 
 ### The canary (`.github/workflows/resolver-canary.yml`)
@@ -109,6 +109,11 @@ That is 7 YouTube requests per run, all from GitHub's IPs. When a scheduled run,
 ### The EJS bump (`.github/workflows/ejs-bump.yml`)
 
 Weekly on Mondays at 06:23 UTC, and by hand (optionally for a given release, or forced to re-check the vendored one). `scripts/ejs-bump.sh` asks GitHub's API for yt-dlp-ejs's latest release and, if it is newer than the vendored one, downloads the two files, checks them against GitHub's SHA-256 digests for the release assets and for the Unlicense header, copies them into `src/jsc/` and adds their pins. The job then runs the canary's solver part on the current player, pushes `ejs-bump/<release>`, opens a pull request and dispatches the canary on that branch (pull requests opened with `GITHUB_TOKEN` don't trigger workflows themselves; a dispatch does). Opening the pull request needs "Allow GitHub Actions to create and approve pull requests" in the repository's Actions settings; without it the job prints a compare link instead.
+
+### What the first runs found (2026-10-07)
+
+- Player `f2999a12` (served to some runners next to `1b3be681`) made the solver recurse without end in `Array.prototype.join`, and the process aborted with a stack overflow. rquickjs treats a stack limit above 16 MB as no limit, so the 48 MB set before disabled QuickJS's check. With 16 MB QuickJS throws a RangeError instead, the solve completes, and its answers for `f2999a12` match deno's. Without the fix, the first signed-in song on that player would have crashed the app.
+- From a runner's IP, VISIONOS answered "Sign in to confirm you're not a bot" for one of the two songs in both runs. A song that meets the bot check doesn't count as a failure; if every song does, the live part warns that it was inconclusive and the run passes on the solver check alone.
 
 ### At runtime
 

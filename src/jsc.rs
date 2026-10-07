@@ -357,7 +357,11 @@ impl Engine {
 
     pub fn with_scripts(scripts: Scripts) -> Result<Self> {
         let runtime = Runtime::new().context("creating the JS runtime")?;
-        runtime.set_max_stack_size(48 << 20);
+        // rquickjs treats a limit above 16 MB as "no limit", and then deep
+        // recursion overflows the thread's stack and aborts the process
+        // (seen on player f2999a12). 16 MB, the most it takes, inside the
+        // engine thread's 64 MB: QuickJS throws a RangeError instead.
+        runtime.set_max_stack_size(16 << 20);
         runtime.set_memory_limit(1 << 30);
         let context = Context::full(&runtime).context("creating the JS context")?;
         Ok(Self {

@@ -398,3 +398,16 @@ readback ring, cross-fade), `shaders/backdrop.wgsl`, `cover.rs`,
 `waveform.rs` (mpv IPC, ffmpeg, cache); app side `gpui/src/visuals/mod.rs`
 (shell, settings), `effects.rs`, `content.rs`, `flight.rs`, `slots.rs`,
 `waveform.rs`.
+
+## Shader rules
+
+- Buffers hold only `vec4<f32>`/`vec4<u32>` fields (and arrays of them), or
+  scalars with no `vec3` in front of them. Never pack a scalar into a
+  `vec3`'s fourth slot (`pos: vec3f, size: f32`): Adreno's Vulkan driver
+  (Android) misreads every field after such a `vec3` in read-only storage
+  buffers in the vertex stage, with no validation error, while desktop GPUs
+  read it fine (seen in another project, 2026-10-07). Put the scalars in
+  `.w` of a `vec4` and unpack them in the shader, as every `Params` struct
+  here already does. For particle data in a storage buffer, use a packed
+  struct of `vec4f`s with `pack_`/`unpack_` helpers at the point of access.
+- Every `.wgsl` validates with naga (`scripts/check.sh shaders`).

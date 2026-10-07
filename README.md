@@ -16,6 +16,8 @@ It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music
 
 On Windows and macOS the tray, MPRIS, notifications and following the system's light/dark setting are Linux-only for now, and closing the window quits.
 
+**Updates:** once a day Music looks at Releases for a newer version and shows "Update available" in the top bar; Settings → Updates has Check now and the release notes. The AppImage, the Windows installer and the macOS app update themselves with Update and restart: the download must match the release's `checksums.txt`, and if the new version doesn't open its window within a minute, the previous one comes back. The `.deb`, `.rpm` and portable zip only say a new version is out, so update those the way you installed them. Pre-releases are offered while you run one (every release so far is one); Settings can turn that and the daily check off.
+
 ## What it does
 
 - **Browse like YouTube Music:** Home with mood chips, Explore, Library (playlists, songs, albums, artists, history), album, artist, playlist and mood pages, search with suggestions and recent searches. The sidebar holds Liked music, your playlists and what you played recently.

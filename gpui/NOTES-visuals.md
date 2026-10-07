@@ -1,16 +1,98 @@
-# M8 visuals
+# M8 and M9 visuals
 
-How the effects behind Now Playing are drawn: the shipped layers first, then
-the spike's findings (how to get wgpu output into the GPUI window, and the
-audio mpv plays), which the code still follows.
+How the effects are drawn: the player bar's shaders (M9), the layers behind
+Now Playing (M8), then the spike's findings (how to get wgpu output into the
+GPUI window, and the audio mpv plays), which the code still follows.
 
-## Shipped
+## Player bar (M9)
+
+Code: `crates/visuals/src/strip.rs` + `shaders/strip.wgsl`,
+`dissolve.rs` + `shaders/dissolve.wgsl`, `gpu.rs` (the one device every
+effect shares), `target.rs` (the readback ring, and `frame_now` for still
+pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`.
+
+- **One strip, one pass**: the bar's whole background is one
+  `Strip` frame at device size (1280x88 here), painted by the effects layer
+  under the app. The player bar leaves out its `base` fill and gives the
+  kit slider transparent colours while a frame shows
+  (`visuals::paints_bar`), so the slider still takes clicks and drags.
+  Slot boxes (`Slot::Bar`, `Seek`, `Play`, `BarCover`) tell the shader where
+  the controls are.
+- **Glow**: four soft blobs of the cover's palette drift along the bar,
+  nothing at its top edge and fullest at the window's bottom edge, breathing
+  with a slow envelope of the kick and bass. It is applied in OKLab: chroma
+  plus at most +0.05 lightness in the dark look (relative luminance capped
+  at 0.0085, so `text_faint` keeps 4.5:1), only lighter in the light look.
+  A test renders red, blue and white palettes in both looks and checks it.
+  New covers cross-fade over 1.2 s.
+- **Seek bar**: the fill keeps the kit track's top edge and hangs below it as
+  deep as the song is loud (the M8 waveform, 512 texels), lit along the top
+  and shaded towards the loudness edge; unplayed is `text` at 16-20%. A soft
+  `signal` bloom around the played part, and an ink playhead that swells on
+  the kick with a `signal` ring pulsing out of it (larger under the
+  pointer). **The M6 ridge** rises from the same top edge, upwards, in the
+  app layer, so it draws over the strip without any coordination: the
+  loudness hangs below the line, the replay heat rises above it.
+- **Halos**: rings 2 points outside the play button and the cover, in the
+  palette's most colourful entry, swelling and brightening on the kick,
+  with a soft spill on the breath.
+- **Dissolve**: on a track change the old cover's image stays over the
+  slot (no placeholder flash) until the new one has loaded, then burns into
+  it over 0.9 s along a three-octave noise front with an edge in the new
+  accent; rendered at the cover's device size (56 or ~400 px) and painted
+  over the app by the shell. In the bar it is skipped while Now Playing is
+  open (the cover is the close button then), in Now Playing while the
+  cover flies. None under reduced motion.
+- **Pacing**: every frame redraws the whole window, about 2 ms of CPU here
+  even with the app view cached (measured: 30 frames a second with no
+  strip and no tap cost 10.7% against 4.1% without effects). So while only
+  the bar moves, the ticker wakes the window only when it would look
+  different: a kick or bass step of 0.06 (at most 20 fps), half a device
+  pixel of playhead, or the drift at 6 fps. Now Playing's backdrop keeps a
+  steady 30. A still picture (paused, reduced motion, a seek) is rendered
+  and waited for in the same render (`frame_now`), so it costs no extra
+  window redraws.
+- **Stopping**: nothing while paused or minimised; under reduced motion
+  only the playhead moves (a still frame when it moved half a pixel). The
+  device is dropped 30 s after the last frame of any effect; the last strip
+  frame stays on screen. Stage hides the bar, and the strip with it.
+
+Measured 2026-10-07, release build, 1280x1000 window, Home page, % of one
+core from `top` over 10 s (the machine shared with other agents):
+
+| State | app CPU | RSS |
+|---|---|---|
+| main before M9, playing, Now Playing closed | 4.6% | 179 MB |
+| effects off (`YTFAST_GPUI_VISUALS=0`), playing | 4.1% | 164 MB |
+| playing, strip at a steady 30 fps (first cut) | 13.5-14% | 176-206 MB |
+| same, no strip and no tap (GPUI's redraw alone) | 10.7% | 170 MB |
+| **playing, paced (shipped)**, red cover, dark | 7.9-8.1% | 210 MB |
+| same, blue cover, light | 8.3% | 203 MB |
+| reduced motion, playing | 4.0% | 208 MB |
+| paused | 0.0% | 266 MB |
+| minimised, playing | 0.0% | 266 MB |
+
+The 6% budget isn't met: the app alone is 4.1% (it re-renders all its views
+5-6 times a second on playback events and the 500 ms clock), the tap 1.3%,
+and the paced strip about 3% (about 9 window redraws a second on a song
+with a strong beat). The biggest lever left is outside the effects: give the
+player bar's clock and slider their own entity, so a playback event doesn't
+re-render the whole app.
+
+Captures (`artifacts/gpui/`, gitignored): `m9d-sheet` (dark, red then blue
+cover, pairs 1 s apart), `m9l2-sheet` (light), `m9d-diss1-zoom` and
+`m9d-diss-sheet` (the bar's cover mid-burn), `m9n-sheet` (Now Playing's
+cover mid-burn), `m9r-sheet` (reduced motion pair, then paused),
+`m9-home-bar` (paused, light, the ridge over the waveform). Songs were
+opened over MPRIS (`playerctl -p ytfast open https://music.youtube.com/watch?v=…`).
+
+## Now Playing (M8)
 
 Code: the crate `gpui/crates/visuals` (`ytfast-visuals`, no GPUI) and the
 app side in `gpui/src/visuals/`.
 
-- **Crate**: `Renderer` (own wgpu device, `shaders/backdrop.wgsl`, offscreen
-  target and readback; `frame(params)` returns BGRA bytes), `Cover` (48x48
+- **Crate**: `Renderer` (on the shared `Gpu`, `shaders/backdrop.wgsl`,
+  offscreen target and readback; `frame(params)` returns BGRA bytes), `Cover` (48x48
   pre-blurred upload and a four-colour palette), `AudioTap` (PipeWire tap,
   FFT, 32 bands plus bass, kick and level) and `waveform` (ffmpeg decode of
   the URL mpv plays, 400 values, cached per video id in the cache

@@ -80,6 +80,7 @@ impl View {
 }
 
 pub struct PageState {
+    /// What fetches this page (the account logic refetches through it).
     pub target: Target,
     pub page: Option<Page>,
     pub loading: bool,

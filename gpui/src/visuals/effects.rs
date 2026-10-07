@@ -1,30 +1,38 @@
 //! The layer under the app: the animated cover backdrop over the page panel
-//! and the spectrum, while Now Playing shows.
+//! and the spectrum while Now Playing shows, and the player bar's strip
+//! (glow, seek bar, halos) whenever a song plays. It also runs the cover
+//! dissolves, which the shell paints over the app ([`Effects::overlay`]).
 //!
 //! It re-renders on its own timer (`fps()`, 30 by default) and never
-//! notifies `MusicApp`. Frames stop when Now Playing is hidden, the window
-//! isn't visible (minimised, covered), playback is paused, or motion is
-//! reduced (then one still frame is drawn per cover).
+//! notifies `MusicApp`. Frames stop when the window isn't visible
+//! (minimised), playback is paused, or motion is reduced (then a still
+//! frame is drawn when something changes). One `ytfast_visuals::Gpu` serves
+//! every effect; it is dropped once nothing has drawn for `KEEP`.
 
-use std::cell::Cell;
-use std::collections::VecDeque;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, FrameCost, FrameParams, Look, Renderer};
+use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
+use super::backdrop::Backdrop;
+use super::bar::{self, Bar};
+use super::dissolve::{self, Change};
 use super::slots::{self, Slot, Slots};
-use crate::theme::{self, Colors, radius};
+use crate::theme::{self, radius};
 
-/// The backdrop renders at most this wide; GPUI scales it to the panel
-/// (a blurred image looks the same at half size).
-const MAX_WIDTH: f32 = 640.;
-/// The renderer (a second Vulkan device, ~50-90 MB) is dropped this long
-/// after Now Playing closes.
+/// The backdrop renderer is dropped this long after Now Playing closes, and
+/// the GPU device (a second Vulkan device, ~50-90 MB) this long after the
+/// last frame of any effect.
 const KEEP: Duration = Duration::from_secs(30);
+/// While only the player bar moves, its slow drift is drawn at this rate;
+/// beats and the playhead bring frames up to `fps()`.
+const DRIFT_FPS: f32 = 6.;
+/// A change in the kick or bass that is worth a frame of the bar, and the
+/// rate beats draw at most.
+const BEAT_STEP: f32 = 0.06;
+const BEAT_FPS: f32 = 20.;
 
 /// What the app tells the layer on each render.
 #[derive(Clone, Debug, Default)]
@@ -32,34 +40,62 @@ pub struct Input {
     /// Now Playing fills the panel (and effects are on).
     pub showing: bool,
     pub playing: bool,
+    /// Now Playing is open (the bar's cover is its close button then).
+    pub now_playing: bool,
+    /// The player bar's state, or `None` while the bar isn't on screen or
+    /// effects are off.
+    pub bar: Option<bar::Input>,
+}
+
+/// One render's frame state, shared by the effects.
+pub struct Tick<'a> {
+    /// A paced animation frame is due.
+    pub due: bool,
+    /// Seconds since the previous paced frame.
+    pub dt: f32,
+    /// Animation time: moves only while animating.
+    pub seconds: f32,
+    pub bass: f32,
+    pub kick: f32,
+    pub level: f32,
+    pub look: Look,
+    pub reduce: bool,
+    pub gpu: &'a Gpu,
+}
+
+/// The cover the player bar shows, decoded, and its palette.
+struct Art {
+    url: SharedString,
+    cover: Cover,
 }
 
 pub struct Effects {
     pub input: Input,
     /// Set on input while the app view is cached (see `super::Layers`).
     input_flag: Rc<Cell<bool>>,
-    renderer: Option<Result<Renderer, String>>,
+    gpu: Option<Result<Gpu, String>>,
     tap: Option<AudioTap>,
     bands: Bands,
-    /// The frame on screen, and the one before it (dropped from GPUI's atlas
-    /// a frame later, so its atlas texture isn't freed and made again).
-    shown: Option<Arc<RenderImage>>,
-    retired: VecDeque<Arc<RenderImage>>,
-    /// The cover URL uploaded, and its palette for the fallback gradient.
-    cover: Option<SharedString>,
-    palette: Option<[[f32; 4]; 4]>,
+    art: Option<Art>,
+    backdrop: Backdrop,
+    bar: Bar,
+    changes: Rc<RefCell<[Change; 2]>>,
     look: Look,
     reduce: bool,
-    /// Frames still to render although nothing moves (a new cover or size
-    /// under reduced motion or while paused; the first frame shows a frame
-    /// late).
-    pending: u8,
-    /// Animation time: moves only while animating, so pause freezes it.
     clock: f32,
     last: Option<Instant>,
+    /// Only the player bar moves: frames come when it would look different.
+    bar_only: bool,
+    /// The kick and bass the bar's last paced frame showed, and when.
+    shown: (Option<Instant>, f32, f32),
+    /// How fast the playhead moves, in device pixels a second.
+    head_speed: f32,
+    /// The last frame any effect drew, for dropping the GPU when idle.
+    drew_at: Instant,
+    /// When Now Playing was last shown, for dropping the backdrop.
+    shown_at: Instant,
     ticker: Option<Task<()>>,
     reaper: Option<Task<()>>,
-    stats: Stats,
     window: Option<AnyWindowHandle>,
     _visibility: Option<Subscription>,
 }
@@ -69,24 +105,45 @@ impl Effects {
         Self {
             input: Input::default(),
             input_flag,
-            renderer: None,
+            gpu: None,
             tap: None,
             bands: Bands::default(),
-            shown: None,
-            retired: VecDeque::new(),
-            cover: None,
-            palette: None,
+            art: None,
+            backdrop: Backdrop::default(),
+            bar: Bar::new(),
+            changes: Rc::new(RefCell::new([
+                Change::new(Slot::BarCover),
+                Change::new(Slot::Cover),
+            ])),
             look: Look::Dark,
             reduce: false,
-            pending: 0,
             clock: 0.0,
             last: None,
+            bar_only: false,
+            shown: (None, 0.0, 0.0),
+            head_speed: 0.0,
+            drew_at: Instant::now(),
+            shown_at: Instant::now(),
             ticker: None,
             reaper: None,
-            stats: Stats::default(),
             window: None,
             _visibility: None,
         }
+    }
+
+    /// The cover dissolves, painted by the shell over the app.
+    pub fn overlay(&self) -> impl IntoElement {
+        let changes = self.changes.clone();
+        canvas(
+            |_, _, _| (),
+            move |_, (), window, cx| {
+                for change in changes.borrow().iter() {
+                    change.paint(window, cx);
+                }
+            },
+        )
+        .absolute()
+        .inset_0()
     }
 
     /// A new window has its own atlas: forget frames painted into the old
@@ -97,9 +154,11 @@ impl Effects {
             return;
         }
         self.window = Some(handle);
-        self.shown = None;
-        self.retired.clear();
-        self.pending = 2;
+        self.backdrop.forget();
+        self.bar.forget();
+        for change in self.changes.borrow_mut().iter_mut() {
+            change.forget();
+        }
         let this = cx.entity().downgrade();
         self._visibility = Some(window.observe_window_visibility(move |visibility, _, cx| {
             log::info!("visuals: window {visibility:?}");
@@ -107,64 +166,33 @@ impl Effects {
         }));
     }
 
-    /// Now Playing is hidden: no frames, no tap; the renderer goes later.
-    fn rest(&mut self, cx: &mut Context<Self>) {
-        self.ticker = None;
-        self.tap = None;
-        self.last = None;
-        if self.renderer.is_none() || self.reaper.is_some() {
-            return;
-        }
-        self.reaper = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(KEEP).await;
-            let _ = this.update(cx, |this, cx| this.release(cx));
-        }));
-    }
-
-    fn release(&mut self, cx: &mut Context<Self>) {
-        self.reaper = None;
-        if self.input.showing {
-            return;
-        }
-        log::info!("visuals: releasing the backdrop renderer");
-        self.renderer = None;
-        self.cover = None;
-        for image in self.shown.take().into_iter().chain(self.retired.drain(..)) {
-            cx.drop_image(image, None);
-        }
-    }
-
-    fn renderer(&mut self, size: (u32, u32)) -> Option<&mut Renderer> {
-        let made = self.renderer.get_or_insert_with(|| {
+    fn gpu(&mut self) -> Option<Gpu> {
+        let gpu = self.gpu.get_or_insert_with(|| {
             let started = Instant::now();
-            let made = Renderer::new(size.0, size.1).map_err(|e| format!("{e:#}"));
+            let made = Gpu::new().map_err(|e| format!("{e:#}"));
             match &made {
-                Ok(r) => log::info!(
-                    "visuals: backdrop {}x{} on {} (set up in {:.0} ms)",
-                    size.0,
-                    size.1,
-                    r.adapter(),
+                Ok(gpu) => log::info!(
+                    "visuals: GPU {} (set up in {:.0} ms)",
+                    gpu.adapter(),
                     started.elapsed().as_secs_f64() * 1000.0
                 ),
-                Err(e) => log::warn!("visuals: no backdrop, showing a gradient: {e}"),
+                Err(e) => log::warn!("visuals: no GPU, effects fall back: {e}"),
             }
             made
         });
-        let renderer = made.as_mut().ok()?;
-        if renderer.size() != size {
-            renderer.resize(size.0, size.1);
-            self.pending = self.pending.max(2);
-        }
-        Some(renderer)
+        gpu.as_ref().ok().cloned()
     }
 
-    /// Uploads the cover once GPUI has loaded it (the player bar's size,
-    /// which is loaded whenever a song plays).
-    fn sync_cover(&mut self, size: (u32, u32), reduce: bool, window: &mut Window, cx: &mut App) {
-        let Some(url) = slots::Slots::covers(cx).small else {
+    /// Decodes the player bar's cover once GPUI has loaded it, and hands
+    /// its palette to the bar (and the backdrop's fallback).
+    fn sync_art(&mut self, window: &mut Window, cx: &mut App) {
+        let Some(url) = Slots::covers(cx).small else {
+            if self.art.take().is_some() {
+                self.bar.set_palette(None, self.reduce);
+            }
             return;
         };
-        if self.cover.as_ref() == Some(&url) {
+        if self.art.as_ref().is_some_and(|a| a.url == url) {
             return;
         }
         let resource = Resource::Uri(SharedUri::from(url.clone()));
@@ -174,70 +202,33 @@ impl Effects {
         let px = image.size(0);
         let bytes = image.as_bytes(0).unwrap_or_default();
         let cover = Cover::from_bgra(px.width.0 as u32, px.height.0 as u32, bytes);
-        self.palette = Some(cover.palette);
-        let fade = self.cover.is_some() && !reduce;
-        if let Some(renderer) = self.renderer(size) {
-            renderer.set_cover(&cover, fade);
-        }
-        self.cover = Some(url);
-        self.pending = self.pending.max(2);
+        let first = self.art.is_none();
+        self.bar
+            .set_palette(Some(cover.palette), first || self.reduce);
+        self.backdrop.set_fallback(cover.palette);
+        self.art = Some(Art { url, cover });
     }
 
-    /// Renders the next frame if something moves or changed.
-    fn advance(&mut self, animate: bool, size: (u32, u32), window: &mut Window) {
+    /// Whether a paced frame is due, moving the animation clock if so.
+    fn tick(&mut self, animate: bool) -> (bool, f32) {
         let now = Instant::now();
         if !animate {
             self.last = None;
-            if self.pending == 0 {
-                return;
-            }
+            return (false, 0.0);
         }
         // Other redraws (the app's clock, input) don't add frames.
         let since = self.last.map_or(1.0, |l| (now - l).as_secs_f32());
-        if animate && self.pending == 0 && since < 0.8 / fps() as f32 {
-            return;
+        if since < 0.8 / fps() as f32 {
+            return (false, 0.0);
         }
         let dt = if self.last.is_some() {
-            since.min(0.1)
+            since.min(0.2)
         } else {
             0.0
         };
-        if animate {
-            self.last = Some(now);
-            self.clock += dt;
-        }
-        let params = FrameParams {
-            seconds: self.clock,
-            bass: self.bands.bass,
-            kick: self.bands.kick,
-            level: self.bands.level,
-            look: self.look,
-            particles: !self.reduce,
-        };
-        let Some(renderer) = self.renderer(size) else {
-            return;
-        };
-        match renderer.frame(&params) {
-            Ok(Some(frame)) => {
-                self.pending = self.pending.saturating_sub(1);
-                let cost = frame.cost;
-                let image = to_image(frame);
-                if let Some(old) = self.shown.replace(image) {
-                    self.retired.push_back(old);
-                }
-                while self.retired.len() > 1 {
-                    if let Some(old) = self.retired.pop_front() {
-                        let _ = window.drop_image(old);
-                    }
-                }
-                self.stats.record(cost, size);
-            }
-            Ok(None) => {}
-            Err(e) => log::warn!("visuals: frame: {e:#}"),
-        }
-        if self.pending > 0 && self.ticker.is_none() {
-            window.request_animation_frame();
-        }
+        self.last = Some(now);
+        self.clock += dt;
+        (true, dt)
     }
 
     /// While animating, a timer notifies this view at `fps()`; GPUI would
@@ -255,45 +246,77 @@ impl Effects {
         self.ticker = Some(cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(period).await;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                let woke = this.update(cx, |this, cx| {
+                    if this.wants_frame() {
+                        cx.notify();
+                    }
+                });
+                if woke.is_err() {
                     break;
                 }
             }
         }));
     }
-}
 
-impl Render for Effects {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.follow_window(window, cx);
-        let layer = div().absolute().inset_0();
-        if !self.input.showing {
-            self.rest(cx);
-            return layer;
-        }
-        // Now Playing lays out after this layer: its first frame comes next.
-        let Some(panel) = slots::panel(cx) else {
-            window.request_animation_frame();
-            return layer;
+    /// Whether the next paced frame would look different. Each frame
+    /// redraws the whole window (about 2 ms of CPU here), so while only the
+    /// player bar moves, frames come for a beat, a playhead that moved half
+    /// a pixel, or the drift at `DRIFT_FPS`.
+    fn wants_frame(&self) -> bool {
+        let (Some(at), kick, bass) = self.shown else {
+            return true;
         };
-        self.reaper = None;
-        let reduce = super::reduced_motion(cx);
-        if reduce != self.reduce {
-            self.reduce = reduce;
-            self.pending = self.pending.max(2);
+        if !self.bar_only {
+            return true;
         }
-        let look = match theme::mode(cx) {
-            theme::Mode::Dark => Look::Dark,
-            theme::Mode::Light => Look::Light,
-        };
-        if look != self.look {
-            self.look = look;
-            self.pending = self.pending.max(2);
+        let since = at.elapsed().as_secs_f32();
+        if since >= 1.0 / DRIFT_FPS || since * self.head_speed >= 0.5 {
+            return true;
         }
-        let size = render_size(panel);
-        self.sync_cover(size, reduce, window, cx);
-        let visible = window.is_visible();
-        let live = self.input.playing && visible && !reduce;
+        if since < 1.0 / BEAT_FPS {
+            return false;
+        }
+        let bands = self.tap.as_ref().map(AudioTap::bands).unwrap_or_default();
+        (bands.kick - kick).abs() > BEAT_STEP || (bands.bass - bass).abs() > BEAT_STEP
+    }
+
+    /// Checks every `KEEP` whether the backdrop or the GPU can go.
+    fn keep_reaping(&mut self, cx: &mut Context<Self>) {
+        if self.reaper.is_some() || self.gpu.is_none() {
+            return;
+        }
+        self.reaper = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(KEEP).await;
+                let holding = this.update(cx, |this, cx| this.reap(cx));
+                if !matches!(holding, Ok(true)) {
+                    break;
+                }
+            }
+            let _ = this.update(cx, |this, _| this.reaper = None);
+        }));
+    }
+
+    /// Drops what has been idle for `KEEP`; whether anything is still held.
+    fn reap(&mut self, cx: &mut App) -> bool {
+        if !self.input.showing && self.backdrop.has_renderer() && self.shown_at.elapsed() >= KEEP {
+            self.backdrop.release(cx);
+        }
+        if self.drew_at.elapsed() >= KEEP && !self.input.showing {
+            log::info!("visuals: idle, releasing the GPU");
+            self.bar.release();
+            for change in self.changes.borrow_mut().iter_mut() {
+                change.release(cx);
+            }
+            if matches!(self.gpu, Some(Ok(_))) {
+                self.gpu = None;
+            }
+        }
+        self.gpu.is_some()
+    }
+
+    /// The tap runs while something on screen moves with the music.
+    fn listen(&mut self, live: bool) {
         if !live {
             self.tap = None;
         }
@@ -305,21 +328,128 @@ impl Render for Effects {
             }
             None => Bands::default(),
         };
-        let fading = matches!(&self.renderer, Some(Ok(r)) if r.fading());
-        let animate = visible && !reduce && (self.input.playing || fading);
-        self.advance(animate, size, window);
+    }
+
+    /// Follows the reduced-motion setting and the theme; either redraws the
+    /// still pictures.
+    fn follow_settings(&mut self, cx: &App) {
+        let reduce = super::reduced_motion(cx);
+        let look = match theme::mode(cx) {
+            theme::Mode::Dark => Look::Dark,
+            theme::Mode::Light => Look::Light,
+        };
+        if reduce != self.reduce || look != self.look {
+            self.reduce = reduce;
+            self.look = look;
+            self.backdrop.redraw();
+        }
+    }
+
+    /// Tells the bar whether to leave its background to this layer; when
+    /// that changes, the cached app view renders afresh.
+    fn hand_over_bar(&mut self, window: &mut Window, cx: &App) {
+        let painted = self.input.bar.is_some() && self.bar.image().is_some();
+        if slots::paints_bar(cx) != painted {
+            Slots::set_bar_painted(cx, painted);
+            self.input_flag.set(true);
+            window.request_animation_frame();
+        }
+    }
+}
+
+impl Render for Effects {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.follow_window(window, cx);
+        self.follow_settings(cx);
+        let visible = window.is_visible();
+        let input = self.input.clone();
+        let moving = visible && !self.reduce;
+        let music = input.playing && (input.showing || input.bar.is_some());
+        self.listen(moving && music);
+        self.sync_art(window, cx);
+        let changing = self.changes.borrow().iter().any(Change::active);
+        let fading = (input.showing && self.backdrop.fading()) || self.bar.fading();
+        let animate = moving && (music || fading || changing);
+        let (due, dt) = self.tick(animate);
+        self.bar_only = !input.showing && !fading && !changing;
+        if due {
+            self.shown = (Some(Instant::now()), self.bands.kick, self.bands.bass);
+        }
+        self.head_speed = head_speed(input.bar.as_ref(), window.scale_factor(), cx);
+        if input.showing {
+            self.shown_at = Instant::now();
+        }
+        let gpu = (input.showing || input.bar.is_some() || changing)
+            .then(|| self.gpu())
+            .flatten();
+
+        if let Some(gpu) = &gpu {
+            let tick = Tick {
+                due,
+                dt,
+                seconds: self.clock,
+                bass: self.bands.bass,
+                kick: self.bands.kick,
+                level: self.bands.level,
+                look: self.look,
+                reduce: self.reduce,
+                gpu,
+            };
+            let art = self.art.as_ref().map(|a| (&a.url, &a.cover));
+            // Now Playing lays out after this layer: its first frame comes
+            // next.
+            match slots::panel(cx).filter(|_| input.showing) {
+                Some(panel) => self.backdrop.update(&tick, panel, art, window),
+                None if input.showing => window.request_animation_frame(),
+                None => {}
+            }
+            if let Some(bar) = input.bar.as_ref().filter(|_| visible) {
+                // The bar lays out after this layer: its first frame comes next.
+                if Slots::get(cx, Slot::Bar).is_none() {
+                    window.request_animation_frame();
+                }
+                self.bar.update(&tick, bar, window, cx);
+            }
+            let covers = Slots::covers(cx);
+            let accent = self.bar.accent();
+            let in_flight = super::cover_in_flight(cx);
+            let ons = [
+                input.bar.is_some() && !input.now_playing && moving,
+                input.showing && !in_flight && moving,
+            ];
+            let wants = [covers.small, covers.large];
+            for ((change, want), on) in self.changes.borrow_mut().iter_mut().zip(wants).zip(ons) {
+                change.update(want, on, due, self.look, accent, Some(gpu), window, cx);
+            }
+            if due || self.backdrop.pending() || self.bar.pending() {
+                self.drew_at = Instant::now();
+            }
+        }
+        self.hand_over_bar(window, cx);
+        // Still pictures to finish, for the effects that are on.
+        let pending = gpu.is_some()
+            && ((input.showing && self.backdrop.pending())
+                || (input.bar.is_some() && visible && self.bar.pending()));
+        if pending && self.ticker.is_none() {
+            window.request_animation_frame();
+        }
         self.pace(animate, cx);
+        self.keep_reaping(cx);
 
         let c = theme::colors(cx);
         let paint = Paint {
-            image: self.shown.clone(),
-            fallback: fallback(self.palette, &c),
-            spectrum: live,
+            backdrop: input.showing.then(|| self.backdrop.image()).flatten(),
+            fallback: self.backdrop.fallback(&c),
+            showing: input.showing,
+            bar: input.bar.is_some().then(|| self.bar.image()).flatten(),
+            spectrum: moving && input.playing && input.showing,
             levels: self.bands.levels,
-            bar: c.text,
+            color: c.text,
             flag: self.input_flag.clone(),
+            hover: self.bar.hover.clone(),
+            this: cx.entity().downgrade(),
         };
-        layer.child(
+        div().absolute().inset_0().child(
             canvas(
                 |_, _, _| (),
                 move |_, (), window, cx| paint.paint(window, cx),
@@ -331,20 +461,33 @@ impl Render for Effects {
 
 /// What the layer paints, captured for the canvas.
 struct Paint {
-    image: Option<Arc<RenderImage>>,
+    backdrop: Option<std::sync::Arc<RenderImage>>,
     fallback: Background,
+    showing: bool,
+    bar: Option<std::sync::Arc<RenderImage>>,
     /// Whether to draw the spectrum.
     spectrum: bool,
     levels: [f32; BANDS],
-    bar: Hsla,
+    color: Hsla,
     flag: Rc<Cell<bool>>,
+    hover: Rc<Cell<bool>>,
+    this: WeakEntity<Effects>,
 }
 
 impl Paint {
-    /// Paints where Now Playing laid its slots out in this frame (it lays
+    /// Paints where the views laid their slots out in this frame (they lay
     /// out after this layer renders, before it paints).
-    fn paint(self, window: &mut Window, cx: &App) {
+    fn paint(self, window: &mut Window, cx: &mut App) {
         listen_for_input(&self.flag, window);
+        if let Some(image) = self.bar
+            && let Some(bar) = Slots::get(cx, Slot::Bar)
+        {
+            let _ = window.paint_image(bar, bar, Corners::default(), image, 0, false);
+            follow_hover(self.hover.clone(), self.this.clone(), window);
+        }
+        if !self.showing {
+            return;
+        }
         let Some(panel) = slots::panel(cx) else {
             return;
         };
@@ -352,12 +495,12 @@ impl Paint {
         // Under the frame: the gradient shows until the first frame and
         // instead of it when there is no GPU device.
         window.paint_quad(fill(panel, self.fallback).corner_radii(corners));
-        if let Some(image) = self.image {
-            let fitted = cover_fit(panel, &image);
+        if let Some(image) = self.backdrop {
+            let fitted = dissolve::cover_fit(panel, &image);
             let _ = window.paint_image(panel, fitted, corners, image, 0, false);
         }
         if let Some(strip) = Slots::get(cx, Slot::Spectrum).filter(|_| self.spectrum) {
-            paint_spectrum(strip, &self.levels, self.bar, window);
+            paint_spectrum(strip, &self.levels, self.color, window);
         }
     }
 }
@@ -378,6 +521,21 @@ fn paint_spectrum(strip: Bounds<Pixels>, levels: &[f32; BANDS], color: Hsla, win
         let color = color.opacity(0.28 + 0.6 * level);
         window.paint_quad(fill(bar, color).corner_radii(Corners::all(width / 2.)));
     }
+}
+
+/// The seek bar's playhead grows under the pointer: a move across its edge
+/// redraws the strip.
+fn follow_hover(hover: Rc<Cell<bool>>, this: WeakEntity<Effects>, window: &mut Window) {
+    window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
+        if phase != DispatchPhase::Capture {
+            return;
+        }
+        let over = Slots::get(cx, Slot::Seek).is_some_and(|b| b.contains(&e.position));
+        if over != hover.get() {
+            hover.set(over);
+            let _ = this.update(cx, |_, cx| cx.notify());
+        }
+    });
 }
 
 /// Mouse presses, drags and scrolling may change models the cached app
@@ -413,86 +571,22 @@ fn listen_for_input(flag: &Rc<Cell<bool>>, window: &mut Window) {
     });
 }
 
-/// The cover's first colour, faded into the surface: what shows before the
-/// first frame, or without a GPU device.
-fn fallback(palette: Option<[[f32; 4]; 4]>, c: &Colors) -> Background {
-    let Some(palette) = palette else {
-        return c.surface.into();
+/// The playhead's speed in device pixels a second.
+fn head_speed(bar: Option<&bar::Input>, scale: f32, cx: &App) -> f32 {
+    let (Some(bar), Some(seek)) = (bar, Slots::get(cx, Slot::Seek)) else {
+        return 0.0;
     };
-    let [r, g, b, _] = palette[0];
-    let tint = c.surface.mix_oklab(Rgba { r, g, b, a: 1. }.into(), 0.75);
-    linear_gradient(
-        160.,
-        linear_color_stop(tint, 0.),
-        linear_color_stop(c.surface, 1.),
-    )
+    if bar.duration <= 0.0 {
+        return 0.0;
+    }
+    f32::from(seek.size.width) * scale / bar.duration as f32
 }
 
-/// The render size for a panel: half its size, at most `MAX_WIDTH` wide,
-/// rounded to 16 px so small resizes don't re-make the targets.
-fn render_size(panel: Bounds<Pixels>) -> (u32, u32) {
-    let (w, h) = (f32::from(panel.size.width), f32::from(panel.size.height));
-    let scale = (MAX_WIDTH / w).min(0.5);
-    let round = |v: f32| ((v * scale / 16.).round().max(1.) * 16.) as u32;
-    (round(w), round(h))
-}
-
-/// Fills `bounds` with the image, cropped to keep its aspect ratio.
-fn cover_fit(bounds: Bounds<Pixels>, image: &RenderImage) -> Bounds<Pixels> {
-    let size = image.size(0);
-    let (iw, ih) = (size.width.0 as f32, size.height.0 as f32);
-    let (bw, bh) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-    let scale = (bw / iw).max(bh / ih);
-    let fitted = gpui_kit::size(px(iw * scale), px(ih * scale));
-    Bounds::new(
-        bounds.center() - point(fitted.width / 2., fitted.height / 2.),
-        fitted,
-    )
-}
-
-fn to_image(frame: ytfast_visuals::Frame) -> Arc<RenderImage> {
-    let pixels = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)
-        .expect("a frame's size matches its bytes");
-    Arc::new(RenderImage::new([image::Frame::new(pixels)]))
-}
-
-/// Backdrop frames per second: `YTFAST_GPUI_VISUALS_FPS`, 30 by default.
+/// Frames per second at most: `YTFAST_GPUI_VISUALS_FPS`, 30 by default.
 fn fps() -> u32 {
     std::env::var("YTFAST_GPUI_VISUALS_FPS")
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&f| f > 0)
         .unwrap_or(30)
-}
-
-/// Frame costs, logged every five seconds while animating.
-#[derive(Default)]
-struct Stats {
-    frames: u32,
-    cost: FrameCost,
-    since: Option<Instant>,
-}
-
-impl Stats {
-    fn record(&mut self, cost: FrameCost, size: (u32, u32)) {
-        let since = *self.since.get_or_insert_with(Instant::now);
-        self.frames += 1;
-        self.cost.submit += cost.submit;
-        self.cost.wait += cost.wait;
-        self.cost.copy += cost.copy;
-        if since.elapsed() < Duration::from_secs(5) {
-            return;
-        }
-        let n = self.frames as f32;
-        log::info!(
-            "visuals: {}x{}: {:.0} fps; submit {:.2} ms, wait {:.2} ms, copy {:.2} ms",
-            size.0,
-            size.1,
-            n / since.elapsed().as_secs_f32(),
-            self.cost.submit / n,
-            self.cost.wait / n,
-            self.cost.copy / n,
-        );
-        *self = Self::default();
-    }
 }

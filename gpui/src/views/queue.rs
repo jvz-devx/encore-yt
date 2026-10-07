@@ -71,6 +71,7 @@ pub fn panel(
                     .pr(space::MD)
                     .gap(space::SM)
                     .child(div().flex_1().type_heading().child("Up next"))
+                    .children(super::account::save_queue_button(app, &c, cx))
                     .children(clear_button(app, &c, cx))
                     .child(
                         widgets::icon_button(

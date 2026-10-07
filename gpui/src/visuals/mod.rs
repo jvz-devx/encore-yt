@@ -1,34 +1,44 @@
-//! The effects behind Now Playing (PLAN M8), drawn around the app instead of
-//! inside it, so an animation frame doesn't re-render the app.
+//! The effects (PLAN M8, M9), drawn around the app instead of inside it, so
+//! an animation frame doesn't re-render the app.
 //!
-//! [`shell`] is what `MusicApp` renders. It stacks three layers:
+//! [`shell`] is what `MusicApp` renders. It stacks four layers:
 //!
 //! 1. [`effects::Effects`]: the window's base colour, the animated cover
-//!    backdrop over the page panel (our own wgpu device, `ytfast-visuals`)
-//!    and the spectrum. It re-renders on its own timer.
+//!    backdrop over the page panel and the spectrum while Now Playing
+//!    shows ([`backdrop`]), and the player bar's background, seek bar and
+//!    beat halos ([`bar`]), all on one GPU device of our own
+//!    (`ytfast-visuals`). It re-renders on its own timer.
 //! 2. [`content::Content`]: the app itself (`views::root`), as a cached
-//!    view while Now Playing shows. The page panel is see-through there, so
-//!    the backdrop shows behind the song.
-//! 3. [`flight::Flight`]: the cover flying between the player bar and Now
+//!    view while an effect animates. The page panel (behind Now Playing),
+//!    the player bar and its slider are see-through where the effects
+//!    paint.
+//! 3. The cover dissolves on a track change ([`dissolve`]), over the app.
+//! 4. [`flight::Flight`]: the cover flying between the player bar and Now
 //!    Playing.
 //!
 //! GPUI marks a notified view and all its ancestors dirty, and a window's
-//! root re-renders on every frame. `MusicApp` is that root's child, so a
-//! frame of the backdrop re-renders `MusicApp`; with the app's views in a
-//! cached `Content` beside the effects, that is only this small shell.
+//! root re-renders on every frame. `MusicApp` is that root's child, so an
+//! effects frame re-renders `MusicApp`; with the app's views in a cached
+//! `Content` beside the effects, that is only this small shell. Each frame
+//! still redraws the whole window (about 2 ms of CPU), so while only the
+//! player bar moves, frames come when it would look different.
 //!
-//! Now Playing places the effects with [`slot`] (empty boxes whose bounds
-//! the layers read) and draws the song's waveform with [`waveform`].
+//! The views place the effects with [`slot`] (empty boxes whose bounds the
+//! layers read); Now Playing draws the song's waveform with [`waveform`].
 //! Settings: `YTFAST_GPUI_VISUALS=0` turns the effects off,
-//! `YTFAST_GPUI_VISUALS_FPS` sets the frame rate (default 30),
-//! `YTFAST_GPUI_REDUCED_MOTION=1` (or the desktop's reduced motion) freezes them,
-//! `YTFAST_GPUI_VISUALS_UNCACHED=1` turns the cached view off (to measure
-//! it) and `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover down (to
-//! look at it).
+//! `YTFAST_GPUI_VISUALS_FPS` sets the highest frame rate (default 30),
+//! `YTFAST_GPUI_REDUCED_MOTION=1` (or the desktop's reduced motion) freezes
+//! them, `YTFAST_GPUI_VISUALS_UNCACHED=1` turns the cached view off (to
+//! measure it) and `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover
+//! down (to look at it).
 
+mod backdrop;
+mod bar;
 mod content;
+mod dissolve;
 mod effects;
 mod flight;
+mod frames;
 mod slots;
 mod waveform;
 
@@ -40,7 +50,7 @@ use gpui_kit::*;
 use crate::app::MusicApp;
 use crate::theme;
 
-pub use slots::{Covers, Slot, set_covers, slot};
+pub use slots::{Covers, Slot, paints_bar, set_bar_cover, set_covers, slot};
 pub use waveform::waveform;
 
 /// The layers, made with the first window and kept for the next one.
@@ -66,9 +76,14 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
     let layers = layers(cx);
     let showing = fills_panel(app);
     let playback = &app.player.playback;
+    let playing = playback.playing && !playback.loading;
+    let bar = bar_input(app, cx);
+    let bar_moves = bar.is_some() && playing && !reduced_motion(cx);
     let input = effects::Input {
         showing: showing && enabled(),
-        playing: playback.playing && !playback.loading,
+        playing,
+        now_playing: app.player.now_playing,
+        bar,
     };
     layers
         .effects
@@ -78,7 +93,8 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .update(cx, |flight, cx| flight.follow(showing, window, cx));
     // Cached only while effects or the flight animate, and not after input
     // the app's models may have taken.
-    let cache = (showing || flying) && !layers.input.take() && !uncached();
+    let cache = (showing || flying || bar_moves) && !layers.input.take() && !uncached();
+    let overlay = layers.effects.read(cx).overlay();
     let content = if cache {
         layers
             .content
@@ -94,8 +110,37 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .bg(theme::colors(cx).base)
         .child(layers.effects.clone())
         .child(content)
+        .child(overlay)
         .child(layers.flight.clone())
         .into_any_element()
+}
+
+/// The player bar's state for the effects layer, or `None` while the bar
+/// isn't on screen (Stage) or effects are off. Also asks for the song's
+/// waveform. (The bar tells the layer its cover, [`set_bar_cover`].)
+fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
+    if !enabled() || app.extras.stage.open {
+        slots::set_bar_cover(None, cx);
+        return None;
+    }
+    let player = &app.player;
+    let track = player.current();
+    waveform::ensure(app, cx);
+    let duration = player.playback.duration;
+    let progress = if player.seeking {
+        player.seek.read(cx).value().start() / crate::playback::SEEK_SCALE
+    } else if duration > 0.0 {
+        (player.position() / duration) as f32
+    } else {
+        0.0
+    };
+    Some(bar::Input {
+        track: track.is_some(),
+        progress: progress.clamp(0.0, 1.0),
+        known: duration > 0.0,
+        duration,
+        video_id: track.map(|t| t.video_id.clone()),
+    })
 }
 
 /// Now Playing fills the page panel: the panel is left see-through and the

@@ -181,6 +181,7 @@ fn tabs_column(
             .child(
                 queue::controls(app, c, cx)
                     .px(space::SM)
+                    .children(super::account::save_queue_button(app, c, cx))
                     .children(queue::clear_button(app, c, cx)),
             )
             .child(queue::list(app, Place::Tab, c, cx))

@@ -18,6 +18,7 @@ use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::playback::SEEK_SCALE;
 use crate::theme::{self, Colors, Type, radius, size, space};
+use crate::visuals::{self, Slot};
 
 /// The song and the volume take the same width, so the transport is centred
 /// on the window.
@@ -27,12 +28,16 @@ const SEEK_MAX: Pixels = px(600.);
 
 pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let c = theme::colors(cx);
+    // The effects layer paints the bar's background and seek bar (M9).
+    let painted = visuals::paints_bar(cx);
     h_flex()
+        .relative()
         .h(size::PLAYER_BAR)
         .flex_none()
         .px(space::LG)
         .gap(space::XL)
-        .bg(c.base)
+        .when(!painted, |bar| bar.bg(c.base))
+        .child(visuals::slot(Slot::Bar))
         .child(song(app, &c, cx))
         .child(
             v_flex()
@@ -69,6 +74,12 @@ fn song(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElem
             ),
     };
     let like = track.and_then(|t| super::account::like_button(app, t, cx));
+    let url = track.and_then(|t| t.thumbnail.clone());
+    visuals::set_bar_cover(
+        url.as_deref()
+            .map(|u| super::page::covers::sized(u, size::PLAYER_COVER).into()),
+        cx,
+    );
     h_flex()
         .w(SIDE)
         .flex_none()
@@ -82,13 +93,9 @@ fn song(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElem
                 .rounded(radius::SM)
                 .when(track.is_some(), |s| s.cursor_pointer())
                 .child(
-                    widgets::cover(
-                        track.and_then(|t| t.thumbnail.clone()).map(Into::into),
-                        size::PLAYER_COVER,
-                        false,
-                        c,
-                    )
-                    .when(open, |cover| cover.child(collapse_badge(c))),
+                    widgets::cover(url.map(Into::into), size::PLAYER_COVER, false, c)
+                        .child(visuals::slot(Slot::BarCover))
+                        .when(open, |cover| cover.child(collapse_badge(c))),
                 )
                 .child(text)
                 .on_click(cx.listener(move |this, _, _, cx| this.show_now_playing(!open, cx))),
@@ -182,6 +189,7 @@ fn play_pause(playing: bool, loading: bool, c: &Colors) -> Stateful<Div> {
     let hover = c.primary_hover;
     h_flex()
         .id("play")
+        .relative()
         .mx(space::XS)
         .size(size::PLAY_BUTTON)
         .justify_center()
@@ -191,6 +199,7 @@ fn play_pause(playing: bool, loading: bool, c: &Colors) -> Stateful<Div> {
         .cursor_pointer()
         .hover(move |s| s.bg(hover))
         .active(|s| s.opacity(0.9))
+        .child(visuals::slot(Slot::Play))
         .child(content)
 }
 
@@ -214,6 +223,13 @@ fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Into
             .child(t)
     };
     let known = duration > 0.0;
+    // Under the slider, the effects layer draws the seek bar (with the
+    // song's waveform); the ridge draws over both.
+    let (fill, thumb) = if visuals::paints_bar(cx) {
+        (transparent_black(), transparent_black())
+    } else {
+        (c.signal, c.text)
+    };
     h_flex()
         .w_full()
         .max_w(SEEK_MAX)
@@ -230,12 +246,13 @@ fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Into
             div()
                 .flex_1()
                 .relative()
+                .child(visuals::slot(Slot::Seek))
                 .children(super::extras::ridge(app, c, cx))
                 .child(
                     Slider::new(&player.seek)
                         .disabled(!known)
-                        .bg(c.signal)
-                        .text_color(c.text),
+                        .bg(fill)
+                        .text_color(thumb),
                 ),
         )
         .child(time(if known {

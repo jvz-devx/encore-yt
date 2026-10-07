@@ -139,7 +139,22 @@ fn draw_entry(
         return div().into_any_element();
     };
     match entry {
-        Entry::Tabs(tab) => chips::library_tabs(tab, &ctx, cx),
+        Entry::Tabs(tab) => {
+            let tabs = chips::library_tabs(tab, &ctx, cx);
+            // Library → Playlists: New playlist beside the tabs (M3).
+            let actions = (tab == crate::nav::LibraryTab::Playlists)
+                .then(|| super::account::library_actions(app, cx))
+                .flatten();
+            match actions {
+                Some(actions) => gpui_kit::component::h_flex()
+                    .w_full()
+                    .gap(space::SM)
+                    .child(div().flex_1().min_w_0().child(tabs))
+                    .child(actions)
+                    .into_any_element(),
+                None => tabs,
+            }
+        }
         Entry::Saved => states::saved(state.error.clone().unwrap_or_default(), &ctx, cx),
         Entry::Caption => states::caption(&state.target, &ctx),
         Entry::Header => match &page.header {

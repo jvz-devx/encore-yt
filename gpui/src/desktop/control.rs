@@ -92,6 +92,9 @@ impl MusicApp {
     /// Esc: closes the topmost of a menu, Play anything, the shortcuts,
     /// Now Playing and Up next. `false` when nothing was open.
     pub fn close_top_layer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.close_account_layer(window, cx) {
+            return true;
+        }
         let layers = &self.desktop.layers;
         if layers.menu.is_some() {
             self.close_menu(window, cx);
@@ -128,12 +131,6 @@ impl MusicApp {
         }
         self.desktop.layers.help = open;
         cx.notify();
-    }
-
-    /// Ctrl+,: Settings belong to the account area.
-    pub fn open_settings(&mut self, cx: &mut Context<Self>) {
-        // TODO(M3): open Settings through M3's API once it is on main.
-        self.notice("Settings aren't available yet", cx);
     }
 
     /// Puts `link` on the clipboard and says so.

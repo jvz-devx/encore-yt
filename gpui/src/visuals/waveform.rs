@@ -75,6 +75,37 @@ pub fn waveform(
         )
 }
 
+/// Asks for the playing song's outline (for the player bar's seek bar).
+pub(super) fn ensure(app: &MusicApp, cx: &mut Context<MusicApp>) {
+    let playback = &app.player.playback;
+    let Some(track) = app.player.current() else {
+        return;
+    };
+    // Looked at without `default_global`, which would wake the global's
+    // observers on every frame.
+    let known = cx.try_global::<Waveforms>().is_some_and(|w| {
+        w.loading.as_deref() == Some(track.video_id.as_str())
+            || w.shown
+                .as_ref()
+                .is_some_and(|(id, _)| *id == track.video_id)
+    });
+    if !known && playback.playing && !playback.loading {
+        request(app, &track.video_id, cx);
+    }
+}
+
+/// The outline of `id`, once decoded.
+pub(super) fn outline(id: &str, cx: &App) -> Option<Vec<f32>> {
+    let (shown, values) = cx.try_global::<Waveforms>()?.shown.as_ref()?;
+    (shown == id).then(|| values.clone())
+}
+
+pub(super) fn has_outline(id: &str, cx: &App) -> bool {
+    cx.try_global::<Waveforms>()
+        .and_then(|w| w.shown.as_ref())
+        .is_some_and(|(shown, _)| shown == id)
+}
+
 /// Starts decoding `id` unless it is shown or on its way.
 fn request(app: &MusicApp, id: &str, cx: &mut Context<MusicApp>) {
     let state = cx.default_global::<Waveforms>();

@@ -173,9 +173,28 @@ fn open_item(
     window: &mut Window,
     cx: &mut Context<MusicApp>,
 ) {
-    let subject = find(app, key, shelf, item).and_then(|i| Subject::of_item(&i, Place::List));
+    let subject =
+        find(app, key, shelf, item).and_then(|i| Subject::of_item(&i, place(app, key, &i)));
     if let Some(subject) = subject {
         app.open_menu(subject, at, window, cx);
+    }
+}
+
+/// Where an item of page `key` sits: an entry of the account's own playlist
+/// offers Remove from playlist (M3).
+fn place(app: &MusicApp, key: &str, item: &Item) -> Place {
+    let own = app
+        .pages
+        .states
+        .get(key)
+        .and_then(|s| s.page.as_ref()?.header.as_ref()?.editable.clone());
+    let entry = item.track.as_ref().and_then(|t| t.set_video_id.clone());
+    match (own, entry) {
+        (Some(playlist_id), Some(set_video_id)) => Place::Own {
+            playlist_id,
+            set_video_id,
+        },
+        _ => Place::List,
     }
 }
 

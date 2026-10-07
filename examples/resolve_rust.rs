@@ -5,7 +5,7 @@
 //! `<cache>/player` has no current one. Mind YouTube's rate limits.
 //!
 //! `cargo run --example resolve_rust --no-default-features -- [--signed-in]
-//! [--client visionos|music|creator|tv] [--cache DIR] VIDEO_ID...` (`--client`
+//! [--client visionos|tv|creator] [--cache DIR] VIDEO_ID...` (`--client`
 //! asks only that client, so a failure costs no second request; `--no-fetch`
 //! skips the range fetch; `--dump DIR` saves the player responses). Exits
 //! with status 1 if the player can't be prepared, a song doesn't resolve or
@@ -41,6 +41,7 @@ async fn main() -> Result<()> {
             "--client" => {
                 only = Some(match args.next().as_deref() {
                     Some("visionos") => &streams::VISIONOS,
+                    // YouTube Music's web client, the app's first when signed in.
                     Some("music") => &streams::WEB_REMIX,
                     Some("tv") => &streams::TV_DOWNGRADED,
                     Some("creator") => &streams::WEB_CREATOR,

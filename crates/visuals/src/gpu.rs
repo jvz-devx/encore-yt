@@ -70,7 +70,7 @@ impl Gpu {
         };
         let (device, queue) = pollster::block_on(
             adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("ytfast visuals"),
+                label: Some("encore visuals"),
                 required_features,
                 required_limits: wgpu::Limits::downlevel_defaults()
                     .using_resolution(adapter.limits())

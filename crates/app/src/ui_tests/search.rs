@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
+use encore_core::backend::{Command, Event};
+use encore_core::model::Target;
 use gpui_kit::TestAppContext;
-use ytfast::backend::{Command, Event};
-use ytfast::model::Target;
 
 use super::Ui;
 use crate::nav::View;

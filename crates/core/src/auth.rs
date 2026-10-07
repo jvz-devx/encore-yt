@@ -1,6 +1,6 @@
 //! Reads the YouTube session from the desktop's Chromium-family or Firefox
 //! browser, or from cookie files exported elsewhere
-//! (`~/.config/ytfast/*cookies*.txt`), and saves imported or pasted
+//! (`~/.config/encore-yt/*cookies*.txt`), and saves imported or pasted
 //! cookies as such a file.
 //!
 //! The browser keeps its cookie store open, so the database is copied first.
@@ -20,7 +20,7 @@ use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use anyhow::{Context, Result, anyhow, bail};
 use sha2::Digest;
 
-/// One Chromium-family installation ytfast can read: its name and its
+/// One Chromium-family installation Encore can read: its name and its
 /// profiles directory under the config directory (`~/.config` on Linux,
 /// `~/Library/Application Support` on macOS). On Linux its Safe Storage
 /// password is filed under `keyring` (the Secret Service's `application`)
@@ -182,7 +182,7 @@ fn gecko_base(base: &directories::BaseDirs) -> &Path {
     }
 }
 
-/// The browsers ytfast looks for on this system, for the sign-in sheet.
+/// The browsers Encore looks for on this system, for the sign-in sheet.
 pub fn supported_browsers() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = GECKOS
         .iter()
@@ -309,13 +309,13 @@ enum Store {
     Chromium(&'static Browser),
     /// `moz_cookies`, in the clear.
     Firefox,
-    /// A Netscape cookie file the person put in ytfast's config directory.
+    /// A Netscape cookie file the person put in Encore's config directory.
     CookieFile,
 }
 
 /// Where cookie files go, under the config directory: every
 /// `*cookies*.txt` there ("cookies.txt", "browser-cookies.txt").
-const COOKIE_DIR: &str = "ytfast";
+const COOKIE_DIR: &str = crate::paths::NAME;
 
 fn is_cookie_file(name: &str) -> bool {
     name.ends_with(".txt") && name.contains("cookies")
@@ -380,7 +380,7 @@ fn candidates() -> Result<Vec<Candidate>> {
 }
 
 /// Every `*cookies*.txt` file in `dir`, as "Cookie file (browser-cookies.txt)"
-/// with the id "ytfast/browser-cookies.txt".
+/// with the id "encore-yt/browser-cookies.txt".
 fn cookie_file_candidates(dir: &Path, candidates: &mut Vec<Candidate>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -527,8 +527,8 @@ pub fn scan_browsers(scratch: &Path) -> BrowserScan {
 }
 
 /// Where imported and pasted cookies go (the directory cookie files are
-/// read from): `~/.config/ytfast`, `~/Library/Application Support/ytfast`,
-/// `%APPDATA%\ytfast`.
+/// read from): `~/.config/encore-yt`, `~/Library/Application Support/encore-yt`,
+/// `%APPDATA%\encore-yt`.
 fn cookie_dir() -> Result<PathBuf> {
     let base = directories::BaseDirs::new().context("no home directory")?;
     Ok(base.config_dir().join(COOKIE_DIR))
@@ -709,7 +709,7 @@ fn with_copy<T>(
     result
 }
 
-/// What ytfast can read from one browser profile, to diagnose sign-in.
+/// What Encore can read from one browser profile, to diagnose sign-in.
 /// Counts only: no cookie value or password leaves this module.
 #[derive(Clone, Debug)]
 pub struct Inspection {
@@ -721,7 +721,7 @@ pub struct Inspection {
     pub cookies: usize,
     /// Encrypted values no key opened.
     pub undecryptable: usize,
-    /// `v12` values (the desktop portal's key), which ytfast doesn't read.
+    /// `v12` values (the desktop portal's key), which Encore doesn't read.
     pub portal: usize,
     /// Whether the cookies read include the one sign-in needs (SAPISID).
     pub signed_in: bool,
@@ -731,7 +731,7 @@ pub struct Inspection {
     pub error: Option<String>,
 }
 
-/// Reads every profile ytfast would consider, signed in or not, and
+/// Reads every profile Encore would consider, signed in or not, and
 /// reports what it found (`examples/sign_in.rs`). Unlike [`load`], this
 /// asks for a Chromium profile's Safe Storage password even when the
 /// profile isn't signed in.
@@ -923,7 +923,7 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
     if !cookies.iter().any(|c| signs_in(&c.host, &c.name)) {
         if portal > 0 {
             bail!(
-                "{} keeps its sign-in encrypted with the desktop portal's key, which ytfast can't read",
+                "{} keeps its sign-in encrypted with the desktop portal's key, which Encore can't read",
                 candidate.label
             );
         }
@@ -1145,8 +1145,8 @@ mod kwallet {
     use anyhow::{Result, bail};
     use zbus::blocking::{Connection, Proxy};
 
-    /// How ytfast names itself to kwalletd (its access prompt shows it).
-    const APP_ID: &str = "ytfast";
+    /// How Encore names itself to kwalletd (its access prompt shows it).
+    const APP_ID: &str = crate::APP_NAME;
 
     /// kwalletd6 (Plasma 6), then kwalletd5.
     const DAEMONS: &[(&str, &str)] = &[

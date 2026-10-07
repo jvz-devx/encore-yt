@@ -1,4 +1,4 @@
-cask "ytfast-gpui" do
+cask "encore-yt" do
   arch arm: "arm64", intel: "x86_64"
 
   version "0.1.1-alpha.1"
@@ -7,10 +7,10 @@ cask "ytfast-gpui" do
 
   depends_on macos: ">= :big_sur"
 
-  url "https://github.com/jvz-devx/ytfast-gpui/releases/download/v#{version}/ytfast-gpui-#{version}-macos-#{arch}.dmg"
-  name "Music (ytfast)"
+  url "https://github.com/jvz-devx/encore-yt/releases/download/v#{version}/encore-yt-#{version}-macos-#{arch}.dmg"
+  name "Encore"
   desc "Native YouTube Music client"
-  homepage "https://github.com/jvz-devx/ytfast-gpui"
+  homepage "https://github.com/jvz-devx/encore-yt"
 
   # Every release so far is a pre-release, which the default
   # :github_releases strategy (and :github_latest) skip.
@@ -28,18 +28,18 @@ cask "ytfast-gpui" do
   # The app updates itself from GitHub Releases (Settings, Updates).
   auto_updates true
 
-  app "ytfast.app"
+  app "Encore.app"
 
   # The app is ad-hoc signed, not notarized: with the quarantine flag that
   # Homebrew sets on the download, Gatekeeper refuses to open it.
   postflight_steps do
-    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/ytfast.app"]
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Encore.app"]
   end
 
   zap trash: [
-    "~/Library/Application Support/ytfast",
-    "~/Library/Caches/ytfast",
-    "~/Library/Preferences/io.github.jvz-devx.ytfast-gpui.plist",
-    "~/Library/Saved Application State/io.github.jvz-devx.ytfast-gpui.savedState",
+    "~/Library/Application Support/encore-yt",
+    "~/Library/Caches/encore-yt",
+    "~/Library/Preferences/io.github.jvz-devx.encore-yt.plist",
+    "~/Library/Saved Application State/io.github.jvz-devx.encore-yt.savedState",
   ]
 end

@@ -1,13 +1,13 @@
 //! Track changes on a cover (the player bar's and Now Playing's): the old
 //! cover stays over the slot until the new one has loaded, then burns into
-//! it along a noise front (`ytfast_visuals::Dissolve`). Painted over the app.
+//! it along a noise front (`encore_visuals::Dissolve`). Painted over the app.
 //! Under reduced motion the new cover just replaces the old one.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use encore_visuals::{Dissolve, Gpu, Look};
 use gpui_kit::*;
-use ytfast_visuals::{Dissolve, Gpu, Look};
 
 use super::frames::Frames;
 use super::slots::{Slot, Slots};

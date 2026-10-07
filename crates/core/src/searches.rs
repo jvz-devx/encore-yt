@@ -1,5 +1,5 @@
 //! Recent searches: the last [`KEEP`] queries, newest first, in
-//! `~/.cache/ytfast/searches.json`.
+//! `~/.cache/encore-yt/searches.json`.
 
 use std::path::Path;
 

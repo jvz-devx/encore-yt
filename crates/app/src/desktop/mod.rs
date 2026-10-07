@@ -26,10 +26,10 @@ mod window;
 use std::sync::Arc;
 use std::sync::mpsc;
 
+use encore_core::backend::Backend;
+use encore_core::desktop::{Flags, Remote, Request};
+use encore_core::paths::Paths;
 use gpui_kit::*;
-use ytfast::backend::Backend;
-use ytfast::desktop::{Flags, Remote, Request};
-use ytfast::paths::Paths;
 
 use crate::app::{Link, MusicApp};
 
@@ -70,7 +70,7 @@ impl Desktop {
     ) -> (Self, Vec<Subscription>) {
         let flags = Arc::new(Flags::default());
         flags.notifications.store(
-            ytfast::settings::Settings::load(paths).notifications,
+            encore_core::settings::Settings::load(paths).notifications,
             std::sync::atomic::Ordering::Relaxed,
         );
         let (request_tx, requests) = mpsc::channel();
@@ -127,22 +127,22 @@ fn keep_focus(window: &mut Window, cx: &mut Context<MusicApp>) -> Subscription {
 /// The instance socket, the tray, MPRIS (with notifications) and signals.
 fn start_services(backend: &Backend, paths: &Paths, remote: &Remote, flags: &Arc<Flags>) {
     let listener = remote.clone();
-    if let Err(e) =
-        ytfast::single_instance::listen(&paths.runtime, move |message| listener.deliver(message))
-    {
-        log::warn!("no single instance socket, so the command line can't reach Music: {e}");
+    if let Err(e) = encore_core::single_instance::listen(&paths.runtime, move |message| {
+        listener.deliver(message)
+    }) {
+        log::warn!("no single instance socket, so the command line can't reach Encore: {e}");
     }
     // The tray (StatusNotifierItem), MPRIS and notifications are D-Bus
     // services: Linux only.
     #[cfg(target_os = "linux")]
     {
-        ytfast::tray::start(
+        encore_core::tray::start(
             &backend.runtime,
             remote.clone(),
             backend.now.clone(),
             flags.window_open.subscribe(),
         );
-        ytfast::mpris::start(
+        encore_core::mpris::start(
             &backend.runtime,
             remote.clone(),
             backend.now.clone(),
@@ -174,7 +174,7 @@ fn handle_requests(app: &Entity<MusicApp>, cx: &mut App) {
 }
 
 impl MusicApp {
-    /// `ytfast-gpui like` and L: likes the playing song or removes its like
+    /// `encore-yt like` and L: likes the playing song or removes its like
     /// (M3).
     pub(crate) fn like_playing(&mut self, cx: &mut Context<Self>) {
         self.toggle_like_current(cx);

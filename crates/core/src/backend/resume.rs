@@ -1,4 +1,4 @@
-//! The session across launches, in `~/.cache/ytfast/session.json`: the
+//! The session across launches, in `~/.cache/encore-yt/session.json`: the
 //! queue (play order, list order and additions, and whether it is a radio
 //! for Smooth mixes), the current song and its
 //! position, volume, shuffle, repeat and autoplay. It is saved on pause,

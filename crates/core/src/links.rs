@@ -1,4 +1,4 @@
-//! YouTube Music and YouTube links: what they open in ytfast.
+//! YouTube Music and YouTube links: what they open in Encore.
 //!
 //! `music.youtube.com`, `www.youtube.com`, `youtube.com`, `m.youtube.com` and
 //! `youtu.be` links to songs, playlists, albums, artists and searches become
@@ -8,7 +8,7 @@
 use crate::model::Target;
 
 /// What a link opens, or `None` for anything that isn't a YouTube Music or
-/// YouTube link ytfast understands. Surrounding whitespace and `<…>` are
+/// YouTube link Encore understands. Surrounding whitespace and `<…>` are
 /// ignored; the scheme may be left out.
 pub fn target_from_link(link: &str) -> Option<Target> {
     let link = link.trim().trim_start_matches('<').trim_end_matches('>');

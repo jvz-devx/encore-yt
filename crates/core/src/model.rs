@@ -1,4 +1,4 @@
-//! ytfast's own types. InnerTube responses are translated into these in
+//! Encore's own types. InnerTube responses are translated into these in
 //! `parse`; views never touch raw JSON.
 
 use serde::{Deserialize, Serialize};

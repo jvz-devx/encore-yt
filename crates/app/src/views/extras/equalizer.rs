@@ -3,13 +3,13 @@
 //! the sound between songs (loudness levelling, smooth mixes) until they
 //! move into Settings.
 
+use encore_core::equalizer::{Equalizer, Preset};
+use encore_core::model::Mixes;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::equalizer::{Equalizer, Preset};
-use ytfast::model::Mixes;
 
 use super::super::{keyed, widgets};
 use super::sleep::{appear, floating};

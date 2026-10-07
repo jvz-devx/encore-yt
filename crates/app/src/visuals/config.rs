@@ -1,5 +1,5 @@
 //! Settings → Visuals: every effect's switches and parameters, saved in
-//! `~/.config/ytfast/visuals.json` (PLAN M21).
+//! `~/.config/encore-yt/visuals.json` (PLAN M21).
 //!
 //! The file is versioned, every field has a default and unknown fields are
 //! ignored, so an older or newer file still loads. Four presets (Off, Calm,
@@ -12,11 +12,11 @@
 //!
 //! The settings live on the UI thread ([`get`], [`set`]); the effects read
 //! them on every render, so a change shows in the next frame. Environment
-//! variables override what is saved, without saving: `YTFAST_GPUI_VISUALS=0`
-//! (everything off), `YTFAST_GPUI_VISUALS_FPS`, `YTFAST_GPUI_VISUALS_FLIGHT_MS`,
-//! `YTFAST_GPUI_VISUALS_PRESET=off|calm|default|vivid` and
-//! `YTFAST_GPUI_VISUALIZER=bars|mirrored|ring|line|particles|scope` (also
-//! shows it in Now Playing and Stage) and `YTFAST_GPUI_SCOPE=mono|stereo|xy`.
+//! variables override what is saved, without saving: `ENCORE_VISUALS=0`
+//! (everything off), `ENCORE_VISUALS_FPS`, `ENCORE_VISUALS_FLIGHT_MS`,
+//! `ENCORE_VISUALS_PRESET=off|calm|default|vivid` and
+//! `ENCORE_VISUALIZER=bars|mirrored|ring|line|particles|scope` (also
+//! shows it in Now Playing and Stage) and `ENCORE_SCOPE=mono|stereo|xy`.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -349,11 +349,11 @@ impl ScopeChannels {
         }
     }
 
-    pub fn visuals(self) -> ytfast_visuals::Channels {
+    pub fn visuals(self) -> encore_visuals::Channels {
         match self {
-            ScopeChannels::Mono => ytfast_visuals::Channels::Mono,
-            ScopeChannels::Stereo => ytfast_visuals::Channels::Stereo,
-            ScopeChannels::Xy => ytfast_visuals::Channels::XY,
+            ScopeChannels::Mono => encore_visuals::Channels::Mono,
+            ScopeChannels::Stereo => encore_visuals::Channels::Stereo,
+            ScopeChannels::Xy => encore_visuals::Channels::XY,
         }
     }
 }
@@ -504,7 +504,7 @@ impl Swatch {
         let [l, c, h] = self.oklch();
         let (s, co) = h.to_radians().sin_cos();
         let lab = [l, c * co, c * s];
-        ytfast_visuals::color::linear_to_display(ytfast_visuals::color::oklab_to_linear(lab))
+        encore_visuals::color::linear_to_display(encore_visuals::color::oklab_to_linear(lab))
     }
 }
 
@@ -783,19 +783,19 @@ impl VisualsConfig {
     /// The environment's overrides on top (not saved).
     fn overridden(mut self) -> Self {
         let var = |name: &str| std::env::var(name).ok();
-        if let Some(preset) = var("YTFAST_GPUI_VISUALS_PRESET").and_then(|p| Preset::parse(&p)) {
+        if let Some(preset) = var("ENCORE_VISUALS_PRESET").and_then(|p| Preset::parse(&p)) {
             self = self.with_preset(preset);
         }
-        if var("YTFAST_GPUI_VISUALS").is_some_and(|v| v == "0") {
+        if var("ENCORE_VISUALS").is_some_and(|v| v == "0") {
             self.on = false;
         }
-        if let Some(fps) = var("YTFAST_GPUI_VISUALS_FPS").and_then(|v| v.parse().ok()) {
+        if let Some(fps) = var("ENCORE_VISUALS_FPS").and_then(|v| v.parse().ok()) {
             self.fps = fps;
         }
-        if let Some(ms) = var("YTFAST_GPUI_VISUALS_FLIGHT_MS").and_then(|v| v.parse().ok()) {
+        if let Some(ms) = var("ENCORE_VISUALS_FLIGHT_MS").and_then(|v| v.parse().ok()) {
             self.flight.ms = ms;
         }
-        let style = var("YTFAST_GPUI_VISUALIZER").and_then(|s| {
+        let style = var("ENCORE_VISUALIZER").and_then(|s| {
             Style::ALL
                 .into_iter()
                 .find(|t| t.label().eq_ignore_ascii_case(&s))
@@ -805,7 +805,7 @@ impl VisualsConfig {
             self.visualizer.now_playing = Placement::Visualizer;
             self.stage.visualizer = true;
         }
-        let channels = var("YTFAST_GPUI_SCOPE").and_then(|s| {
+        let channels = var("ENCORE_SCOPE").and_then(|s| {
             ScopeChannels::ALL
                 .into_iter()
                 .find(|c| c.label().replace('/', "").eq_ignore_ascii_case(&s))
@@ -898,7 +898,7 @@ fn write(path: &Path, config: &VisualsConfig) {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            ytfast::paths::write_atomic(path, &bytes)
+            encore_core::paths::write_atomic(path, &bytes)
         });
     if let Err(e) = written {
         log::warn!("visuals: couldn't save {}: {e}", path.display());

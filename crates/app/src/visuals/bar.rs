@@ -2,7 +2,7 @@
 //! a glow of the cover's palette rising from the window's bottom edge, the
 //! seek bar (glowing fill, the song's waveform, a playhead that pulses on
 //! the kick) and soft rings around the play button and the cover. One
-//! `ytfast_visuals::Strip` frame holds all of it.
+//! `encore_visuals::Strip` frame holds all of it.
 //!
 //! The bar leaves its background and slider see-through while a frame
 //! shows ([`super::paints_bar`]); the slider still takes the clicks and
@@ -12,8 +12,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use encore_visuals::{Look, Seek, Strip, StripColors, StripParams};
 use gpui_kit::*;
-use ytfast_visuals::{Look, Seek, Strip, StripColors, StripParams};
 
 use super::effects::Tick;
 use super::frames::Frames;
@@ -37,7 +37,7 @@ pub struct Input {
     /// The song whose outline to show.
     pub video_id: Option<String>,
     /// The song's replay heat, for the most-replayed ridge.
-    pub heat: Option<ytfast::heat::Heat>,
+    pub heat: Option<encore_core::heat::Heat>,
 }
 
 /// What changes the strip's still picture: when it differs from the last

@@ -19,7 +19,7 @@ const MAX_BOOST_DB: f64 = 3.0;
 /// The sleep timer fades out over its last seconds.
 const FADE_SECONDS: f64 = 8.0;
 
-/// What ytfast uses from a song's `WEB_REMIX` player response.
+/// What Encore uses from a song's `WEB_REMIX` player response.
 #[derive(Clone, Debug, Default)]
 pub(super) struct PlayerInfo {
     /// Integrated loudness in LKFS.
@@ -150,7 +150,7 @@ impl super::Worker {
         }
     }
 
-    /// Changes settings.json, keeping what other parts of ytfast saved there.
+    /// Changes settings.json, keeping what other parts of Encore saved there.
     pub(super) fn update_settings(&self, change: impl FnOnce(&mut crate::settings::Settings)) {
         let mut settings = crate::settings::Settings::load(&self.paths);
         change(&mut settings);

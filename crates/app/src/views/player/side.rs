@@ -1,11 +1,11 @@
 //! The player bar's right side: autoplay, Up next and volume, with the
 //! format playing under them.
 
+use encore_core::backend::Command;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::slider::Slider;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
-use ytfast::backend::Command;
 
 use super::super::widgets;
 use crate::app::MusicApp;

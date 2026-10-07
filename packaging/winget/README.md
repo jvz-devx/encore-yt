@@ -1,18 +1,18 @@
 # winget manifests
 
-These are the manifests for `winget install jvz-devx.ytfast`, for the Inno Setup installer that the release workflow builds (`ytfast-gpui-<version>-windows-x86_64-setup.exe`). They use manifest schema 1.12.0, the version winget-pkgs asks for.
+These are the manifests for `winget install jvz-devx.encore-yt`, for the Inno Setup installer that the release workflow builds (`encore-yt-<version>-windows-x86_64-setup.exe`). They use manifest schema 1.12.0, the version winget-pkgs asks for.
 
-- `jvz-devx.ytfast.yaml`: the version manifest.
-- `jvz-devx.ytfast.installer.yaml`: the setup program. `InstallerType: inno` gives the silent switches (winget adds `/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`), and `Custom` adds `/CLOSEAPPLICATIONS /NORESTARTAPPLICATIONS` so an upgrade closes a running copy. `Scope: user` because the setup installs per user (`PrivilegesRequired=lowest`). `ProductCode` is the .iss `AppId` with Inno's `_is1` suffix, which is how winget finds the installed copy.
-- `jvz-devx.ytfast.locale.en-US.yaml`: name, description, MIT licence, links.
+- `jvz-devx.encore-yt.yaml`: the version manifest.
+- `jvz-devx.encore-yt.installer.yaml`: the setup program. `InstallerType: inno` gives the silent switches (winget adds `/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`), and `Custom` adds `/CLOSEAPPLICATIONS /NORESTARTAPPLICATIONS` so an upgrade closes a running copy. `Scope: user` because the setup installs per user (`PrivilegesRequired=lowest`). `ProductCode` is the .iss `AppId` with Inno's `_is1` suffix, which is how winget finds the installed copy.
+- `jvz-devx.encore-yt.locale.en-US.yaml`: name, description, MIT licence, links.
 
 The files hold the v0.1.0-alpha.1 values. `komac analyze` read the installer type, scope, product code and install location from the setup program. The files validate against the 1.12.0 JSON schemas, and `komac submit --dry-run` parses them. `winget validate` needs Windows and hasn't been run.
 
 ## The identifier
 
-`jvz-devx.ytfast`: the publisher as the installer reports it (`AppPublisher=jvz-devx`), then the product's short name. "Music" alone is too generic to be an identifier.
+`jvz-devx.encore-yt`: the publisher as the installer reports it (`AppPublisher=jvz-devx`), then the command's name (bare `encore` is the Encore.dev CLI). Releases before the rename were `jvz-devx.ytfast`, which was never submitted.
 
-Every release so far is a pre-release, and winget-pkgs has no written rule against them. winget sorts `0.1.0-alpha.1` below `0.1.0`, so a later stable release still counts as the upgrade. Projects that ship both stable and pre-releases usually give the pre-releases their own identifier, such as `….Preview`, because otherwise winget moves stable users onto betas. With no stable release yet, that problem can't arise. Once the first stable release is out, submit later pre-releases as `jvz-devx.ytfast.Preview` instead.
+Every release so far is a pre-release, and winget-pkgs has no written rule against them. winget sorts `0.1.0-alpha.1` below `0.1.0`, so a later stable release still counts as the upgrade. Projects that ship both stable and pre-releases usually give the pre-releases their own identifier, such as `….Preview`, because otherwise winget moves stable users onto betas. With no stable release yet, that problem can't arise. Once the first stable release is out, submit later pre-releases as `jvz-devx.encore-yt.Preview` instead.
 
 ## Submitting a version
 

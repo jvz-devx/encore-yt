@@ -1,10 +1,10 @@
 //! The cover card (DESIGN.md "Cover card") and the round play button that
 //! rises over covers.
 
+use encore_core::model::{Item, ItemKind};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Item, ItemKind};
 
 use super::item_keys::Anchor;
 use super::runs::runs_line;

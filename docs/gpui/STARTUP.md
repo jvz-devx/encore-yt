@@ -2,7 +2,7 @@
 
 Measured 2026-10-07 on the dev box (Intel UHD 630, 6 cores, KDE Plasma 6 on
 Wayland), `just profiling` builds, signed in, with a restored queue
-and `YTFAST_FAKE_STREAM` set. Other agents were building at the same
+and `ENCORE_FAKE_STREAM` set. Other agents were building at the same
 time (load average 4 to 12), so the before and after binaries ran in
 alternation and the tables give medians of six launches each.
 
@@ -12,7 +12,7 @@ Every launch logs its milestones, timed from the top of `main` (here a
 warm launch after the changes):
 
 ```bash
-grep 'startup:' ~/.cache/ytfast/ytfast-gpui.log
+grep 'startup:' ~/.cache/encore-yt/encore-yt.log
 ```
 
 ```text

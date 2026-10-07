@@ -12,9 +12,9 @@
 
 use std::time::Duration;
 
+use encore_core::model::LyricLine;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::LyricLine;
 
 use crate::theme::motion::{self, Align, Kind, Lyrics, MotionExt as _};
 

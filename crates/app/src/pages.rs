@@ -8,11 +8,11 @@ pub mod search;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use encore_core::backend::Command;
+use encore_core::model::{Chip, Item, Page, Shelf, Target, Track};
+use encore_core::parse::More;
+use encore_core::paths::Paths;
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Chip, Item, Page, Shelf, Target, Track};
-use ytfast::parse::More;
-use ytfast::paths::Paths;
 
 use crate::app::MusicApp;
 use crate::nav::{LibraryTab, PageState, View};

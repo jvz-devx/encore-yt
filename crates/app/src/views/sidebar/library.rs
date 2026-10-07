@@ -1,11 +1,11 @@
 //! The signed-in library: New playlist, Liked music and the account's
 //! playlists (Library → Playlists), then Recently played.
 
+use encore_core::model::{Item, ItemKind, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Item, ItemKind, Target};
 
 use super::super::{runs_text, widgets};
 use crate::app::MusicApp;

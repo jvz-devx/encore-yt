@@ -246,7 +246,7 @@ impl Backend {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
-            .thread_name("ytfast-io")
+            .thread_name("encore-io")
             .build()?;
         let (commands, command_rx) = mpsc::unbounded_channel();
         let (shutdown, shutdown_rx) = mpsc::unbounded_channel();
@@ -291,7 +291,7 @@ impl Backend {
         self.resolver.cached(video_id).is_some()
     }
 
-    /// A song's resolved stream URL (or `YTFAST_FAKE_STREAM`'s file), while
+    /// A song's resolved stream URL (or `ENCORE_FAKE_STREAM`'s file), while
     /// it is valid: the waveform decodes it.
     pub fn stream_url(&self, video_id: &str) -> Option<String> {
         self.resolver.cached(video_id).map(|stream| stream.url)

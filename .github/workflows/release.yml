@@ -74,12 +74,12 @@ jobs:
             libfontconfig-dev libfreetype-dev libasound2-dev libssl-dev \
             cmake desktop-file-utils file
 
-      # YTFAST_VERSION is the version the app reports (`--version`, the
+      # ENCORE_VERSION is the version the app reports (`--version`, the
       # update check, M16); the crate's own version has no pre-release part.
       - name: Build
         env:
-          YTFAST_VERSION: ${{ env.VERSION }}
-        run: cargo build --release --locked --target ${{ matrix.target }} -p ytfast-gpui
+          ENCORE_VERSION: ${{ env.VERSION }}
+        run: cargo build --release --locked --target ${{ matrix.target }} -p encore-yt
 
       # Linux: AppImage, .deb and .rpm. The app plays and resolves streams
       # itself (Rust audio engine and resolver), so nothing else is bundled.
@@ -88,22 +88,22 @@ jobs:
         run: |
           # cargo-deb and cargo-generate-rpm read target/release.
           mkdir -p target/release
-          cp target/${{ matrix.target }}/release/ytfast-gpui target/release/ytfast-gpui
+          cp target/${{ matrix.target }}/release/encore-yt target/release/encore-yt
 
       - name: AppImage
         if: runner.os == 'Linux'
         run: |
           app=AppDir
-          mkdir -p $app/usr/bin $app/usr/share/applications $app/usr/share/icons/hicolor/512x512/apps $app/usr/share/doc/ytfast-gpui
-          cp target/release/ytfast-gpui $app/usr/bin/
+          mkdir -p $app/usr/bin $app/usr/share/applications $app/usr/share/icons/hicolor/512x512/apps $app/usr/share/doc/encore-yt
+          cp target/release/encore-yt $app/usr/bin/
           cp packaging/linux/AppRun $app/AppRun
-          cp packaging/linux/ytfast-gpui.desktop $app/ytfast-gpui.desktop
-          cp packaging/linux/ytfast-gpui.desktop $app/usr/share/applications/
-          cp packaging/icons/ytfast-gpui.png $app/ytfast-gpui.png
-          cp packaging/icons/ytfast-gpui.png $app/usr/share/icons/hicolor/512x512/apps/
-          cp packaging/THIRD-PARTY.txt $app/usr/share/doc/ytfast-gpui/
+          cp packaging/linux/io.github.jvz-devx.encore-yt.desktop $app/io.github.jvz-devx.encore-yt.desktop
+          cp packaging/linux/io.github.jvz-devx.encore-yt.desktop $app/usr/share/applications/
+          cp packaging/icons/encore-yt.png $app/encore-yt.png
+          cp packaging/icons/encore-yt.png $app/usr/share/icons/hicolor/512x512/apps/
+          cp packaging/THIRD-PARTY.txt $app/usr/share/doc/encore-yt/
           chmod +x $app/AppRun
-          desktop-file-validate $app/ytfast-gpui.desktop
+          desktop-file-validate $app/io.github.jvz-devx.encore-yt.desktop
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           mkdir -p dist
@@ -113,7 +113,7 @@ jobs:
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool --no-appstream \
             --mksquashfs-opt -Xcompression-level --mksquashfs-opt 19 \
             --mksquashfs-opt -b --mksquashfs-opt 1M \
-            $app "dist/ytfast-gpui-$VERSION-linux-x86_64.AppImage"
+            $app "dist/encore-yt-$VERSION-linux-x86_64.AppImage"
 
       - name: Install cargo-deb and cargo-generate-rpm
         if: runner.os == 'Linux'
@@ -126,8 +126,8 @@ jobs:
         run: |
           # cargo-deb compresses with xz already. The rpm's payload goes from
           # zstd 19 (the default) to xz 9: 9% smaller (docs/gpui/SIZE.md).
-          cargo deb -p ytfast-gpui --no-build --no-strip -o "dist/ytfast-gpui-$VERSION-linux-amd64.deb"
-          cargo generate-rpm -p crates/app --payload-compress xz -o "dist/ytfast-gpui-$VERSION-linux-x86_64.rpm"
+          cargo deb -p encore-yt --no-build --no-strip -o "dist/encore-yt-$VERSION-linux-amd64.deb"
+          cargo generate-rpm -p crates/app --payload-compress xz -o "dist/encore-yt-$VERSION-linux-x86_64.rpm"
           ls -la dist
 
       # Windows: an Inno Setup installer and a portable zip: the executable,
@@ -137,11 +137,11 @@ jobs:
         run: |
           src=dist/windows
           mkdir -p $src
-          cp target/${{ matrix.target }}/release/ytfast-gpui.exe $src/
-          cp packaging/icons/ytfast-gpui.ico packaging/THIRD-PARTY.txt $src/
+          cp target/${{ matrix.target }}/release/encore-yt.exe $src/
+          cp packaging/icons/encore-yt.ico packaging/THIRD-PARTY.txt $src/
           ls -la $src
           # -mx=9: deflate with more passes; still a plain zip (docs/gpui/SIZE.md).
-          (cd $src && 7z a -tzip -mx=9 "../ytfast-gpui-$VERSION-windows-x86_64-portable.zip" . > /dev/null)
+          (cd $src && 7z a -tzip -mx=9 "../encore-yt-$VERSION-windows-x86_64-portable.zip" . > /dev/null)
 
       - name: Installer (Windows)
         if: runner.os == 'Windows'
@@ -152,31 +152,31 @@ jobs:
             if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
             $env:PATH = "${env:ProgramFiles(x86)}\Inno Setup 6;$env:PATH"
           }
-          iscc /Q "/DAppVersion=$env:VERSION" "/DSourceDir=$PWD\dist\windows" "/DOutputDir=$PWD\dist" packaging\windows\ytfast-gpui.iss
+          iscc /Q "/DAppVersion=$env:VERSION" "/DSourceDir=$PWD\dist\windows" "/DOutputDir=$PWD\dist" packaging\windows\encore-yt.iss
           Remove-Item -Recurse dist\windows
           Get-ChildItem dist
 
-      # macOS: ytfast.app (unsigned, ad-hoc) in a .dmg.
+      # macOS: Encore.app (unsigned, ad-hoc) in a .dmg.
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          app="dmg/ytfast.app"
+          app="dmg/Encore.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-          cp target/${{ matrix.target }}/release/ytfast-gpui "$app/Contents/MacOS/"
+          cp target/${{ matrix.target }}/release/encore-yt "$app/Contents/MacOS/"
           # The macOS the executable was built for (Rust's default target).
-          minos=$(otool -l "$app/Contents/MacOS/ytfast-gpui" | awk '/LC_BUILD_VERSION/{b=1} b && $1=="minos"{print $2; exit}')
+          minos=$(otool -l "$app/Contents/MacOS/encore-yt" | awk '/LC_BUILD_VERSION/{b=1} b && $1=="minos"{print $2; exit}')
           minos=${minos:-11.0}
-          echo "ytfast-gpui needs macOS $minos"
+          echo "encore-yt needs macOS $minos"
           sed -e "s/@VERSION@/$VERSION/g" -e "s/@MINOS@/$minos/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
           cp packaging/THIRD-PARTY.txt "$app/Contents/Resources/"
-          iconset=ytfast-gpui.iconset
+          iconset=encore-yt.iconset
           mkdir -p $iconset
           for size in 16 32 128 256 512; do
-            sips -z $size $size packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}.png > /dev/null
+            sips -z $size $size packaging/icons/encore-yt.png --out $iconset/icon_${size}x${size}.png > /dev/null
             double=$((size * 2))
-            sips -z $double $double packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}@2x.png > /dev/null
+            sips -z $double $double packaging/icons/encore-yt.png --out $iconset/icon_${size}x${size}@2x.png > /dev/null
           done
-          iconutil -c icns $iconset -o "$app/Contents/Resources/ytfast-gpui.icns"
+          iconutil -c icns $iconset -o "$app/Contents/Resources/encore-yt.icns"
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
           ln -s /Applications dmg/Applications
@@ -184,12 +184,12 @@ jobs:
           arch=${{ matrix.name }}
           # ULFO (LZFSE) is smaller than UDZO (zlib) and opens on macOS 10.11
           # and later; the cask and Info.plist ask for 11 (docs/gpui/SIZE.md).
-          hdiutil create -volname "ytfast" -srcfolder dmg -ov -format ULFO "dist/ytfast-gpui-$VERSION-${arch}.dmg"
+          hdiutil create -volname "Encore" -srcfolder dmg -ov -format ULFO "dist/encore-yt-$VERSION-${arch}.dmg"
           ls -la dist
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ytfast-gpui-${{ matrix.name }}
+          name: encore-yt-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
           # The packages are compressed already.
@@ -221,7 +221,7 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
 
-  # Points the Homebrew cask (Casks/ytfast-gpui.rb, tapped straight from
+  # Points the Homebrew cask (Casks/encore-yt.rb, tapped straight from
   # this repository) at the new release and commits that to main. The only
   # job that writes to the repository's branches.
   cask:

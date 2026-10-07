@@ -2,8 +2,8 @@
 //! sleep timer (`sleep`), notifications and loading pages on hover (M28),
 //! and their Reset.
 
+use encore_core::model::Mixes;
 use gpui_kit::*;
-use ytfast::model::Mixes;
 
 use super::super::widgets;
 use crate::app::MusicApp;
@@ -68,7 +68,7 @@ fn notifications(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyE
         c,
         [super::row(
             "Show a notification when the song changes",
-            Some("Only while Music's window isn't in front".into()),
+            Some("Only while Encore's window isn't in front".into()),
             control,
             c,
         )],

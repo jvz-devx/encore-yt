@@ -7,7 +7,7 @@
 //!    backdrop over the page panel and the spectrum while Now Playing
 //!    shows ([`backdrop`]), and the player bar's background, seek bar and
 //!    beat halos ([`bar`]), all on one GPU device of our own
-//!    (`ytfast-visuals`). It re-renders on its own timer.
+//!    (`encore-visuals`). It re-renders on its own timer.
 //! 2. The player bar (`views::PlayerBar`), a cached view in the room the
 //!    app's views leave at the bottom. It renders again when `MusicApp` is
 //!    notified or only the position moved (`playback::Clock`).
@@ -29,14 +29,14 @@
 //!
 //! The views place the effects with [`slot`] (empty boxes whose bounds the
 //! layers read); Now Playing draws the song's waveform with [`waveform`].
-//! Settings: `YTFAST_GPUI_VISUALS=0` turns the effects off,
-//! `YTFAST_GPUI_VISUALS_FPS` sets the highest frame rate (default 20),
-//! `YTFAST_GPUI_REDUCED_MOTION=1` (or the desktop's reduced motion) freezes
-//! them, `YTFAST_GPUI_VISUALS_UNCACHED=1` turns the cached view off (to
-//! measure it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
+//! Settings: `ENCORE_VISUALS=0` turns the effects off,
+//! `ENCORE_VISUALS_FPS` sets the highest frame rate (default 20),
+//! `ENCORE_REDUCED_MOTION=1` (or the desktop's reduced motion) freezes
+//! them, `ENCORE_VISUALS_UNCACHED=1` turns the cached view off (to
+//! measure it), `ENCORE_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
 //! leaves single effects out (to measure them) and
-//! `YTFAST_GPUI_VISUALS_FLIGHT_MS` slows the flying cover down (to look at
-//! it) and `YTFAST_GPUI_FRAME_LOG=<ms>` logs frames slower than that
+//! `ENCORE_VISUALS_FLIGHT_MS` slows the flying cover down (to look at
+//! it) and `ENCORE_FRAME_LOG=<ms>` logs frames slower than that
 //! ([`timing`]).
 
 mod ambient;
@@ -359,26 +359,25 @@ pub fn cover_in_flight(cx: &App) -> bool {
         .is_some_and(|layers| layers.handles.flight.read(cx).landing())
 }
 
-/// `YTFAST_GPUI_VISUALS_UNCACHED=1` renders the app's views on every
+/// `ENCORE_VISUALS_UNCACHED=1` renders the app's views on every
 /// effects frame, as before the cached view: for measuring what it saves.
 fn uncached() -> bool {
-    std::env::var_os("YTFAST_GPUI_VISUALS_UNCACHED").is_some_and(|v| v == "1")
+    std::env::var_os("ENCORE_VISUALS_UNCACHED").is_some_and(|v| v == "1")
 }
 
 /// Effects are on unless Settings → Visuals has them off (the Off preset)
-/// or `YTFAST_GPUI_VISUALS=0`, and off in the UI tests (they need a GPU
+/// or `ENCORE_VISUALS=0`, and off in the UI tests (they need a GPU
 /// device and the audio engine).
 pub fn enabled() -> bool {
     !cfg!(test) && config::get().on
 }
 
 /// Motion is reduced when the desktop asks for it ([`theme::reduced_motion`])
-/// or `YTFAST_GPUI_REDUCED_MOTION=1` (for trying it without changing the
+/// or `ENCORE_REDUCED_MOTION=1` (for trying it without changing the
 /// desktop): the backdrop holds still, the spectrum and particles are off
 /// and the cover doesn't fly.
 pub fn reduced_motion(cx: &App) -> bool {
-    theme::reduced_motion(cx)
-        || std::env::var_os("YTFAST_GPUI_REDUCED_MOTION").is_some_and(|v| v == "1")
+    theme::reduced_motion(cx) || std::env::var_os("ENCORE_REDUCED_MOTION").is_some_and(|v| v == "1")
 }
 
 fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {

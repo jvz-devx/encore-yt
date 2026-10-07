@@ -1,11 +1,11 @@
 //! The animated cover backdrop over the page panel while Now Playing shows
-//! (M8): `ytfast_visuals::Renderer` frames, painted under the app.
+//! (M8): `encore_visuals::Renderer` frames, painted under the app.
 
 use std::time::{Duration, Instant};
 
+use encore_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer, Tune};
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer, Tune};
 
 use super::effects::Tick;
 use super::frames::Frames;

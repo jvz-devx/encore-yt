@@ -1,21 +1,21 @@
-//! The command line: `ytfast-gpui [command]`. A launch while Music runs hands
-//! its message to the running instance (`single_instance`) and exits; the
-//! same words as the egui app's `ytfast`.
+//! The command line: `encore-yt [command]`. A launch while Encore runs
+//! hands its message to the running instance (`single_instance`) and
+//! exits.
 
-use ytfast::paths::Paths;
-use ytfast::single_instance::{self, Message};
+use encore_core::paths::Paths;
+use encore_core::single_instance::{self, Message};
 
-const USAGE: &str = "usage: ytfast-gpui [command]
+const USAGE: &str = "usage: encore-yt [command]
 
-Without a command, opens Music (or brings back the running one).
+Without a command, opens Encore (or brings back the running one).
 
   show               bring back the window
   toggle             play or pause
   play | pause
   next | previous
   like               like or unlike the playing song
-  open <link>        open a YouTube Music or YouTube link (starts Music if needed)
-  quit               quit Music, stopping playback
+  open <link>        open a YouTube Music or YouTube link (starts Encore if needed)
+  quit               quit Encore, stopping playback
   --version          print the version";
 
 /// What this process starts with, once no other instance took the message.
@@ -36,7 +36,7 @@ pub fn command_line(paths: &Paths, args: Vec<String>) -> Option<Launch> {
     };
     // The update helper asks a downloaded version this (M16).
     if word == "--version" {
-        println!("ytfast-gpui {}", crate::update::VERSION);
+        println!("encore-yt {}", crate::update::VERSION);
         return None;
     }
     if matches!(word, "-h" | "--help" | "help") {
@@ -44,13 +44,13 @@ pub fn command_line(paths: &Paths, args: Vec<String>) -> Option<Launch> {
         return None;
     }
     let Some(message) = Message::parse(word, args.get(1).map(String::as_str)) else {
-        eprintln!("ytfast-gpui: unknown command {:?}\n{USAGE}", args.join(" "));
+        eprintln!("encore-yt: unknown command {:?}\n{USAGE}", args.join(" "));
         std::process::exit(2);
     };
     if let Message::Open(target) = &message
-        && ytfast::links::target_from_link(target).is_none()
+        && encore_core::links::target_from_link(target).is_none()
     {
-        eprintln!("ytfast-gpui: not a YouTube Music or YouTube link: {target}");
+        eprintln!("encore-yt: not a YouTube Music or YouTube link: {target}");
         std::process::exit(2);
     }
     if single_instance::notify(&paths.runtime, &message) {
@@ -61,7 +61,7 @@ pub fn command_line(paths: &Paths, args: Vec<String>) -> Option<Launch> {
         Message::Open(link) => Some(Launch { link: Some(link) }),
         Message::Show => Some(Launch { link: None }),
         _ => {
-            eprintln!("ytfast-gpui: Music isn't running");
+            eprintln!("encore-yt: Encore isn't running");
             std::process::exit(1);
         }
     }

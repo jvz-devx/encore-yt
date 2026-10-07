@@ -1,5 +1,5 @@
 //! No XDG desktop portal outside Linux: the look stays dark unless
-//! `YTFAST_GPUI_THEME` pins one, and motion is never reduced.
+//! `ENCORE_THEME` pins one, and motion is never reduced.
 
 use super::Mode;
 

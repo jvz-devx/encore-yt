@@ -11,11 +11,11 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use encore_core::account::AccountAction;
+use encore_core::backend::Command;
+use encore_core::model::{Header, Item, ItemKind, LikeStatus, Run, Target, Track};
 use gpui_kit::assets::IconName;
 use gpui_kit::*;
-use ytfast::account::AccountAction;
-use ytfast::backend::Command;
-use ytfast::model::{Header, Item, ItemKind, LikeStatus, Run, Target, Track};
 
 use super::control::{self, FromPage};
 use crate::app::MusicApp;

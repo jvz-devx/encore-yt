@@ -74,7 +74,7 @@ const PLAYBACK: &[Line] = &[
         Category::Playback,
         None,
         "Show a notification when the song changes",
-        "Desktop notifications while Music's window isn't in front",
+        "Desktop notifications while Encore's window isn't in front",
     ),
     (
         Category::Playback,
@@ -329,7 +329,7 @@ const ABOUT: &[Line] = &[
         Category::About,
         None,
         "Version",
-        "Which version of Music this is, and its update channel",
+        "Which version of Encore this is, and its update channel",
     ),
     (
         Category::About,
@@ -341,7 +341,7 @@ const ABOUT: &[Line] = &[
         Category::About,
         None,
         "Licence and credits",
-        "MIT licence, the projects Music builds on, third-party notices",
+        "MIT licence, the projects Encore builds on, third-party notices",
     ),
 ];
 

@@ -5,9 +5,9 @@
 //! reports Alt. Alt pressed with another key is a shortcut (Alt+← Back), so
 //! it auditions nothing until Alt is let go.
 
+use encore_core::backend::Command;
+use encore_core::model::{Audition, Track};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Audition, Track};
 
 use crate::app::MusicApp;
 

@@ -205,7 +205,7 @@ pub fn footer(c: &Colors) -> AnyElement {
                 .type_caption()
                 .tabular()
                 .text_color(c.text_faint)
-                .child(format!("Music {}", update::VERSION)),
+                .child(format!("Encore {}", update::VERSION)),
         )
         .into_any_element()
 }

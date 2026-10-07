@@ -1,6 +1,6 @@
 //! The equalizer: ten ISO octave bands from 31 Hz to 16 kHz, ±12 dB, with
 //! presets, with headroom so boosted bands don't clip; Flat or off
-//! bypasses it. The audio engine runs it (`ytfast_audio`'s `eq`).
+//! bypasses it. The audio engine runs it (`encore_audio`'s `eq`).
 
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +9,7 @@ pub const BANDS: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 160
 /// The largest cut or boost of a band, in dB.
 pub const RANGE: f32 = 12.0;
 /// The filter's label in [`Equalizer::filter`].
-pub const LABEL: &str = "ytfast-eq";
+pub const LABEL: &str = "encore-eq";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Preset {

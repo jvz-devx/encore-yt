@@ -1,4 +1,4 @@
-# The yt-dlp-ejs solver scripts ytfast trusts, by SHA-256 (one line per file:
+# The yt-dlp-ejs solver scripts Encore trusts, by SHA-256 (one line per file:
 # hash, release, release asset). The app runs a newer solver from disk only if
 # both of its files are listed here, or in the copy of this file it fetched
 # from the repository (docs/gpui/RESOLVER.md, "Keeping up"). Written by

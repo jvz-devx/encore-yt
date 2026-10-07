@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use ytfast::model::{Page, Target};
+use encore_core::model::{Page, Target};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LibraryTab {

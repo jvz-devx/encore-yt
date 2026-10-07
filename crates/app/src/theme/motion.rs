@@ -1,5 +1,5 @@
 //! Motion: durations, the one easing curve, and the settings that scale
-//! and switch them (Settings → Motion, `~/.config/ytfast/motion.json`).
+//! and switch them (Settings → Motion, `~/.config/encore-yt/motion.json`).
 //! Hover and press states change at once; motion is for things that
 //! appear or move.
 //!

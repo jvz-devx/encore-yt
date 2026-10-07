@@ -4,10 +4,10 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use encore_core::backend::Command;
+use encore_core::model::{Lyrics, Playback, Target, Track};
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Lyrics, Playback, Target, Track};
 
 use crate::app::MusicApp;
 use crate::nav::View;
@@ -537,14 +537,14 @@ pub fn on_actions(root: Div, _cx: &mut Context<MusicApp>) -> Div {
     root
 }
 
-/// For checks with `YTFAST_FAKE_STREAM`: `YTFAST_GPUI_FAKE_LYRICS=<file.lrc>`
+/// For checks with `ENCORE_FAKE_STREAM`: `ENCORE_FAKE_LYRICS=<file.lrc>`
 /// gives every song those timed lyrics, so nothing is fetched.
 fn fake_lyrics() -> Option<Lyrics> {
-    let path = std::env::var_os("YTFAST_GPUI_FAKE_LYRICS")?;
+    let path = std::env::var_os("ENCORE_FAKE_LYRICS")?;
     let text = std::fs::read_to_string(&path)
-        .inspect_err(|e| log::warn!("YTFAST_GPUI_FAKE_LYRICS: {e}"))
+        .inspect_err(|e| log::warn!("ENCORE_FAKE_LYRICS: {e}"))
         .ok()?;
-    let lines = ytfast::lyrics::parse_lrc(&text);
+    let lines = encore_core::lyrics::parse_lrc(&text);
     let plain = lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>();
     Some(Lyrics {
         text: plain.join("\n"),

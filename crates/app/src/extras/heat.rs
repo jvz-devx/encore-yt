@@ -1,9 +1,9 @@
 //! Most replayed: YouTube's replay heat for the playing song, asked once per
 //! song, drawn as the seek bar's ridge; P jumps to its peak.
 
+use encore_core::backend::Command;
+use encore_core::heat::Heat;
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::heat::Heat;
 
 use crate::app::MusicApp;
 

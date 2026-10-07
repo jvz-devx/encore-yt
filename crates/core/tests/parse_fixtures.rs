@@ -1,12 +1,12 @@
 //! Runs saved signed-out InnerTube responses (`tests/fixtures/innertube/`,
-//! refreshed with `cargo run --example capture_fixtures`) through the real
+//! refreshed with `cargo run -p encore-core --example capture_fixtures`) through the real
 //! parser, so a change in YouTube Music's responses shows up as a failing
 //! test. The assertions check the
 //! structure the interface relies on, not the catalogue's current content.
 
+use encore_core::model::{Item, ItemKind, LikeStatus, Page, Shelf, ShelfStyle, Target, Track};
+use encore_core::parse;
 use serde_json::Value;
-use ytfast::model::{Item, ItemKind, LikeStatus, Page, Shelf, ShelfStyle, Target, Track};
-use ytfast::parse;
 
 fn fixture(name: &str) -> Value {
     let path = format!(
@@ -171,7 +171,7 @@ fn album() {
         })
     ));
     assert!(header.shuffle.is_some() && header.radio.is_some());
-    let tracks = ytfast::account::entries(&album).expect("the album's tracks");
+    let tracks = encore_core::account::entries(&album).expect("the album's tracks");
     assert!(!tracks.items.is_empty());
     for row in &tracks.items {
         let track = row.track.as_ref().expect("a track");
@@ -220,7 +220,7 @@ fn playlist() {
             ..
         })
     ));
-    let rows = ytfast::account::entries(&playlist).expect("the playlist's songs");
+    let rows = encore_core::account::entries(&playlist).expect("the playlist's songs");
     assert!(!rows.items.is_empty());
     for row in &rows.items {
         let track = assert_song(row);
@@ -274,7 +274,7 @@ fn lyrics() {
     assert!(plain.source.is_some());
     assert!(plain.lines.is_empty());
 
-    let timed = ytfast::lyrics::youtube_timed(&fixture("lyrics_timed")).expect("timed lyrics");
+    let timed = encore_core::lyrics::youtube_timed(&fixture("lyrics_timed")).expect("timed lyrics");
     assert!(!timed.lines.is_empty());
     assert!(timed.lines.windows(2).all(|w| w[0].start <= w[1].start));
     assert!(timed.lines.iter().any(|l| !l.text.is_empty()));

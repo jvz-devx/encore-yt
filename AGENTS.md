@@ -1,15 +1,15 @@
-# ytfast-gpui agent guide
+# Encore agent guide
 
-ytfast-gpui is a native YouTube Music client for Linux, Windows and macOS, written in Rust with [GPUI](https://www.gpui.rs). It has no browser engine, no telemetry and no server of its own. Shown to people as "Music". The repository is jvz-devx/ytfast-gpui; it started from ytfast (see README), and nothing is merged from there any more.
+Encore (encore-yt) is a native YouTube Music client for Linux, Windows and macOS, written in Rust with [GPUI](https://www.gpui.rs). It has no browser engine, no telemetry and no server of its own. Shown to people as "Encore"; `encore-yt` is the command, package and folder name, `io.github.jvz-devx.encore-yt` the app id. The repository is jvz-devx/encore-yt; it started as ytfast-gpui, from ytfast (see README), and nothing is merged from there any more.
 
 ## The project
 
-- One Cargo workspace (one `Cargo.lock`, one `target/`): `crates/core` (`ytfast`, a library) is the backend: InnerTube, sign-in, playback, the queue and the desktop services (MPRIS, tray, notifications). `crates/app` is the app (`ytfast-gpui`), `crates/visuals` its wgpu effects and `crates/audio` the Rust playback engine. Installer files are in `packaging/`.
+- One Cargo workspace (one `Cargo.lock`, one `target/`): `crates/core` (`encore-core`, a library) is the backend: InnerTube, sign-in, playback, the queue and the desktop services (MPRIS, tray, notifications). `crates/app` is the app (`encore-yt`), `crates/visuals` its wgpu effects and `crates/audio` the Rust playback engine. Installer files are in `packaging/`.
 - [docs/gpui/PLAN.md](docs/gpui/PLAN.md) holds the milestones, how each is verified, and the log. Read it first.
 - Main platform: Fedora, KDE Plasma on Wayland. Colours, radii, spacing and type come from the app's theme module (`crates/app/src/theme.rs`), never hard-coded in views.
 - Verify UI work visually: run the app on the Wayland session and capture it (see PLAN.md). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`.
-- After each release, the release workflow commits the updated Homebrew cask (`Casks/ytfast-gpui.rb`) to `main`, so pull before pushing once a release is out.
+- After each release, the release workflow commits the updated Homebrew cask (`Casks/encore-yt.rb`) to `main`, so pull before pushing once a release is out.
 - Build speed numbers and the reasoning behind these rules: docs/gpui/BUILD-SPEED.md.
 - Startup time, how to measure it and what the first second goes to: docs/gpui/STARTUP.md.
 - Build loop (see "Rust builds" below): `just check app` while iterating, `just verify <crate>` before finishing, `just verify-workspace` / `just gate` once at the end.
@@ -38,7 +38,7 @@ Crates: `app` (the GPUI app), `core` (the backend library), `visuals` (wgpu effe
 ## Rules
 
 - Cookie values and the Chromium cookie key are secrets. Never log, print or commit them; derived cookie files are 0600 and short-lived. Read the browser's cookie store read-only and never restart or modify the browser.
-- The app acts as the maintainer's main YouTube channel (M12). Checks never change that account or play real streams signed in: use `YTFAST_FAKE_STREAM` for playback and a fresh `XDG_CONFIG_HOME`/`XDG_CACHE_HOME` (signed out) for anything else. Keep YouTube requests few (the account has been rate limited).
+- The app acts as the maintainer's main YouTube channel (M12). Checks never change that account or play real streams signed in: use `ENCORE_FAKE_STREAM` for playback and a fresh `XDG_CONFIG_HOME`/`XDG_CACHE_HOME` (signed out) for anything else. Keep YouTube requests few (the account has been rate limited).
 - Nothing from a real account goes into the repository: no captured responses, screenshots or logs with account data. Captures and logs stay in the gitignored `artifacts/`. Public screenshots come from signed-out runs.
 - Don't vendor or patch third-party crates here.
 - `cargo fmt --all --check` and `just lint <crate>` (clippy `-D warnings`) must pass. Release builds are heavy (several minutes, a few GB of memory); cap them on small machines.

@@ -1,5 +1,5 @@
-//! One ytfast at a time, and the command line that drives it. A later launch
-//! (`ytfast`, `ytfast next`, `ytfast open <link>`…) sends one line to the
+//! One Encore at a time, and the command line that drives it. A later launch
+//! (`encore-yt`, `encore-yt next`, `encore-yt open <link>`…) sends one line to the
 //! running instance over a private socket in the runtime directory, waits
 //! until it has been taken in, and exits.
 //!
@@ -20,7 +20,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {
-    /// Bring the window back (a relaunch, `ytfast show`).
+    /// Bring the window back (a relaunch, `encore-yt show`).
     Show,
     Toggle,
     Play,
@@ -77,7 +77,7 @@ impl Message {
 /// been taken in. `false` when no instance answers.
 #[cfg(unix)]
 pub fn notify(runtime: &Path, message: &Message) -> bool {
-    let Ok(mut stream) = UnixStream::connect(runtime.join("ytfast.sock")) else {
+    let Ok(mut stream) = UnixStream::connect(runtime.join("encore-yt.sock")) else {
         return false;
     };
     if stream.write_all(message.line().as_bytes()).is_err() {
@@ -96,11 +96,11 @@ pub fn listen(
     runtime: &Path,
     on_message: impl Fn(Message) + Send + 'static,
 ) -> std::io::Result<()> {
-    let path = runtime.join("ytfast.sock");
+    let path = runtime.join("encore-yt.sock");
     let _ = std::fs::remove_file(&path);
     let listener = UnixListener::bind(&path)?;
     std::thread::Builder::new()
-        .name("ytfast-instance".into())
+        .name("encore-instance".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
@@ -122,7 +122,7 @@ pub fn listen(
 #[cfg(windows)]
 fn pipe_name(runtime: &Path) -> String {
     format!(
-        r"\\.\pipe\ytfast-{}",
+        r"\\.\pipe\encore-yt-{}",
         crate::paths::hash(&runtime.to_string_lossy())
     )
 }
@@ -163,7 +163,7 @@ pub fn listen(
             .create(&name)?
     };
     std::thread::Builder::new()
-        .name("ytfast-instance".into())
+        .name("encore-instance".into())
         .spawn(move || {
             reactor.block_on(async move {
                 loop {

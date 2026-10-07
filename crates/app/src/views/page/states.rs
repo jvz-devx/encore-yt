@@ -2,11 +2,11 @@
 //! its way), failed (what happened and Try again), empty, the saved-copy
 //! notice, and the search caption.
 
+use encore_core::backend::Command;
+use encore_core::model::{Page, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Page, Target};
 
 use super::Ctx;
 use super::chips::library_tabs;

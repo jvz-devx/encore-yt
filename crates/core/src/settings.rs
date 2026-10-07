@@ -1,4 +1,4 @@
-//! Choices that last across launches, in `~/.config/ytfast/settings.json`.
+//! Choices that last across launches, in `~/.config/encore-yt/settings.json`.
 
 use serde::{Deserialize, Serialize};
 

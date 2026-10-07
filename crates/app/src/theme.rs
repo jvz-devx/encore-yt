@@ -24,7 +24,7 @@ mod portal;
 mod portal;
 
 /// Which palette the window uses. It follows the desktop's light or dark
-/// preference live (see [`portal`]); `YTFAST_GPUI_THEME=light|dark` pins one.
+/// preference live (see [`portal`]); `ENCORE_THEME=light|dark` pins one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Dark,
@@ -32,9 +32,9 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// The look pinned by `YTFAST_GPUI_THEME`, if any.
+    /// The look pinned by `ENCORE_THEME`, if any.
     pub fn from_env() -> Option<Self> {
-        match std::env::var("YTFAST_GPUI_THEME").as_deref() {
+        match std::env::var("ENCORE_THEME").as_deref() {
             Ok("light") => Some(Mode::Light),
             Ok("dark") => Some(Mode::Dark),
             _ => None,
@@ -174,7 +174,7 @@ impl Colors {
 struct Look {
     mode: Mode,
     colors: Colors,
-    /// `YTFAST_GPUI_THEME`: wins over the desktop.
+    /// `ENCORE_THEME`: wins over the desktop.
     pinned: Option<Mode>,
 }
 
@@ -377,7 +377,7 @@ pub struct Asking(Option<std::thread::JoinHandle<Option<portal::Portal>>>);
 
 /// Starts reading the desktop's look; [`init`] takes the answer.
 pub fn ask_desktop() -> Asking {
-    let thread = std::thread::Builder::new().name("ytfast-portal".into());
+    let thread = std::thread::Builder::new().name("encore-portal".into());
     Asking(thread.spawn(portal::Portal::connect).ok())
 }
 
@@ -431,7 +431,7 @@ fn follow(desktop: portal::Desktop, cx: &mut App) {
         "desktop appearance: {:?} ({}), reduced motion {}",
         mode,
         match (look.pinned, desktop.scheme) {
-            (Some(_), _) => "pinned by YTFAST_GPUI_THEME",
+            (Some(_), _) => "pinned by ENCORE_THEME",
             (None, Some(_)) => "from the desktop",
             (None, None) => "no desktop preference",
         },

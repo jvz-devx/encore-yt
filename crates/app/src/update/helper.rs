@@ -1,4 +1,4 @@
-//! The helper: `ytfast-gpui --apply-update <job>`, run from a copy of the
+//! The helper: `encore-yt --apply-update <job>`, run from a copy of the
 //! old version in the staging folder. It says `ready`, waits for the app
 //! to quit (its standard input closes), installs the job, starts the new
 //! version with `--update-receipt <job>` and waits for its `started`. Any
@@ -21,7 +21,7 @@ const APP_EXIT: Duration = Duration::from_secs(60);
 const APP_START: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(100);
 
-const RESTORED: &str = "The update couldn't start, so Music went back to the previous version.";
+const RESTORED: &str = "The update couldn't start, so Encore went back to the previous version.";
 
 pub fn main(path: &Path) -> i32 {
     close_inherited();
@@ -112,7 +112,7 @@ fn wait_for_app() -> Result<()> {
         let _ = tx.send(());
     });
     rx.recv_timeout(APP_EXIT)
-        .context("Music didn't quit within a minute")?;
+        .context("Encore didn't quit within a minute")?;
     // Let the old process finish exiting (its files, its socket).
     std::thread::sleep(Duration::from_millis(300));
     Ok(())
@@ -260,5 +260,5 @@ fn prepare(command: &mut Command) -> &mut Command {
 }
 
 fn mac_exe(bundle: &Path) -> PathBuf {
-    bundle.join("Contents/MacOS/ytfast-gpui")
+    bundle.join("Contents/MacOS/encore-yt")
 }

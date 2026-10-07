@@ -2,11 +2,11 @@
 //! title, linked subtitle, second subtitle, a description that opens up in
 //! full, and Play, Shuffle, Radio and the account's actions.
 
+use encore_core::model::{Header, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Header, Target};
 
 use super::Ctx;
 use super::runs::runs_line;

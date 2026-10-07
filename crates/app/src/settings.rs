@@ -73,16 +73,16 @@ impl Category {
     /// One line under the category's title.
     pub fn blurb(self) -> &'static str {
         match self {
-            Category::Account => "Who is signed in, and the YouTube session Music uses",
+            Category::Account => "Who is signed in, and the YouTube session Encore uses",
             Category::Playback => {
                 "Loudness, smooth mixes, the sleep timer, notifications and loading ahead"
             }
             Category::Equalizer => "Shape the sound of every song",
             Category::Visuals => "Backdrops, glows and the visualiser that move with the music",
             Category::Motion => "How things move, and how timed lyrics glide",
-            Category::Shortcuts => "Every key Music answers",
+            Category::Shortcuts => "Every key Encore answers",
             Category::Updates => "New versions from GitHub Releases",
-            Category::About => "Version, credits, and where Music keeps its files",
+            Category::About => "Version, credits, and where Encore keeps its files",
         }
     }
 

@@ -10,7 +10,7 @@
 //!   the old one kept as `previous` for rollback.
 //! - **Windows installer:** the setup program is downloaded, checked, and
 //!   run with `/SILENT` into the same folder.
-//! - **macOS:** the disk image is downloaded and checked, its `ytfast.app`
+//! - **macOS:** the disk image is downloaded and checked, its `Encore.app`
 //!   copied out and asked for its `--version`, and the bundle swapped.
 //! - **.deb, .rpm, the portable zip and source builds** only say that a
 //!   new version is out and how to get it.
@@ -43,9 +43,9 @@ use std::sync::Mutex;
 
 pub use state::{State, Updates, notes_excerpt};
 
-/// This build's version: the release's (CI sets `YTFAST_VERSION` from the
+/// This build's version: the release's (CI sets `ENCORE_VERSION` from the
 /// tag, `0.1.0-alpha.2`), else the crate's.
-pub const VERSION: &str = match option_env!("YTFAST_VERSION") {
+pub const VERSION: &str = match option_env!("ENCORE_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
 };

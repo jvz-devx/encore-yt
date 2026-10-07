@@ -6,10 +6,10 @@ mod recent;
 
 use std::path::PathBuf;
 
+use encore_core::account::Dialog;
+use encore_core::backend::Command;
+use encore_core::model::{Item, ItemKind, Run, Shelf, ShelfStyle, Target};
 use gpui_kit::*;
-use ytfast::account::Dialog;
-use ytfast::backend::Command;
-use ytfast::model::{Item, ItemKind, Run, Shelf, ShelfStyle, Target};
 
 use crate::app::MusicApp;
 use crate::nav::{LibraryTab, View};

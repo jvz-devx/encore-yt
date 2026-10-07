@@ -4,11 +4,11 @@
 //! then an outline thumb. Clicking it likes or removes the like, through
 //! the same change as the player bar's button.
 
+use encore_core::account::AccountAction;
+use encore_core::model::{LikeStatus, Track};
 use gpui_kit::assets::IconName;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::account::AccountAction;
-use ytfast::model::{LikeStatus, Track};
 
 use super::super::widgets;
 use crate::app::MusicApp;

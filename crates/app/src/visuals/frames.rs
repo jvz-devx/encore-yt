@@ -20,7 +20,7 @@ impl Frames {
     }
 
     /// Shows `frame` from now on.
-    pub fn push(&mut self, frame: ytfast_visuals::Frame, window: &mut Window) {
+    pub fn push(&mut self, frame: encore_visuals::Frame, window: &mut Window) {
         if super::effects::skip("upload") && self.shown.is_some() {
             return;
         }

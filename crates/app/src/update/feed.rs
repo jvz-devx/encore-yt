@@ -1,12 +1,12 @@
 //! The release feed: GitHub's release list for the repository, or
-//! `YTFAST_UPDATE_FEED` (the same JSON from anywhere, for testing), and the
+//! `ENCORE_UPDATE_FEED` (the same JSON from anywhere, for testing), and the
 //! newest release above this version.
 
 use anyhow::{Context, Result, bail};
 use semver::Version;
 use serde::Deserialize;
 
-const FEED: &str = "https://api.github.com/repos/jvz-devx/ytfast-gpui/releases?per_page=30";
+const FEED: &str = "https://api.github.com/repos/jvz-devx/encore-yt/releases?per_page=30";
 
 /// A release newer than this build.
 #[derive(Clone, Debug)]
@@ -50,12 +50,12 @@ impl Release {
 
 /// The URL of the release list.
 pub fn url() -> String {
-    std::env::var("YTFAST_UPDATE_FEED").unwrap_or_else(|_| FEED.to_string())
+    std::env::var("ENCORE_UPDATE_FEED").unwrap_or_else(|_| FEED.to_string())
 }
 
 /// Whether the feed is the real one (downloads must then be https).
 pub fn is_github() -> bool {
-    std::env::var_os("YTFAST_UPDATE_FEED").is_none()
+    std::env::var_os("ENCORE_UPDATE_FEED").is_none()
 }
 
 /// The newest release above `current`; pre-releases only with

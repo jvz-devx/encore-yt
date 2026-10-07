@@ -8,7 +8,7 @@
 //! and never
 //! notifies `MusicApp`. Frames stop when the window isn't visible
 //! (minimised), playback is paused, or motion is reduced (then a still
-//! frame is drawn when something changes). One `ytfast_visuals::Gpu` serves
+//! frame is drawn when something changes). One `encore_visuals::Gpu` serves
 //! every effect, made in the background ([`Device`]); it is dropped once
 //! nothing has drawn for `KEEP`.
 
@@ -16,8 +16,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use encore_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 use gpui_kit::*;
-use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
 use super::ambient::{Clocks, Field};
 use super::backdrop::{self, Backdrop};
@@ -859,7 +859,7 @@ fn backdrop_fps() -> f32 {
 }
 
 /// Window frames per second at most while effects move: Settings →
-/// Visuals' frame rate or `YTFAST_GPUI_VISUALS_FPS`, by default
+/// Visuals' frame rate or `ENCORE_VISUALS_FPS`, by default
 /// [`super::config::default_fps`] (each frame redraws the window: 6-10 ms of
 /// GPU time on the UHD 630); `None` for the display's own rate.
 fn fps() -> Option<u32> {
@@ -902,13 +902,13 @@ impl Counts {
     }
 }
 
-/// Whether `YTFAST_GPUI_VISUALS_SKIP` (a comma list of `backdrop`,
+/// Whether `ENCORE_VISUALS_SKIP` (a comma list of `backdrop`,
 /// `strip`, `spectrum`, `particles`, `upload`) leaves `what` out, to
 /// measure what it costs: the backdrop and the strip keep their first
 /// picture, `upload` keeps showing the first frame of each.
 pub(super) fn skip(what: &str) -> bool {
     static SKIP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    SKIP.get_or_init(|| std::env::var("YTFAST_GPUI_VISUALS_SKIP").unwrap_or_default())
+    SKIP.get_or_init(|| std::env::var("ENCORE_VISUALS_SKIP").unwrap_or_default())
         .split(',')
         .any(|s| s == what)
 }

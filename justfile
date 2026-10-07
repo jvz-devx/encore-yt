@@ -36,4 +36,4 @@ shaders:
 
 # A release-speed build for measurements and effect checks (no LTO).
 profiling:
-    cargo build -p ytfast-gpui --profile profiling
+    cargo build -p encore-yt --profile profiling

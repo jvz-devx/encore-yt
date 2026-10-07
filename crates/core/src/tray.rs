@@ -59,11 +59,11 @@ struct Tray {
 
 impl ksni::Tray for Tray {
     fn id(&self) -> String {
-        "ytfast".into()
+        "encore-yt".into()
     }
 
     fn title(&self) -> String {
-        "Music".into()
+        crate::APP_NAME.into()
     }
 
     fn category(&self) -> Category {
@@ -84,7 +84,11 @@ impl ksni::Tray for Tray {
 
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
-            title: self.shown.song.clone().unwrap_or_else(|| "Music".into()),
+            title: self
+                .shown
+                .song
+                .clone()
+                .unwrap_or_else(|| crate::APP_NAME.into()),
             ..ToolTip::default()
         }
     }
@@ -136,7 +140,7 @@ impl ksni::Tray for Tray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Show Music".into(),
+                label: format!("Show {}", crate::APP_NAME),
                 activate: Box::new(|tray: &mut Self| tray.remote.request(Request::Show)),
                 ..StandardItem::default()
             }
@@ -152,7 +156,7 @@ impl ksni::Tray for Tray {
 }
 
 /// Registers the tray item and keeps it current until the runtime ends.
-/// Without a tray host on the session bus, ytfast runs on without it.
+/// Without a tray host on the session bus, Encore runs on without it.
 pub fn start(
     runtime: &tokio::runtime::Handle,
     remote: Remote,

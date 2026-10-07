@@ -3,9 +3,9 @@
 //! finds settings across categories and opens them, Esc clears the search
 //! before it closes, and the settings still work from their new places.
 
+use encore_core::backend::Command;
+use encore_core::equalizer::Preset;
 use gpui_kit::{TestAppContext, px};
-use ytfast::backend::Command;
-use ytfast::equalizer::Preset;
 
 use super::Ui;
 use crate::settings::Category;

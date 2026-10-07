@@ -64,7 +64,7 @@ fn switches_and_reduced_motion(_cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn saves_and_loads(_cx: &mut TestAppContext) {
-    let dir = std::env::temp_dir().join(format!("ytfast-motion-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("encore-motion-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("motion.json");
     let config = Config {

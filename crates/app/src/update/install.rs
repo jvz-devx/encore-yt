@@ -1,7 +1,7 @@
 //! How this copy was installed, which decides how it updates: from the
 //! `APPIMAGE` variable the AppImage runtime sets, the setup program's
 //! uninstaller next to the Windows executable, the `.app` bundle around
-//! the macOS one, and `/usr/lib/ytfast-gpui` for the .deb and .rpm.
+//! the macOS one, and `/usr/lib/encore-yt` for the .deb and .rpm.
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 pub enum Install {
     /// The AppImage file the app runs from.
     AppImage(PathBuf),
-    /// `ytfast-gpui.exe` in the folder the setup program installed.
+    /// `encore-yt.exe` in the folder the setup program installed.
     Windows(PathBuf),
     /// The `.app` bundle.
     Mac(PathBuf),
@@ -58,7 +58,7 @@ impl Install {
             }
             Self::Manual(_) => return None,
         };
-        Some(format!("ytfast-gpui-{version}-{suffix}"))
+        Some(format!("encore-yt-{version}-{suffix}"))
     }
 
     /// One line on how to update a copy the app doesn't replace.
@@ -78,7 +78,7 @@ fn linux(exe: &Path, appimage: Option<&Path>) -> Install {
     if let Some(file) = appimage.filter(|f| f.is_absolute() && f.is_file()) {
         return Install::AppImage(file.to_path_buf());
     }
-    if exe.starts_with("/usr/lib/ytfast-gpui") {
+    if exe.starts_with("/usr/lib/encore-yt") {
         return Install::Manual(Manual::Package);
     }
     Install::Manual(Manual::Source)
@@ -95,7 +95,7 @@ fn windows(exe: &Path) -> Install {
     }
 }
 
-/// `…/ytfast.app/Contents/MacOS/ytfast-gpui`.
+/// `…/Encore.app/Contents/MacOS/encore-yt`.
 fn macos(exe: &Path) -> Install {
     let bundle = exe
         .parent()

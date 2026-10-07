@@ -62,9 +62,9 @@ song gives the same world.
 - Xcode command line tools, Rust via rustup (`rust-version` in
   crates/app/Cargo.toml), and CMake (`brew install cmake`; libopus builds from
   source).
-- `git clone https://github.com/jvz-devx/ytfast-gpui`, then
+- `git clone https://github.com/jvz-devx/encore-yt`, then
   `cargo run --profile profiling` at the repository root (the release-speed build without LTO).
-- `YTFAST_FAKE_STREAM=<an audio file>` plays a local file instead of
+- `ENCORE_FAKE_STREAM=<an audio file>` plays a local file instead of
   YouTube, so the spike doesn't touch the account.
 - Work on a branch (`spike-3d`), commit what you learn to this file, and
   keep captures out of the repository.

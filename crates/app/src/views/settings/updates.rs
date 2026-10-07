@@ -17,7 +17,7 @@ const NOTES: usize = 8;
 pub fn page(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
     let updates = &app.updates;
     let mut rows = vec![super::row(
-        format!("Music {}", update::VERSION),
+        format!("Encore {}", update::VERSION),
         Some(status(app).into()),
         action(app, c, cx),
         c,

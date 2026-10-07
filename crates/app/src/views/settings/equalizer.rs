@@ -1,9 +1,9 @@
 //! Settings → Equalizer: on or off, the presets, and the equalizer panel
 //! (E) for the bands themselves.
 
+use encore_core::equalizer::{Equalizer, Preset};
 use gpui_kit::assets::IconName;
 use gpui_kit::*;
-use ytfast::equalizer::{Equalizer, Preset};
 
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;

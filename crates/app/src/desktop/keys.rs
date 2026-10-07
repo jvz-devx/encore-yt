@@ -8,8 +8,8 @@
 //! other Ctrl chords work from a field too. The chords use GPUI's
 //! `secondary` modifier: Ctrl, or Cmd on macOS, as the keycaps say.
 
+use encore_core::backend::Command;
 use gpui_kit::*;
-use ytfast::backend::Command;
 
 use crate::app::MusicApp;
 

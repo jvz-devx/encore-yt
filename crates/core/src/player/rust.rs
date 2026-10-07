@@ -1,4 +1,4 @@
-//! The Rust engine (`ytfast-audio`, docs/gpui/AUDIO.md) behind the player
+//! The Rust engine (`encore-audio`, docs/gpui/AUDIO.md) behind the player
 //! interface, with the playlist model kept here.
 //!
 //! One engine per process owns the audio output; each [`Deck`] is one of its
@@ -15,8 +15,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
+use encore_audio as audio;
 use serde_json::{Value, json};
-use ytfast_audio as audio;
 
 use super::{EndReason, Events, FileOptions, LoadMode, PlayerEvent, Start};
 use crate::equalizer::Equalizer;

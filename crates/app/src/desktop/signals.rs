@@ -3,9 +3,9 @@
 //! second signal ends the process at once. Unix only; on Windows closing the
 //! window or the tray's Quit is the way out.
 
+use encore_core::desktop::{Remote, Request};
 #[cfg(unix)]
 use tokio::signal::unix::{Signal, SignalKind, signal};
-use ytfast::desktop::{Remote, Request};
 
 #[cfg(not(unix))]
 pub fn watch(_runtime: &tokio::runtime::Handle, _remote: Remote) {

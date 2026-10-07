@@ -1,6 +1,6 @@
 //! What the engine plays, as spectrum bands at 60 Hz.
 //!
-//! Samples come from the audio engine in this process (`ytfast_audio::Tap`,
+//! Samples come from the audio engine in this process (`encore_audio::Tap`,
 //! on every OS): the mono mix as it goes to the device, at the device's
 //! rate. A thread takes a hop of 1/60 s of samples each frame, runs a
 //! 4096-point FFT over the newest 4096 and folds it into log-spaced bands,
@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ytfast_audio::Tap;
+use encore_audio::Tap;
 
 pub const BANDS: usize = 32;
 /// Frames per second the bands move at.

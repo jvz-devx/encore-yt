@@ -5,11 +5,11 @@
 //! buttons and right-click hooks rows and cards call into
 //! (`desktop::menu` holds the state and what the entries do).
 
+use encore_core::model::{Item, Page};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Item, Page};
 
 use super::widgets;
 use crate::app::MusicApp;

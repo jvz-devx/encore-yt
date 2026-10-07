@@ -1,4 +1,4 @@
-//! Live check of the Rust stream resolver (`ytfast::streams`): resolves the
+//! Live check of the Rust stream resolver (`encore_core::streams`): resolves the
 //! given songs and fetches the first KB of each URL. Each song costs one
 //! `player` request and one range fetch; signed out, one search-suggestions
 //! call first gives the visitor id; the player script is fetched only when
@@ -19,9 +19,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use ytfast::innertube::Client;
-use ytfast::paths::Paths;
-use ytfast::streams::{self, Native};
+use encore_core::innertube::Client;
+use encore_core::paths::Paths;
+use encore_core::streams::{self, Native};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -55,9 +55,9 @@ async fn main() -> Result<()> {
     let client = Arc::new(Client::new());
     let mut requests = 0;
     if signed_in {
-        let preferred = ytfast::settings::Settings::load(&paths).browser_profile;
+        let preferred = encore_core::settings::Settings::load(&paths).browser_profile;
         let session =
-            ytfast::auth::load(&paths.runtime, preferred.as_deref()).context("signing in")?;
+            encore_core::auth::load(&paths.runtime, preferred.as_deref()).context("signing in")?;
         println!("signed in from {}", session.source);
         client.set_session(Some(session));
     }
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
             "{id}: itag {} from {} in {elapsed:.2}s, expires in {} min",
             stream.itag,
             from,
-            stream.expires.saturating_sub(ytfast::resolver::now()) / 60
+            stream.expires.saturating_sub(encore_core::resolver::now()) / 60
         );
         if let (Some(dir), Some(client)) = (&dump, only) {
             let saved = std::fs::read_to_string(dir.join(format!("{}-{id}.json", client.name)))?;

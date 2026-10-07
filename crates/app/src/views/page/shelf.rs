@@ -5,11 +5,11 @@
 
 use std::time::{Duration, Instant};
 
+use encore_core::model::{Item, ItemKind, Shelf, ShelfStyle};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Item, ItemKind, Shelf, ShelfStyle};
 
 use super::card::card;
 use super::row::{Album, row};

@@ -2,12 +2,12 @@
 //! of the account's channels to act as, and which browser profile or cookie
 //! file to take the YouTube session from.
 
+use encore_core::auth::Profile;
+use encore_core::model::Account;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::auth::Profile;
-use ytfast::model::Account;
 
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;

@@ -188,7 +188,7 @@ impl Client {
     }
 
     async fn call(&self, endpoint: &str, body: Value) -> Result<Value> {
-        // One line per request, for counting them (RUST_LOG=ytfast::innertube=debug).
+        // One line per request, for counting them (RUST_LOG=encore_core::innertube=debug).
         log::debug!("request: {endpoint}");
         let mut body = body;
         body["context"] = json!({"client": {"clientName": "WEB_REMIX", "clientVersion": CLIENT_VERSION, "hl": "en", "gl": "US"}});

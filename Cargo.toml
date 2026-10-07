@@ -10,13 +10,13 @@ default-members = ["crates/app"]
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
-repository = "https://github.com/jvz-devx/ytfast-gpui"
+repository = "https://github.com/jvz-devx/encore-yt"
 
 # Versions shared by more than one crate; each crate adds its own features.
 [workspace.dependencies]
-ytfast = { path = "crates/core" }
-ytfast-audio = { path = "crates/audio" }
-ytfast-visuals = { path = "crates/visuals" }
+encore-core = { path = "crates/core" }
+encore-audio = { path = "crates/audio" }
+encore-visuals = { path = "crates/visuals" }
 anyhow = "1"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
@@ -71,9 +71,9 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.cpal]
 opt-level = 3
-[profile.release.package.ytfast-audio]
+[profile.release.package.encore-audio]
 opt-level = 3
-[profile.release.package.ytfast-visuals]
+[profile.release.package.encore-visuals]
 opt-level = 3
 [profile.release.package.wgpu]
 opt-level = 3

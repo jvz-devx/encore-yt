@@ -161,7 +161,7 @@ impl DiskCache {
         // the length, and starts empty (`fallback`) when any of them is off.
         let cache = unsafe {
             device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                label: Some("ytfast visuals"),
+                label: Some("encore visuals"),
                 data: loaded.as_deref(),
                 fallback: true,
             })
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn the_cache_is_kept_on_disk() {
         let _one = crate::gpu_test_lock();
-        let dir = std::env::temp_dir().join(format!("ytfast-pipelines-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("encore-pipelines-{}", std::process::id()));
         let files = || {
             std::fs::read_dir(&dir)
                 .map(|entries| entries.flatten().map(|e| e.path()).collect::<Vec<_>>())

@@ -1,9 +1,9 @@
 //! Home from the saved Home response: its shelves are drawn, and a click on
 //! a song row plays that row's shelf from that song.
 
+use encore_core::backend::Command;
+use encore_core::model::{Page, Shelf, Target};
 use gpui_kit::{TestAppContext, px};
-use ytfast::backend::Command;
-use ytfast::model::{Page, Shelf, Target};
 
 use super::{Ui, WINDOW, fixture};
 

@@ -1,7 +1,7 @@
 //! Plays a track over HTTP, seeks, turns on an EQ preset and continues
 //! gaplessly into a second track, printing a timestamp for every step.
 //!
-//! cargo run -p ytfast-audio --example play -- <url> [<next-url>]
+//! cargo run -p encore-audio --example play -- <url> [<next-url>]
 //!
 //! Environment: SEEK_AT / SEEK_TO (default 5 / 30 s; SEEK_AT=0 skips the
 //! seek), EQ_AT (default 8 s), TAIL (seconds of the next track, default 5),
@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use ytfast_audio::{Engine, Event, Load};
+use encore_audio::{Engine, Event, Load};
 
 /// The backend's "Bass boost" preset (src/equalizer.rs).
 const BASS_BOOST: [f32; 10] = [6.0, 5.0, 4.0, 2.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0];

@@ -1,4 +1,4 @@
-//! The effects of ytfast-gpui, without GPUI.
+//! The effects of encore-yt, without GPUI.
 //!
 //! - [`Gpu`]: our own offscreen wgpu device with every effect's pipeline
 //!   compiled (through a pipeline cache on disk), shared by the renderers below.
@@ -13,7 +13,7 @@
 //!   round the cover, a line spectrum, a particle field), with alpha, from
 //!   [`Bars`] made of the spectrum, and an oscilloscope from [`Scope`]'s
 //!   traces of the samples.
-//! - [`AudioTap`]: what the audio engine plays (`ytfast_audio::Tap`, in
+//! - [`AudioTap`]: what the audio engine plays (`encore_audio::Tap`, in
 //!   process), analysed into spectrum bands plus bass and beat levels.
 //! - [`waveform`]: a whole song's loudness outline, decoded with the audio
 //!   engine's decoder and cached per video id.

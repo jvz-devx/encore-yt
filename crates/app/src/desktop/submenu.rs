@@ -3,10 +3,10 @@
 //! playlists for the full picker with its search. → or a hover opens it,
 //! ← or Esc closes it.
 
+use encore_core::account::{AccountAction, Dialog};
+use encore_core::model::Track;
 use gpui_kit::assets::IconName;
 use gpui_kit::*;
-use ytfast::account::{AccountAction, Dialog};
-use ytfast::model::Track;
 
 use super::menu::{Subject, entries};
 use crate::app::MusicApp;

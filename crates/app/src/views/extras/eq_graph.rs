@@ -5,9 +5,9 @@
 //! stop: ←/→ pick a band, ↑/↓ move it a decibel (Shift: three), 0 resets
 //! it.
 
+use encore_core::equalizer::{BANDS, Equalizer, RANGE};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
-use ytfast::equalizer::{BANDS, Equalizer, RANGE};
 
 use crate::app::MusicApp;
 use crate::theme::{Colors, Type, radius, space};

@@ -1,11 +1,11 @@
 //! Signed out: Explore's shortcuts where the playlists would be, Recently
 //! played, and a quiet line saying where the library went.
 
+use encore_core::model::{Account, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Account, Target};
 
 use super::library::recent;
 use crate::app::MusicApp;

@@ -2,14 +2,14 @@
 //! with the song under it, timed lyrics in large type beside it, and the
 //! transport along the bottom. F or Esc leaves, F11 goes full screen.
 
+use encore_core::backend::Command;
+use encore_core::model::{Lyrics, Repeat, Track};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::slider::Slider;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Lyrics, Repeat, Track};
 
 use super::super::page::covers;
 use super::super::{clock, runs_text, widgets};

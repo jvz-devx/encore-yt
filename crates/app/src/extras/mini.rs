@@ -63,7 +63,7 @@ impl MusicApp {
 fn open(app: Entity<MusicApp>, cx: &mut App) -> anyhow::Result<AnyWindowHandle> {
     let options = WindowOptions {
         titlebar: Some(TitlebarOptions {
-            title: Some("Music mini player".into()),
+            title: Some(format!("{} mini player", encore_core::APP_NAME).into()),
             ..Default::default()
         }),
         window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -71,7 +71,7 @@ fn open(app: Entity<MusicApp>, cx: &mut App) -> anyhow::Result<AnyWindowHandle> 
             size: crate::views::extras::mini::SIZE,
         })),
         window_min_size: Some(crate::views::extras::mini::MIN_SIZE),
-        app_id: Some("ytfast-gpui-mini".into()),
+        app_id: Some(format!("{}.mini", encore_core::APP_ID).into()),
         ..Default::default()
     };
     let (handle, _) = gpui_kit::open_window(options, cx, move |_, cx| {

@@ -1,5 +1,5 @@
 //! Recently played: albums, playlists and radios started from this app,
-//! kept in `~/.cache/ytfast/recent.json` (written whole, atomically).
+//! kept in `~/.cache/encore-yt/recent.json` (written whole, atomically).
 //!
 //! A play target says only which playlist to play, so the title and cover
 //! come from what was on screen: the page header or the card whose button
@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use ytfast::model::{Header, Item, ItemKind, Run, Target, Track};
+use encore_core::model::{Header, Item, ItemKind, Run, Target, Track};
 
 use crate::app::MusicApp;
 
@@ -51,7 +51,7 @@ pub fn load(path: &Path) -> Vec<Item> {
 pub fn save(path: &Path, list: &[Item]) {
     let written = serde_json::to_vec(list)
         .map_err(std::io::Error::other)
-        .and_then(|bytes| ytfast::paths::write_atomic(path, &bytes));
+        .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
     if let Err(e) = written {
         log::warn!("couldn't save {}: {e}", path.display());
     }

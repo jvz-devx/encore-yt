@@ -1,4 +1,4 @@
-//! The motion settings as saved in `~/.config/ytfast/motion.json`. Every
+//! The motion settings as saved in `~/.config/encore-yt/motion.json`. Every
 //! field has a default, so a file from an older build (or a hand edit
 //! missing keys) still loads; a file that doesn't parse gives the defaults.
 
@@ -187,7 +187,7 @@ impl Config {
     pub fn save(&self, path: &Path) {
         let written = serde_json::to_vec_pretty(self)
             .map_err(std::io::Error::other)
-            .and_then(|bytes| ytfast::paths::write_atomic(path, &bytes));
+            .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
         if let Err(e) = written {
             log::warn!("couldn't save {}: {e}", path.display());
         }

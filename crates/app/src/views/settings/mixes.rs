@@ -1,9 +1,9 @@
 //! Settings → Smooth mixes: radios, mixes and autoplay crossfade between
 //! songs, and for how long.
 
+use encore_core::model::Mixes;
 use gpui_kit::component::slider::Slider;
 use gpui_kit::*;
-use ytfast::model::Mixes;
 
 use super::super::widgets;
 use crate::app::MusicApp;

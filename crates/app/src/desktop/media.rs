@@ -15,15 +15,15 @@
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
+use encore_core::backend::Command;
+use encore_core::desktop::{Now, Remote, Request};
+use encore_core::model::Track;
 use gpui_kit::*;
 use souvlaki::{
     MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
     SeekDirection,
 };
 use tokio::sync::watch;
-use ytfast::backend::Command;
-use ytfast::desktop::{Now, Remote, Request};
-use ytfast::model::Track;
 
 /// How far the overlay's fast-forward and rewind buttons jump, in seconds.
 const SEEK_STEP: f64 = 10.0;
@@ -52,8 +52,8 @@ pub fn attach(
         return None;
     }
     let config = PlatformConfig {
-        display_name: "Music",
-        dbus_name: "ytfast",
+        display_name: encore_core::APP_NAME,
+        dbus_name: encore_core::paths::NAME,
         hwnd,
     };
     let mut controls = MediaControls::new(config)

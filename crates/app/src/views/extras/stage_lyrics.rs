@@ -3,10 +3,10 @@
 //! larger and lit at its anchor, the others dimmed; clicking a line seeks
 //! to it. Plain lyrics are shown as text to scroll.
 
+use encore_core::model::Lyrics;
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Lyrics;
 
 use super::super::glide::{self, Glide};
 use crate::app::MusicApp;
@@ -32,7 +32,7 @@ pub fn lyrics(
     }
     let position = app.player.position();
     let duration = app.player.playback.duration;
-    let current = ytfast::lyrics::current_line(&lyrics.lines, position);
+    let current = encore_core::lyrics::current_line(&lyrics.lines, position);
     follow(app, id, current, &glide, window);
     wake(app, &glide, lyrics, current, position, cx);
     let handle = app.extras.stage.scroll.clone();

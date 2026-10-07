@@ -34,7 +34,7 @@ pub async fn download(
         Install::AppImage(path) => (Kind::AppImage, path),
         Install::Windows(path) => (Kind::Windows, path),
         Install::Mac(path) => (Kind::Mac, path),
-        Install::Manual(_) => bail!("This copy of Music can't update itself"),
+        Install::Manual(_) => bail!("This copy of Encore can't update itself"),
     };
     let name = install
         .asset(&release.version)
@@ -44,7 +44,7 @@ pub async fn download(
         .with_context(|| format!("The release has no {name}"))?;
     let sums = release
         .asset(CHECKSUMS)
-        .context("The release has no checksums, so Music won't install it")?;
+        .context("The release has no checksums, so Encore won't install it")?;
     let sums = text(http, sums).await?;
     let sha256 = feed::checksum_for(&sums, &name)
         .with_context(|| format!("The release's checksums don't list {name}"))?;
@@ -56,7 +56,7 @@ pub async fn download(
     let verdict = fetched.and_then(|got| {
         ensure!(
             got == sha256,
-            "The download doesn't match the release's checksum, so Music didn't install it"
+            "The download doesn't match the release's checksum, so Encore didn't install it"
         );
         Ok(())
     });

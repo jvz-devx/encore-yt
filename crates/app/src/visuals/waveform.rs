@@ -6,7 +6,7 @@
 //! ([`Slot::Waveform`]): the position then moves without re-rendering the
 //! app's views.
 //!
-//! The outline comes from `ytfast_visuals::waveform` on a background task
+//! The outline comes from `encore_visuals::waveform` on a background task
 //! (the audio engine's decoder, cached per video id) once the song plays;
 //! until then a faint line holds its place.
 
@@ -135,7 +135,7 @@ fn request(app: &MusicApp, id: &str, cx: &mut Context<MusicApp>) {
     cx.spawn(async move |this, cx| {
         let job = id.clone();
         let result = cx
-            .background_spawn(async move { ytfast_visuals::waveform::load(&url, &cache, &job) })
+            .background_spawn(async move { encore_visuals::waveform::load(&url, &cache, &job) })
             .await;
         let _ = this.update(cx, |_, cx| {
             let state = cx.default_global::<Waveforms>();

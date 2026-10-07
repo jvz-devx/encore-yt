@@ -2,12 +2,12 @@
 //! Delete playlist, and Save to playlist (the account's playlists, with a
 //! filter). Enter confirms, Escape or a click outside cancels.
 
+use encore_core::account::Dialog;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::account::Dialog;
 
 use super::super::widgets::{self, Pill};
 use crate::account::PlaylistChoice;
@@ -163,7 +163,7 @@ fn buttons(
 /// Save to playlist: the filter, the account's playlists, New playlist.
 fn picker(
     app: &MusicApp,
-    tracks: &[ytfast::model::Track],
+    tracks: &[encore_core::model::Track],
     selected: usize,
     c: &Colors,
     cx: &mut Context<MusicApp>,

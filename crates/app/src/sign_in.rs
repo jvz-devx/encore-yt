@@ -9,11 +9,11 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use encore_core::auth::{BrowserScan, Profile};
+use encore_core::backend::Command;
+use encore_core::model::Account;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use ytfast::auth::{BrowserScan, Profile};
-use ytfast::backend::Command;
-use ytfast::model::Account;
 
 use crate::app::MusicApp;
 

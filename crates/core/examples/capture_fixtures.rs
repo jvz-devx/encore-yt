@@ -1,19 +1,19 @@
 //! Refreshes the parser fixtures in `tests/fixtures/innertube/`: signed-out
-//! `WEB_REMIX` responses captured with ytfast's own client (no cookies), with
+//! `WEB_REMIX` responses captured with Encore's own client (no cookies), with
 //! the tracking and session parts the parser never reads removed, and song
 //! lyrics cut to their first lines.
 //!
-//! `cargo run --example capture_fixtures`, then
+//! `cargo run -p encore-core --example capture_fixtures`, then
 //! `cargo test --test parse_fixtures`.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use encore_core::innertube::Client;
+use encore_core::model::{ItemKind, Page, Target};
+use encore_core::parse;
 use serde::Serialize;
 use serde_json::Value;
-use ytfast::innertube::Client;
-use ytfast::model::{ItemKind, Page, Target};
-use ytfast::parse;
 
 /// Keys dropped everywhere: tracking, logging and session data, and
 /// accessibility labels that repeat the visible text.

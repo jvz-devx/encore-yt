@@ -1,4 +1,4 @@
-//! ytfast as an MPRIS player (`org.mpris.MediaPlayer2.ytfast`): media keys,
+//! Encore as an MPRIS player (`org.mpris.MediaPlayer2.encore-yt`): media keys,
 //! `playerctl` and the desktop's media widgets see the song, cover,
 //! position and controls.
 //!
@@ -11,7 +11,7 @@
 //! `src/mpris.rs`): publish structural changes at once and only when they
 //! change, let clients read the position rather than signalling it, and
 //! signal `Seeked` on jumps. Spotifast uses the `mpris-server` crate on a
-//! thread of its own; ytfast serves the two interfaces with zbus directly.
+//! thread of its own; Encore serves the two interfaces with zbus directly.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,16 +26,16 @@ use crate::desktop::{Flags, Now, Remote, Request};
 use crate::model::{Repeat, Track};
 use crate::paths::Paths;
 
-const BUS_NAME: &str = "org.mpris.MediaPlayer2.ytfast";
+const BUS_NAME: &str = "org.mpris.MediaPlayer2.encore-yt";
 const OBJECT_PATH: &str = "/org/mpris/MediaPlayer2";
-const TRACK_PATH: &str = "/org/mpris/MediaPlayer2/ytfast/track/";
+const TRACK_PATH: &str = "/org/mpris/MediaPlayer2/encore_yt/track/";
 const NO_TRACK: &str = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
 /// A position this far from where playback should have got to is a seek.
 const SEEK_THRESHOLD: f64 = 1.5;
 
 /// Connects to the session bus and serves MPRIS, and song-change
 /// notifications (`notify`), until the runtime ends. Without a session bus
-/// ytfast runs on without them.
+/// Encore runs on without them.
 pub fn start(
     runtime: &tokio::runtime::Handle,
     remote: Remote,
@@ -322,12 +322,12 @@ impl Root {
 
     #[zbus(property)]
     fn identity(&self) -> String {
-        "Music".into()
+        crate::APP_NAME.into()
     }
 
     #[zbus(property)]
     fn desktop_entry(&self) -> String {
-        "ytfast".into()
+        crate::APP_ID.into()
     }
 
     #[zbus(property)]
@@ -382,7 +382,7 @@ impl Player {
         self.remote.toggle();
     }
 
-    /// ytfast has no stopped state with a song loaded; Stop pauses.
+    /// Encore has no stopped state with a song loaded; Stop pauses.
     fn stop(&self) {
         self.remote.pause();
     }

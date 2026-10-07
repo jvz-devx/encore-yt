@@ -309,7 +309,7 @@ impl Solver {
         }
         let (sender, receiver) = mpsc::channel::<Job>();
         std::thread::Builder::new()
-            .name("ytfast-jsc".into())
+            .name("encore-jsc".into())
             // meriyah recurses deeply on the player's nested expressions.
             .stack_size(64 << 20)
             .spawn(move || run(receiver))
@@ -384,7 +384,7 @@ impl Engine {
             self.load(player)?;
         }
         self.context.with(|ctx| {
-            let solver: Object = ctx.globals().get("__ytfast").map_err(|e| js(&ctx, e))?;
+            let solver: Object = ctx.globals().get("__encore").map_err(|e| js(&ctx, e))?;
             let mut solutions = Solutions::default();
             if !challenges.n.is_empty() {
                 let n: Function = solver.get("n").map_err(|e| js(&ctx, e))?;
@@ -442,16 +442,16 @@ impl Engine {
         };
         self.context.with(|ctx| {
             ctx.globals()
-                .set("__ytfast_player", preprocessed)
+                .set("__encore_player", preprocessed)
                 .map_err(|e| js(&ctx, e))?;
             ctx.eval::<(), _>(
-                "globalThis.__ytfast = { n: null, sig: null };\n\
-                 Function('_result', globalThis.__ytfast_player)(globalThis.__ytfast);\n\
-                 delete globalThis.__ytfast_player;",
+                "globalThis.__encore = { n: null, sig: null };\n\
+                 Function('_result', globalThis.__encore_player)(globalThis.__encore);\n\
+                 delete globalThis.__encore_player;",
             )
             .catch(&ctx)
             .map_err(|e| anyhow!("loading the player: {e}"))?;
-            let solver: Object = ctx.globals().get("__ytfast").map_err(|e| js(&ctx, e))?;
+            let solver: Object = ctx.globals().get("__encore").map_err(|e| js(&ctx, e))?;
             for name in ["n", "sig"] {
                 if solver
                     .get::<_, Option<Function>>(name)

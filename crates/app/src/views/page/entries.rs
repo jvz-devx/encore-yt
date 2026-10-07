@@ -4,8 +4,8 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use encore_core::model::{Page, ShelfStyle, Target};
 use gpui_kit::Pixels;
-use ytfast::model::{Page, ShelfStyle, Target};
 
 use crate::nav::{LibraryTab, PageState};
 use crate::theme::space;

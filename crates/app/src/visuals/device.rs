@@ -1,4 +1,4 @@
-//! The effects' GPU device: a `ytfast_visuals::Gpu` with every effect's
+//! The effects' GPU device: a `encore_visuals::Gpu` with every effect's
 //! pipeline compiled, made on a background thread so no frame waits for
 //! the Vulkan instance, the device or a shader compile (together 70-300 ms
 //! on an Intel UHD 630, see NOTES-visuals.md).
@@ -12,8 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use encore_visuals::Gpu;
 use gpui_kit::*;
-use ytfast_visuals::Gpu;
 
 use super::effects::Effects;
 

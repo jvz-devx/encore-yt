@@ -1,11 +1,11 @@
 //! The sleep timer's menu, rising above the player bar: how long, or the
 //! end of the song; and Turn off while one is set.
 
+use encore_core::model::Sleep;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Sleep;
 
 use super::super::widgets;
 use super::controls::time_left;

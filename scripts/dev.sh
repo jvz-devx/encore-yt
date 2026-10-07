@@ -9,10 +9,10 @@
 #   scripts/dev.sh shaders               validate every .wgsl with naga
 #
 # CRATE is one of:
-#   app       the GPUI app (crates/app, package ytfast-gpui)
-#   core      the backend library the app uses (crates/core, package ytfast)
-#   visuals   the wgpu effects crate (crates/visuals, ytfast-visuals)
-#   audio     the Rust playback engine (crates/audio, ytfast-audio)
+#   app       the GPUI app (crates/app, package encore-yt)
+#   core      the backend library the app uses (crates/core, package encore-core)
+#   visuals   the wgpu effects crate (crates/visuals, encore-visuals)
+#   audio     the Rust playback engine (crates/audio, encore-audio)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 jobs="${JOBS:-4}"
@@ -22,10 +22,10 @@ step() { printf '== %s\n' "$*" >&2; }
 # The package cargo selects for a crate.
 package() {
     case "$1" in
-        app) echo ytfast-gpui ;;
-        core) echo ytfast ;;
-        visuals) echo ytfast-visuals ;;
-        audio) echo ytfast-audio ;;
+        app) echo encore-yt ;;
+        core) echo encore-core ;;
+        visuals) echo encore-visuals ;;
+        audio) echo encore-audio ;;
         *) echo "unknown crate '$1' (app, core, visuals, audio)" >&2; exit 2 ;;
     esac
 }

@@ -50,7 +50,7 @@ main`) instead of making new worktrees: a warm slot skips all of it.
   CI and packaging only; measurements use the `profiling` profile.
 - **Dependencies at opt-level 2 in dev** make cold builds slower, but GPUI
   is too slow to use at opt-level 0. Kept.
-- **One 17k-line `ytfast-gpui` crate**: an edit checks in ~1 s, so splitting
+- **One 17k-line `encore-yt` crate**: an edit checks in ~1 s, so splitting
   it would gain little. Not worth it now.
 - **One Cargo workspace** since M23 (`crates/core`, `crates/app`,
   `crates/visuals`, `crates/audio`): one lock, one `target/`, one

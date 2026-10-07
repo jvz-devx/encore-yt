@@ -8,9 +8,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use encore_core::jsc::scripts::{self, Scripts};
+use encore_core::jsc::{Challenges, Engine, Player, decipher};
 use serde::Deserialize;
-use ytfast::jsc::scripts::{self, Scripts};
-use ytfast::jsc::{Challenges, Engine, Player, decipher};
 
 #[derive(Deserialize)]
 struct Expected {
@@ -18,10 +18,10 @@ struct Expected {
     sig: HashMap<usize, Vec<usize>>,
 }
 
-/// `artifacts/resolver/`, or `YTFAST_RESOLVER_CAPTURES` (the canary's
+/// `artifacts/resolver/`, or `ENCORE_RESOLVER_CAPTURES` (the canary's
 /// fresh capture of the current player).
 fn captures() -> Vec<(Player, Expected)> {
-    let dir = std::env::var_os("YTFAST_RESOLVER_CAPTURES")
+    let dir = std::env::var_os("ENCORE_RESOLVER_CAPTURES")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/resolver")
@@ -40,7 +40,7 @@ fn captures() -> Vec<(Player, Expected)> {
         let path = dir.join(format!("{id}.js"));
         // A fresh copy so the test also runs the preprocessing step.
         let scratch =
-            std::env::temp_dir().join(format!("ytfast-jsc-{}-{id}.js", std::process::id()));
+            std::env::temp_dir().join(format!("encore-jsc-{}-{id}.js", std::process::id()));
         std::fs::copy(&path, &scratch).expect("player script");
         found.push((
             Player {
@@ -135,7 +135,7 @@ fn runs_only_pinned_solver_scripts() {
         vendored.version, "vendored",
         "the vendored solver isn't pinned"
     );
-    let dir = std::env::temp_dir().join(format!("ytfast-ejs-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("encore-ejs-{}", std::process::id()));
     let disk = dir.join("cache");
     std::fs::create_dir_all(&disk).expect("scratch dir");
     std::fs::write(disk.join(scripts::LIB), &*vendored.lib).expect("lib");
@@ -175,21 +175,25 @@ fn picks_audio_from_saved_player_responses() {
         capture(name).map(|t| serde_json::from_str::<serde_json::Value>(&t).expect(name))
     };
     if let Some(visionos) = json("player-visionos-ok-wU26xVT_vBU.json") {
-        let format = ytfast::streams::best_audio(&visionos).expect("an audio format");
+        let format = encore_core::streams::best_audio(&visionos).expect("an audio format");
         assert_eq!(format.itag, 251);
         assert!(format.url.is_some_and(|u| !u.contains("&n=")));
     }
     if let Some(web) = json("player-web-initial-wU26xVT_vBU.json") {
-        let error = ytfast::streams::best_audio(&web).unwrap_err().to_string();
+        let error = encore_core::streams::best_audio(&web)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("no audio format with a URL"), "{error}");
     }
     if let Some(creator) = json("dump/WEB_CREATOR-qXI87eMP-bs.json") {
-        let format = ytfast::streams::best_audio(&creator).expect("an audio format");
+        let format = encore_core::streams::best_audio(&creator).expect("an audio format");
         assert_eq!(format.itag, 251);
         assert!(format.url.is_none() && format.cipher.is_some());
     }
     if let Some(bot) = json("player-visionos-wU26xVT_vBU.json") {
-        let error = ytfast::streams::best_audio(&bot).unwrap_err().to_string();
+        let error = encore_core::streams::best_audio(&bot)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("LOGIN_REQUIRED"), "{error}");
     }
 }
@@ -198,11 +202,14 @@ fn picks_audio_from_saved_player_responses() {
 fn reads_player_version_and_timestamp() {
     if let Some(iframe) = capture("iframe_api.js") {
         assert_eq!(
-            ytfast::streams::player_id(&iframe).as_deref(),
+            encore_core::streams::player_id(&iframe).as_deref(),
             Some("1b3be681")
         );
     }
     if let Some(player) = capture("1b3be681.js") {
-        assert_eq!(ytfast::streams::signature_timestamp(&player), Some(20728));
+        assert_eq!(
+            encore_core::streams::signature_timestamp(&player),
+            Some(20728)
+        );
     }
 }

@@ -2,9 +2,9 @@
 //! artist's discography, and the Library's tabs. The selected chip is
 //! filled like the primary button.
 
+use encore_core::model::Chip;
 use gpui_kit::component::h_flex;
 use gpui_kit::*;
-use ytfast::model::Chip;
 
 use super::Ctx;
 use crate::app::MusicApp;

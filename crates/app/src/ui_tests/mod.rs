@@ -22,14 +22,14 @@ mod settings;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
+use encore_core::backend::{Command, Event};
+use encore_core::model::Page;
+use encore_core::paths::Paths;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
     AppContext as _, Bounds, Entity, Modifiers, MouseButton, Pixels, Point, Task, TestAppContext,
     VisualTestContext, WindowBounds, WindowOptions, px, size,
 };
-use ytfast::backend::{Command, Event};
-use ytfast::model::Page;
-use ytfast::paths::Paths;
 
 use crate::app::{Link, MusicApp};
 
@@ -61,7 +61,7 @@ impl Ui {
         });
         let (command_tx, commands) = tokio::sync::mpsc::unbounded_channel();
         let (events, event_rx) = mpsc::channel();
-        let (_, now) = tokio::sync::watch::channel(ytfast::desktop::Now::default());
+        let (_, now) = tokio::sync::watch::channel(encore_core::desktop::Now::default());
         let link = Link::Fake {
             commands: command_tx,
             events: event_rx,
@@ -218,7 +218,7 @@ pub fn fixture(name: &str) -> Page {
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let value: serde_json::Value =
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path}: {e}"));
-    ytfast::parse::page(&value)
+    encore_core::parse::page(&value)
 }
 
 /// Directories of this test alone, never made: nothing of the real
@@ -226,7 +226,7 @@ pub fn fixture(name: &str) -> Page {
 fn scratch_paths() -> Paths {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let root = std::env::temp_dir().join(format!(
-        "ytfast-gpui-ui-test-{}-{}",
+        "encore-yt-ui-test-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));

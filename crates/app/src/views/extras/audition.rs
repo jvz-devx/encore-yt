@@ -6,8 +6,8 @@
 
 use std::time::Duration;
 
+use encore_core::model::Track;
 use gpui_kit::*;
-use ytfast::model::Track;
 
 use crate::app::MusicApp;
 use crate::extras::Shown;

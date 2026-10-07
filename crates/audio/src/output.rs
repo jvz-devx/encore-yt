@@ -110,7 +110,7 @@ fn open(commands: Consumer<Command>, events: Producer<MixEvent>) -> Result<(cpal
 /// a server answers, else ALSA; the platform default elsewhere.
 fn host() -> cpal::Host {
     #[cfg(target_os = "linux")]
-    if std::env::var_os("YTFAST_AUDIO_ALSA").is_none()
+    if std::env::var_os("ENCORE_AUDIO_ALSA").is_none()
         && let Ok(host) = cpal::host_from_id(cpal::HostId::PulseAudio)
     {
         return host;

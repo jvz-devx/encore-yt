@@ -1,15 +1,15 @@
 //! The main window's lifetime. The app (`MusicApp`, with the backend, MPRIS,
 //! the tray and the instance socket) outlives its window: closing the window
-//! plays on in the background, and a relaunch, `ytfast-gpui show` or the
+//! plays on in the background, and a relaunch, `encore-yt show` or the
 //! tray opens a new window on the same `MusicApp`, so the page, history and
 //! player come back as they were. Wayland can't hide a window, so it is
 //! closed and made again on demand, like the egui app does.
 
 use std::sync::atomic::Ordering;
 
+use encore_core::desktop::Request;
+use encore_core::paths::Paths;
 use gpui_kit::*;
-use ytfast::desktop::Request;
-use ytfast::paths::Paths;
 
 use crate::app::{Early, MusicApp};
 use crate::nav::View;
@@ -52,14 +52,14 @@ fn open(opening: Opening, cx: &mut App) -> anyhow::Result<Entity<MusicApp>> {
     };
     let options = WindowOptions {
         titlebar: Some(TitlebarOptions {
-            title: Some("Music".into()),
+            title: Some(encore_core::APP_NAME.into()),
             ..Default::default()
         }),
         window_bounds: Some(
             bounds.unwrap_or_else(|| WindowBounds::centered(size(px(1280.), px(820.)), cx)),
         ),
         window_min_size: Some(size(px(900.), px(600.))),
-        app_id: Some("ytfast-gpui".into()),
+        app_id: Some(encore_core::APP_ID.into()),
         ..Default::default()
     };
     let (handle, app) = gpui_kit::open_window(options, cx, move |window, cx| {
@@ -91,7 +91,7 @@ pub fn show(app: &Entity<MusicApp>, cx: &mut App) {
 
 /// Opens a YouTube Music or YouTube link: its page in the window, or plays it.
 pub fn open_link(app: &Entity<MusicApp>, link: &str, cx: &mut App) {
-    let Some(target) = ytfast::links::target_from_link(link) else {
+    let Some(target) = encore_core::links::target_from_link(link) else {
         app.update(cx, |this, cx| {
             this.error = Some("That isn't a YouTube Music or YouTube link.".into());
             cx.notify();

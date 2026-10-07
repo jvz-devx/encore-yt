@@ -21,12 +21,12 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use encore_core::equalizer::Equalizer;
+use encore_core::heat::Heat;
+use encore_core::model::Mixes;
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::equalizer::Equalizer;
-use ytfast::heat::Heat;
-use ytfast::model::Mixes;
 
 use crate::app::MusicApp;
 

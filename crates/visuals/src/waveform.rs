@@ -1,6 +1,6 @@
 //! A whole song's loudness outline, for the waveform under Now Playing.
 //!
-//! The audio engine's decoder (`ytfast_audio::decode_mono`: range requests,
+//! The audio engine's decoder (`encore_audio::decode_mono`: range requests,
 //! the same demuxers and decoders as playback) reads the resolved stream to
 //! mono at about 8 kHz; [`BUCKETS`] RMS values, scaled for display, are
 //! cached per video id in the cache directory, so a song is decoded once.
@@ -39,7 +39,7 @@ pub fn load(url: &str, cache_dir: &Path, video_id: &str) -> Result<Vec<f32>> {
         return Ok(values);
     }
     let started = Instant::now();
-    let decoded = ytfast_audio::decode_mono(url, DECODE_RATE)?;
+    let decoded = encore_audio::decode_mono(url, DECODE_RATE)?;
     let values = outline(&decoded.samples);
     log::info!(
         "visuals: waveform of {video_id}: {} s of audio in {:.0} ms",

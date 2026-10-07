@@ -4,10 +4,10 @@
 
 use std::time::{Duration, Instant};
 
+use encore_core::backend::Command;
+use encore_core::equalizer::{Equalizer, Preset};
+use encore_core::model::{Mixes, Sleep};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::equalizer::{Equalizer, Preset};
-use ytfast::model::{Mixes, Sleep};
 
 use crate::app::MusicApp;
 

@@ -1864,6 +1864,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "encore-audio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "log",
+ "reqwest",
+ "rtrb",
+ "rubato",
+ "symphonia",
+ "symphonia-adapter-libopus",
+]
+
+[[package]]
+name = "encore-core"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "anyhow",
+ "cbc",
+ "directories",
+ "encore-audio",
+ "fastrand",
+ "ksni",
+ "log",
+ "pbkdf2",
+ "reqwest",
+ "rquickjs",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "encore-visuals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "encore-audio",
+ "log",
+ "pollster 0.4.0",
+ "wgpu",
+]
+
+[[package]]
+name = "encore-yt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ashpd",
+ "encore-core",
+ "encore-visuals",
+ "fastframe-log",
+ "gpui-kit",
+ "gpui-pre-reqwest-client",
+ "image",
+ "log",
+ "raw-window-handle",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "smol",
+ "souvlaki",
+ "tokio",
+]
+
+[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9800,79 +9873,6 @@ dependencies = [
  "quote",
  "syn 3.0.6",
  "synstructure",
-]
-
-[[package]]
-name = "ytfast"
-version = "0.1.0"
-dependencies = [
- "aes",
- "anyhow",
- "cbc",
- "directories",
- "fastrand",
- "ksni",
- "log",
- "pbkdf2",
- "reqwest",
- "rquickjs",
- "rusqlite",
- "serde",
- "serde_json",
- "sha1",
- "sha2 0.10.9",
- "tokio",
- "ytfast-audio",
- "zbus",
-]
-
-[[package]]
-name = "ytfast-audio"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cpal",
- "log",
- "reqwest",
- "rtrb",
- "rubato",
- "symphonia",
- "symphonia-adapter-libopus",
-]
-
-[[package]]
-name = "ytfast-gpui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ashpd",
- "fastframe-log",
- "gpui-kit",
- "gpui-pre-reqwest-client",
- "image",
- "log",
- "raw-window-handle",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "smol",
- "souvlaki",
- "tokio",
- "ytfast",
- "ytfast-visuals",
-]
-
-[[package]]
-name = "ytfast-visuals"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "pollster 0.4.0",
- "wgpu",
- "ytfast-audio",
 ]
 
 [[package]]

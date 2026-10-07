@@ -26,12 +26,12 @@ opt-level = 2
 gpui_kit::application().with_assets(AppAssets).run(|cx| {
     gpui_kit::init(cx);                          // component + base + theme; call first
     Theme::change(ThemeMode::Dark, None, cx);
-    let http = reqwest_client::ReqwestClient::user_agent("ytfast-gpui/0.1")?;
+    let http = reqwest_client::ReqwestClient::user_agent("encore-yt/0.1")?;
     cx.set_http_client(Arc::new(http));
     let options = WindowOptions {
         titlebar: Some(TitlebarOptions { title: Some("Music".into()), ..Default::default() }),
         window_bounds: Some(WindowBounds::centered(size(px(1100.), px(720.)), cx)),
-        app_id: Some("ytfast-gpui".into()),
+        app_id: Some("encore-yt".into()),
         ..Default::default()
     };
     // Wraps the view in gpui_base::Root (dialogs, notifications, focus).
@@ -139,7 +139,7 @@ self._backend_task = cx.spawn(async move |this, cx| {
   centred. Give the column `.h_full()` (and `.min_h_0()` on the row) so `flex_1` lists get space.
 - `uniform_list` rows size to their content width; add `.w_full()` to rows.
 - Monitor in DPMS off: no frame callbacks, so no redraws. `kscreen-doctor --dpms on` first.
-- No `.desktop` file for app_id `ytfast-gpui`: KDE shows a generic window icon.
+- No `.desktop` file for app_id `encore-yt`: KDE shows a generic window icon.
 - From a non-session shell, export `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`.
 - On Linux GPUI quits when the last window closes (`QuitMode::Default`); set
   `cx.set_quit_mode(QuitMode::Explicit)` to live on without a window.
@@ -243,4 +243,4 @@ Linux).
 
 - Clean build: 9m49s wall (7m14s user; another build was likely sharing the CPU). 864 crates in lock.
 - Incremental rebuild of main.rs: ~3 s. Release build not measured yet.
-- `target/debug/ytfast-gpui`: 341 MB unstripped; `gpui/target`: 3.4 GB; ~105 MB RSS running.
+- `target/debug/encore-yt`: 341 MB unstripped; `gpui/target`: 3.4 GB; ~105 MB RSS running.

@@ -4,11 +4,11 @@
 //! (`crate::visuals`) draws the backdrop and the visualiser where this
 //! view's slots say.
 
+use encore_core::model::Track;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Track;
 
 use super::super::page::covers;
 use super::super::{runs_text, widgets};

@@ -1,6 +1,6 @@
 //! The staging folder and the job the app hands to the helper.
 //!
-//! An update is downloaded into `.ytfast-gpui-update-<16 hex digits>` next
+//! An update is downloaded into `.encore-yt-update-<16 hex digits>` next
 //! to what it replaces (so the AppImage and the bundle swap by renaming,
 //! on one file system), mode 0700. It holds the payload, `job.json`, the
 //! helper's copy of the app and its log, `ready` (the helper is watching),
@@ -23,7 +23,7 @@ pub const HELPER_LOG: &str = "helper.log";
 pub const PREVIOUS: &str = "previous";
 /// macOS: the new bundle, copied out of the disk image and checked.
 pub const NEW_APP: &str = "new.app";
-const PREFIX: &str = ".ytfast-gpui-update-";
+const PREFIX: &str = ".encore-yt-update-";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Kind {
@@ -103,7 +103,7 @@ pub fn new_staging(parent: &Path) -> Result<PathBuf> {
     let dir = parent.join(format!("{PREFIX}{}", &hex[..16]));
     private_dir()
         .create(&dir)
-        .with_context(|| format!("Music can't write to {}", parent.display()))?;
+        .with_context(|| format!("Encore can't write to {}", parent.display()))?;
     Ok(dir)
 }
 

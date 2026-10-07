@@ -9,14 +9,14 @@
 
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::*;
-use ytfast::account::{
+use encore_core::account::{
     AccountAction, AccountState, CachedPage, Dialog, Done, Effects, Failure, Host, playlist_keys,
 };
-use ytfast::auth::Profile;
-use ytfast::backend::Command;
-use ytfast::model::{Account, Channel, LikeStatus, Page, Target, Track};
+use encore_core::auth::Profile;
+use encore_core::backend::Command;
+use encore_core::model::{Account, Channel, LikeStatus, Page, Target, Track};
+use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::*;
 
 use crate::app::MusicApp;
 use crate::nav::{LibraryTab, PageState, View};

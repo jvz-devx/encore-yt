@@ -17,11 +17,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use encore_core::backend::Command;
+use encore_core::model::{Item, ItemKind, Target};
+use encore_core::paths::Paths;
 use gpui_kit::*;
 use serde::{Deserialize, Serialize};
-use ytfast::backend::Command;
-use ytfast::model::{Item, ItemKind, Target};
-use ytfast::paths::Paths;
 
 use super::STALE;
 use crate::app::MusicApp;
@@ -82,7 +82,7 @@ impl Want {
     }
 }
 
-/// Settings → Playback's switch, in `~/.config/ytfast/prefetch.json`.
+/// Settings → Playback's switch, in `~/.config/encore-yt/prefetch.json`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Prefs {
     #[serde(default = "on")]
@@ -149,7 +149,7 @@ impl Prefetch {
         let prefs = Prefs { hover: self.on };
         let written = serde_json::to_vec_pretty(&prefs)
             .map_err(std::io::Error::other)
-            .and_then(|bytes| ytfast::paths::write_atomic(&self.path, &bytes));
+            .and_then(|bytes| encore_core::paths::write_atomic(&self.path, &bytes));
         if let Err(e) = written {
             log::warn!("couldn't save {}: {e}", self.path.display());
         }

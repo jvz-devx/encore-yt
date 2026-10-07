@@ -41,20 +41,20 @@ pub(crate) fn observe(now: &watch::Sender<Now>, event: &Event) {
 /// What the interface does for the desktop: window and account matters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
-    /// Bring the window back (relaunch, `ytfast show`, MPRIS Raise).
+    /// Bring the window back (relaunch, `encore-yt show`, MPRIS Raise).
     Show,
-    /// Quit for real (`ytfast quit`, MPRIS Quit).
+    /// Quit for real (`encore-yt quit`, MPRIS Quit).
     Quit,
     /// Open a YouTube Music or YouTube link.
     Open(String),
-    /// Like or unlike the playing song (`ytfast like`).
+    /// Like or unlike the playing song (`encore-yt like`).
     Like,
 }
 
 /// Flags the interface sets and the backend's desktop tasks read.
 #[derive(Debug)]
 pub struct Flags {
-    /// A ytfast window has the keyboard focus.
+    /// A Encore window has the keyboard focus.
     pub focused: AtomicBool,
     /// Settings: "Show a notification when the song changes".
     pub notifications: AtomicBool,

@@ -8,10 +8,10 @@
 
 use std::time::Duration;
 
+use encore_core::backend::Command;
+use encore_core::model::Target;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::Target;
 
 use crate::app::MusicApp;
 use crate::nav::View;
@@ -198,13 +198,13 @@ impl MusicApp {
         search.highlight = None;
         search.closed = true;
         window.focus(&self.focus, cx);
-        if let Some(target) = ytfast::links::target_from_link(&query) {
+        if let Some(target) = encore_core::links::target_from_link(&query) {
             // A pasted link opens what it links to.
             self.set_search_text(String::new(), window, cx);
             self.activate(target, cx);
             return;
         }
-        ytfast::searches::remember(&mut self.pages.search.recent, &query);
+        encore_core::searches::remember(&mut self.pages.search.recent, &query);
         self.save_searches();
         self.set_search_text(query.clone(), window, cx);
         self.open(
@@ -299,7 +299,7 @@ impl MusicApp {
                 recent.push(query);
             }
         }
-        recent.truncate(ytfast::searches::KEEP);
+        recent.truncate(encore_core::searches::KEEP);
         log::info!("{} recent searches", recent.len());
     }
 }

@@ -2,8 +2,8 @@
 //! the context menu's keys (`menu_keys`): what their entries are, and
 //! what choosing one does.
 
+use encore_core::model::{Account, Sleep};
 use gpui_kit::*;
-use ytfast::model::{Account, Sleep};
 
 use super::menu_keys::ListNav;
 use crate::app::MusicApp;
@@ -54,10 +54,10 @@ pub fn account_items(app: &MusicApp) -> Vec<(SharedString, AccountItem)> {
 }
 
 /// The sleep timer's entries: how long (one minute too with
-/// `YTFAST_GPUI_SHORT_SLEEP=1`, to check the fade), and Turn off while one
+/// `ENCORE_SHORT_SLEEP=1`, to check the fade), and Turn off while one
 /// is set.
 pub fn sleep_items(app: &MusicApp) -> Vec<(&'static str, Option<Sleep>)> {
-    let short = std::env::var_os("YTFAST_GPUI_SHORT_SLEEP")
+    let short = std::env::var_os("ENCORE_SHORT_SLEEP")
         .is_some()
         .then_some(("1 minute", Sleep::Minutes(1)));
     let mut out: Vec<(&'static str, Option<Sleep>)> = short

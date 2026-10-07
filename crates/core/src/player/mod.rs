@@ -1,4 +1,4 @@
-//! What the backend asks of the audio engine (`ytfast-audio`).
+//! What the backend asks of the audio engine (`encore-audio`).
 //!
 //! A [`Player`] is one deck: a playlist of at most the current file and the
 //! next one (gapless), with per-file options (start, loudness gain, user
@@ -88,7 +88,7 @@ pub struct FileOptions {
     pub start: Option<Start>,
 }
 
-/// One deck of the in-process engine (`ytfast-audio`, docs/gpui/AUDIO.md).
+/// One deck of the in-process engine (`encore-audio`, docs/gpui/AUDIO.md).
 pub struct Player(rust::Deck);
 
 impl Player {

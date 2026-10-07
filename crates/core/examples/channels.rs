@@ -12,22 +12,22 @@ fn main() -> anyhow::Result<()> {
         .skip(1)
         .find(|a| a != "--names" && !a.is_empty());
     let scratch = tempdir()?;
-    let session = ytfast::auth::load(&scratch, preferred.as_deref());
+    let session = encore_core::auth::load(&scratch, preferred.as_deref());
     let _ = std::fs::remove_dir_all(&scratch);
     let session = session?;
-    let client = ytfast::innertube::Client::new();
+    let client = encore_core::innertube::Client::new();
     client.set_session(Some(session));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?;
     runtime.block_on(async {
-        let channels = ytfast::parse::channels(&client.channels().await?);
+        let channels = encore_core::parse::channels(&client.channels().await?);
         println!("{} channels", channels.len());
         for (i, channel) in channels.iter().enumerate() {
             client.set_page_id(channel.page_id.clone());
             let named = match client.account().await {
-                Ok(menu) => ytfast::parse::account(&menu).map(|(name, _)| name),
+                Ok(menu) => encore_core::parse::account(&menu).map(|(name, _)| name),
                 Err(error) => Some(format!("({error})")),
             };
             let label = if names {
@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
                 if named.as_deref() == Some(channel.name.as_str()) { "names it" } else { "names another" },
                 count(&library),
                 count(&liked),
-                ytfast::parse::page(&home).shelves.len(),
+                encore_core::parse::page(&home).shelves.len(),
                 count(&home),
             );
         }
@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
 
 /// Cards and rows on a page's first screen.
 fn count(value: &serde_json::Value) -> usize {
-    ytfast::parse::page(value)
+    encore_core::parse::page(value)
         .shelves
         .iter()
         .map(|s| s.items.len())
@@ -65,7 +65,7 @@ fn count(value: &serde_json::Value) -> usize {
 /// A private directory for the cookie database copies.
 fn tempdir() -> anyhow::Result<std::path::PathBuf> {
     use std::os::unix::fs::DirBuilderExt;
-    let dir = std::env::temp_dir().join(format!("ytfast-channels-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("encore-channels-{}", std::process::id()));
     std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
     Ok(dir)
 }

@@ -107,7 +107,7 @@ fn choose(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     v_flex()
         .gap(space::LG)
         .child(paragraph(
-            "Music uses the YouTube Music sign-in from a browser on this computer, or cookies you \
+            "Encore uses the YouTube Music sign-in from a browser on this computer, or cookies you \
              give it.",
             c,
         ))
@@ -255,8 +255,8 @@ fn checked_line(checked: Option<&[String]>, c: &Colors) -> impl IntoElement {
     let text = match checked {
         None => "Looking for browsers on this computer…".to_string(),
         Some([]) => format!(
-            "No browser profile found. Music looks in {}.",
-            list(&ytfast::auth::supported_browsers())
+            "No browser profile found. Encore looks in {}.",
+            list(&encore_core::auth::supported_browsers())
         ),
         Some(found) => format!("Checking {}.", list(found)),
     };
@@ -286,7 +286,7 @@ fn file(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
         .gap(space::LG)
         .child(paragraph(
             "Export cookies.txt (Netscape format) from a browser where you're signed in to YouTube \
-             Music, with yt-dlp or a cookies.txt extension. Music keeps only the YouTube and \
+             Music, with yt-dlp or a cookies.txt extension. Encore keeps only the YouTube and \
              Google cookies.",
             c,
         ))

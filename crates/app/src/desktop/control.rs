@@ -6,9 +6,9 @@
 
 use std::time::{Duration, Instant};
 
+use encore_core::backend::Command;
+use encore_core::model::{Header, Target, Track};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Header, Target, Track};
 
 use super::menu::Menu;
 use super::palette::PlayAnything;
@@ -249,7 +249,7 @@ impl MusicApp {
         }
         // A playlist's own list when it has one: Suggestions after it on
         // the page aren't in the playlist.
-        let own = ytfast::account::entries(page);
+        let own = encore_core::account::entries(page);
         let shelves: Vec<usize> = page
             .shelves
             .iter()

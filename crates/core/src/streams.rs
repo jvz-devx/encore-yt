@@ -96,7 +96,7 @@ pub const WEB_CREATOR: PlayerClient = PlayerClient {
 /// releases (by SHA-256) the app may download when its own solver can't
 /// use a player. Changing it takes a reviewed commit to `main`.
 const PINS_URL: &str =
-    "https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/crates/core/src/jsc/pins.txt";
+    "https://raw.githubusercontent.com/jvz-devx/encore-yt/main/crates/core/src/jsc/pins.txt";
 
 /// Where yt-dlp-ejs publishes its release assets.
 const EJS_RELEASES: &str = "https://github.com/yt-dlp/ejs/releases/download";
@@ -862,7 +862,7 @@ pub fn audio_formats(response: &Value) -> Result<Vec<Format>> {
         bail!(if formats.is_empty() {
             "no formats (SABR only?)"
         } else {
-            "no audio format with a URL that Music plays"
+            "no audio format with a URL that Encore plays"
         });
     }
     Ok(chosen
@@ -1006,7 +1006,7 @@ mod tests {
     }
 
     fn native() -> Native {
-        let dir = std::env::temp_dir().join("ytfast-streams-test");
+        let dir = std::env::temp_dir().join("encore-streams-test");
         Native::new(Arc::new(Client::new()), &dir, &dir)
     }
 

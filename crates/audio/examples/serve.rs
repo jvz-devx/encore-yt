@@ -1,7 +1,7 @@
 //! A tiny static file server with `Range` support and an optional rate
 //! limit, which logs every request (to show the player's range requests).
 //!
-//! cargo run -p ytfast-audio --example serve -- <dir> [port] [bytes per second]
+//! cargo run -p encore-audio --example serve -- <dir> [port] [bytes per second]
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};

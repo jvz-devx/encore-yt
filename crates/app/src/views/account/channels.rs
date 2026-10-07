@@ -2,11 +2,11 @@
 //! with photo, name and handle, a check on the one requests act as. The
 //! account menu and Settings → Account list them; choosing one switches.
 
+use encore_core::model::Channel;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Channel;
 
 use super::super::widgets;
 use crate::app::MusicApp;

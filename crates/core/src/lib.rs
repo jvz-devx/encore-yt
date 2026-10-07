@@ -1,5 +1,10 @@
-//! The backend of ytfast-gpui, a native YouTube Music client: InnerTube,
+//! The backend of Encore, a native YouTube Music client: InnerTube,
 //! sign-in, playback and the desktop services. The app is in crates/app.
+
+/// The name people see: window, menus, MPRIS, notifications, tray.
+pub const APP_NAME: &str = "Encore";
+/// The app id: Wayland app id, desktop file, macOS bundle id.
+pub const APP_ID: &str = "io.github.jvz-devx.encore-yt";
 
 pub mod account;
 pub mod auth;
@@ -11,6 +16,7 @@ pub mod innertube;
 pub mod jsc;
 pub mod links;
 pub mod lyrics;
+pub mod migrate;
 pub mod model;
 pub mod mpris;
 pub mod notify;

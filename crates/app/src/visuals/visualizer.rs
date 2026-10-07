@@ -1,4 +1,4 @@
-//! The audio visualiser (M21) on the effects layer: `ytfast_visuals`'s
+//! The audio visualiser (M21) on the effects layer: `encore_visuals`'s
 //! `Visualizer` frames painted over the backdrop, in Now Playing (when
 //! Settings → Visuals puts it there), in Stage (when switched on) and in
 //! the full-window visualiser (V).
@@ -13,10 +13,10 @@
 
 use std::sync::Arc;
 
-use gpui_kit::*;
-use ytfast_visuals::{
+use encore_visuals::{
     BANDS, BarSettings, Bars, Look, SPAN, Scope, Visualizer, VisualizerParams, color,
 };
+use gpui_kit::*;
 
 use super::config::{self, Palette, Spacing, Style};
 use super::effects::Tick;

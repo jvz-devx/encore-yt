@@ -2,11 +2,11 @@
 //! might like, similar artists, more from the artist), as one list of
 //! rows per shelf.
 
+use encore_core::model::{Item, ItemKind, Shelf, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Item, ItemKind, Shelf, Target};
 
 use super::super::widgets;
 use super::super::{clock, runs_text};

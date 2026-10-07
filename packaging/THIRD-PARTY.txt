@@ -1,7 +1,7 @@
-Music (ytfast-gpui): third-party notices
+Music (encore-yt): third-party notices
 ========================================
 
-ytfast-gpui is MIT licensed: https://github.com/jvz-devx/ytfast-gpui
+encore-yt is MIT licensed: https://github.com/jvz-devx/encore-yt
 It is built on ytfast by Tyler Mayberry (MIT,
 https://github.com/MayberryDT/ytfast) and on Rust crates under MIT,
 Apache-2.0 and similar licenses; see each crate's own license.

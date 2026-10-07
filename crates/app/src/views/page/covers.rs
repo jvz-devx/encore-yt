@@ -13,13 +13,13 @@ use gpui_kit::*;
 
 /// Decoded covers kept in memory (RGBA), in MB. A 176 px card is about
 /// 120 KB at scale 1, so this holds well over a thousand on-screen-sized
-/// covers. `YTFAST_GPUI_COVER_BUDGET_MB` changes it (to check eviction).
+/// covers. `ENCORE_COVER_BUDGET_MB` changes it (to check eviction).
 const BUDGET_MB: usize = 160;
 
 fn budget() -> usize {
     static BUDGET: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *BUDGET.get_or_init(|| {
-        std::env::var("YTFAST_GPUI_COVER_BUDGET_MB")
+        std::env::var("ENCORE_COVER_BUDGET_MB")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(BUDGET_MB)

@@ -1,4 +1,4 @@
-# ytfast GPUI design system
+# Encore GPUI design system
 
 The look of the GPUI app, and the reference for every view built on it.
 Tokens live in `crates/app/src/theme.rs`; shared recipes in `crates/app/src/views/widgets.rs`.
@@ -27,7 +27,7 @@ Views never name a colour, size or font directly: they use these.
 
 ```
 ┌ base ────────────────────────────────────────────────────────────┐
-│ ▶ Music        ┌ surface panel, radius LG ─────────────────────┐ │
+│ ▶ Encore       ┌ surface panel, radius LG ─────────────────────┐ │
 │ ⌂ Home  ◀ fill │ ‹ ›  ( ⌕ Search …… )            ( ◯ account ) │ │
 │ ◎ Explore      │ Shelf title                                   │ │
 │ ▥ Library      │ ▢ ▢ ▢ ▢ ▢   cards scroll sideways             │ │
@@ -53,7 +53,7 @@ The look follows the desktop live: `theme::init` reads the XDG desktop
 portal's `org.freedesktop.appearance` `color-scheme` (KDE sets it from the
 colour scheme) and listens for `SettingChanged`, switching the tokens and
 gpui-component's theme and redrawing every window (`crates/app/src/theme/portal.rs`).
-No preference or no portal means dark. `YTFAST_GPUI_THEME=light|dark` pins
+No preference or no portal means dark. `ENCORE_THEME=light|dark` pins
 a look over the desktop.
 
 ## Colour tokens (`theme::colors(cx)` → `Colors`)
@@ -155,7 +155,7 @@ Inter 4.001 static cuts, bundled (`crates/app/assets/fonts`, OFL). Body is 14 px
   little and dim, upcoming lines dim less, far lines fade further. The view
   eases the current line to the top third or the centre. Text size S/M/L/XL
   and left or centred lines. Brightness is the `text` token's opacity.
-  `YTFAST_GPUI_FAKE_LYRICS=<file.lrc>` gives every song local timed lyrics
+  `ENCORE_FAKE_LYRICS=<file.lrc>` gives every song local timed lyrics
   for checks (`crates/app/fixtures/lyrics.lrc`).
 
 ## Icons
@@ -187,7 +187,7 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   `SIDEBAR_RAIL` (72) wide: the brand tile, icons and covers centred, the
   New playlist pill a 36 round button, labels as tooltips, section headings
   a 24 px `hairline`.
-- **Brand**: 28 px `signal` tile, `radius MD`, white play glyph; "Music" in
+- **Brand**: 28 px `signal` tile, `radius MD`, white play glyph; "Encore" in
   `type_heading`.
 - **Search field**: kit `Input` as a 40 px pill on `raised` with no visible
   border, leading search icon, `type_body`, clear button.
@@ -211,7 +211,7 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   pointer. Clicking likes or removes the like. Rows that aren't songs keep
   the room empty, so the ends line up. Which songs are liked comes from
   `crate::likes` (the account's marks, else the row's own rating).
-  `YTFAST_GPUI_FAKE_LIKED=<videoId,videoId>` or `=every3` marks songs liked
+  `ENCORE_FAKE_LIKED=<videoId,videoId>` or `=every3` marks songs liked
   for checks signed out.
 - **Quick picks** (`RowCarousel`): columns of four rows, 380 wide, `LG` apart,
   scrolling sideways.
@@ -242,7 +242,7 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   with a `signal` ring pulsing out of it (larger under the pointer). The
   kit `Slider` stays on top, see-through, for clicks and drags; the
   most-replayed ridge rises from the same edge over it. Without effects
-  (`YTFAST_GPUI_VISUALS=0`, no GPU, Stage) it is the plain kit slider in
+  (`ENCORE_VISUALS=0`, no GPU, Stage) it is the plain kit slider in
   `signal` with a `text` thumb.
 - **Keyboard focus on pages** (M29): song rows and cards are tab stops; a
   row's ring is a 2 px `focus_ring` line on its edge, a card's stands 5 px
@@ -310,5 +310,5 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
 - Don't put a `hover()` on an element twice (GPUI asserts in debug builds).
 - Don't call `.hover()` after `widgets::icon_button`/`pill_button`; they have
   one already. Build a variant in `widgets` instead.
-- Test both looks: `YTFAST_GPUI_THEME=light` and `=dark`, or switch the
+- Test both looks: `ENCORE_THEME=light` and `=dark`, or switch the
   desktop (`plasma-apply-colorscheme BreezeDark`) while the app runs.

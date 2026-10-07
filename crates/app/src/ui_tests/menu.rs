@@ -1,7 +1,7 @@
 //! A right-click on a song opens its menu, and Play next queues it.
 
+use encore_core::backend::Command;
 use gpui_kit::TestAppContext;
-use ytfast::backend::Command;
 
 use super::home::{home_row, on_home, quick_picks};
 

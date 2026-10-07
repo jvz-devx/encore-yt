@@ -1,4 +1,4 @@
-//! The update settings, in `~/.config/ytfast/updates.json` (the backend's
+//! The update settings, in `~/.config/encore-yt/updates.json` (the backend's
 //! `settings.json` would drop keys it doesn't know when it saves).
 
 use std::path::Path;
@@ -45,7 +45,7 @@ impl Prefs {
     pub fn save(&self, path: &Path) {
         let written = serde_json::to_vec_pretty(self)
             .map_err(std::io::Error::other)
-            .and_then(|bytes| ytfast::paths::write_atomic(path, &bytes));
+            .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
         if let Err(e) = written {
             log::warn!("couldn't save {}: {e}", path.display());
         }

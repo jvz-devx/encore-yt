@@ -7,5 +7,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 scripts/dev.sh verify-workspace
 printf '\n== release build (app)\n'
-cargo build -j "${JOBS:-4}" -p ytfast-gpui --release
+cargo build -j "${JOBS:-4}" -p encore-yt --release
 printf '\ngpui-check: all passed\n'

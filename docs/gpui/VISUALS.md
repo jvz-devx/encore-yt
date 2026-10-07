@@ -70,7 +70,7 @@ core from `top` over 10 s (the machine shared with other agents):
 | State | app CPU | RSS |
 |---|---|---|
 | main before M9, playing, Now Playing closed | 4.6% | 179 MB |
-| effects off (`YTFAST_GPUI_VISUALS=0`), playing | 4.1% | 164 MB |
+| effects off (`ENCORE_VISUALS=0`), playing | 4.1% | 164 MB |
 | playing, strip at a steady 30 fps (first cut) | 13.5-14% | 176-206 MB |
 | same, no strip and no tap (GPUI's redraw alone) | 10.7% | 170 MB |
 | **playing, paced (shipped)**, red cover, dark | 7.9-8.1% | 210 MB |
@@ -108,7 +108,7 @@ song with a strong beat).
   effects frames (before: about 85, of them 10 not), the app's views
   rendered 0 times, the bar 34-35 times.
 
-Measured with the test audio (`YTFAST_FAKE_STREAM`, the same song for
+Measured with the test audio (`ENCORE_FAKE_STREAM`, the same song for
 both), release builds, 1280x1000 window, Home, % of one core from `top`
 over 10 s, `before` = main at the merge, `after` = this change. The machine
 was shared with other agents' builds, so each pair ran back to back; the
@@ -118,7 +118,7 @@ low-load pairs (load average 1.3-1.8) are the cleanest:
 |---|---|---|
 | playing, Now Playing closed, low load (two pairs) | 9.7%, 9.7% | 5.6%, 5.6% |
 | same, load 2-13 (four pairs) | 11.3-13.5% | 5.7-6.8% |
-| effects off (`YTFAST_GPUI_VISUALS=0`), playing | 4.5% | 1.8% |
+| effects off (`ENCORE_VISUALS=0`), playing | 4.5% | 1.8% |
 | reduced motion, playing | 4.6-7.4% | 1.7-2.5% |
 | paused | 0.0-0.1% | 0.0-0.1% |
 | minimised, playing | 0.2-2.4% | 0.1-1.5% |
@@ -136,7 +136,7 @@ cover, pairs 1 s apart), `m9l2-sheet` (light), `m9d-diss1-zoom` and
 `m9d-diss-sheet` (the bar's cover mid-burn), `m9n-sheet` (Now Playing's
 cover mid-burn), `m9r-sheet` (reduced motion pair, then paused),
 `m9-home-bar` (paused, light, the ridge over the waveform). Songs were
-opened over MPRIS (`playerctl -p ytfast open https://music.youtube.com/watch?v=…`).
+opened over MPRIS (`playerctl -p encore-core open https://music.youtube.com/watch?v=…`).
 
 ### GPU budget (2026-10-07)
 
@@ -145,7 +145,7 @@ for the whole desktop, app CPU in % of one core, 10 s), plus the render
 time of each DRM client from `/proc/<pid>/fdinfo` (`drm-engine-render`:
 GPUI's renderer, our effects device and KWin apart) and per-draw GPU
 timings from Mesa (`INTEL_MEASURE=draw`, written to the app's stderr).
-Profiling builds, test audio (`YTFAST_FAKE_STREAM`), Home with Quick picks,
+Profiling builds, test audio (`ENCORE_FAKE_STREAM`), Home with Quick picks,
 1280x1000 window, light look, the machine shared with other agents' builds
 (load 10-15). Songs opened over MPRIS, N for Now Playing, minimised with
 KWin's "Window Minimize" shortcut.
@@ -167,7 +167,7 @@ Where the time went (before):
   strip 1.35 ms, each readback copy 0.4-0.7 ms. Particles about 0.8 points
   of the desktop in Now Playing, the spectrum (GPUI quads) too little to
   measure. The upload of each frame into GPUI's atlas as a new image
-  (`YTFAST_GPUI_VISUALS_SKIP=upload` kept the first one): no difference,
+  (`ENCORE_VISUALS_SKIP=upload` kept the first one): no difference,
   so frames still go through new images (retired a frame later).
 - KWin's 11% in Now Playing came from the unpaced tick frames between the
   paced ones; with only paced frames it is 1.3-2.9%.
@@ -233,7 +233,7 @@ Now:
   only decide what draws once the device is there).
 - **Pipeline cache.** On Vulkan, when the adapter has
   `Features::PIPELINE_CACHE`, the pipelines go through a wgpu
-  `PipelineCache` kept in `~/.cache/ytfast/gpu/`, one file per GPU and
+  `PipelineCache` kept in `~/.cache/encore-yt/gpu/`, one file per GPU and
   driver (`wgpu::util::pipeline_cache_key`, plus a hash of the driver name
   and version). wgpu checks the header and the driver's cache UUID and
   starts empty when they don't match. The file (about 141 KB here) is
@@ -249,12 +249,12 @@ Now:
   macOS are untested on hardware; `cargo xwin check --target
   x86_64-pc-windows-msvc` passes.
 
-How it was measured: profiling builds, test audio (`YTFAST_FAKE_STREAM`),
+How it was measured: profiling builds, test audio (`ENCORE_FAKE_STREAM`),
 the 1280x1000 window, a song restored in the player bar at start (so the
 strip draws in the first frames), then a song opened over MPRIS (first play:
 the bar cover's dissolve), N (first Now Playing: the backdrop), MPRIS Next
 (first track change inside Now Playing: its dissolve).
-`YTFAST_GPUI_FRAME_LOG=12` logs frames whose UI thread work (shell render
+`ENCORE_FRAME_LOG=12` logs frames whose UI thread work (shell render
 through the last paint) took over 12 ms, and every frame that set up an
 effect with the time that took; `visuals:` lines time the instance,
 adapter, device, each shader and pipeline. Three runs per condition:
@@ -287,7 +287,7 @@ cache in 8-10 ms), and 384 ms on a first run with no cache at all
 at start-up with the effects off (15-110 ms). After the change no frame
 spent more than 0.5 ms on effect set-up; the frames over 16 ms that remain
 in the table (Now Playing opening, a track change re-rendering the app) did
-no set-up and match runs with the effects off (`YTFAST_GPUI_VISUALS=0`:
+no set-up and match runs with the effects off (`ENCORE_VISUALS=0`:
 the longest frame 19-26 ms on play, 14-49 ms opening Now Playing, up to 21 ms
 on Next). The device dropped after 30 s idle was made again in 73 ms on the
 next play, without a set-up frame. The first strip frame after start still
@@ -301,7 +301,7 @@ after), `warmup-bar-cmp` (the strip before and after), `warmup-np-cmp`
 
 ## Now Playing (M8)
 
-Code: the crate `crates/visuals` (`ytfast-visuals`, no GPUI) and the
+Code: the crate `crates/visuals` (`encore-visuals`, no GPUI) and the
 app side in `crates/app/src/visuals/`.
 
 - **Crate**: `Renderer` (on the shared `Gpu`, `shaders/backdrop.wgsl`,
@@ -339,11 +339,11 @@ app side in `crates/app/src/visuals/`.
   still frame per cover, no spectrum, no particles, no flight). The renderer
   (the second Vulkan device) is dropped 30 s after Now Playing closes.
   Reduced motion is `theme::reduced_motion` (the desktop portal) or
-  `YTFAST_GPUI_REDUCED_MOTION=1`.
-- **Settings** (env): `YTFAST_GPUI_VISUALS=0` off, `YTFAST_GPUI_VISUALS_FPS`
-  (20), `YTFAST_GPUI_VISUALS_UNCACHED=1` (no cached app view, to measure
-  it), `YTFAST_GPUI_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
-  (leave one out, to measure it), `YTFAST_GPUI_VISUALS_FLIGHT_MS` (slow the
+  `ENCORE_REDUCED_MOTION=1`.
+- **Settings** (env): `ENCORE_VISUALS=0` off, `ENCORE_VISUALS_FPS`
+  (20), `ENCORE_VISUALS_UNCACHED=1` (no cached app view, to measure
+  it), `ENCORE_VISUALS_SKIP=backdrop,strip,spectrum,particles,upload`
+  (leave one out, to measure it), `ENCORE_VISUALS_FLIGHT_MS` (slow the
   flight down to look at it).
 
 Measured 2026-10-07, release build, 1280x1000 window, backdrop rendered at
@@ -401,8 +401,8 @@ bar's glow at 55% and its halos at 50%: they read as too strong)
 and Vivid (glow and halos as before, a livelier backdrop and more
 sparkles). A preset keeps the visualiser's choices, Stage's, the
 particles' look (size, softness, depth, direction, colour), the wave's
-shape and the frame rate. `YTFAST_GPUI_VISUALS=0`, `_PRESET`, `_FPS`,
-`_FLIGHT_MS`, `_SKIP` and `YTFAST_GPUI_VISUALIZER` still override without
+shape and the frame rate. `ENCORE_VISUALS=0`, `_PRESET`, `_FPS`,
+`_FLIGHT_MS`, `_SKIP` and `ENCORE_VISUALIZER` still override without
 saving. Settings → Visuals is a view of its own in tabs (General, Backdrop,
 Particles, Player bar, Visualiser, Transitions; `views/settings/visuals`),
 a card per effect, Reset per tab; Ctrl+K "visuals" offers the four presets.
@@ -430,7 +430,7 @@ visualiser shader: 7% CPU and 12% GPU at 30 fps here, mostly the read-back
 and upload, so they became quads (about 300 at amount 1; each costs GPUI
 about 2 µs of CPU a frame, which is why there aren't more).
 
-**Visualiser.** `ytfast_visuals::Visualizer` (`visualizer.wgsl`, compiled
+**Visualiser.** `encore_visuals::Visualizer` (`visualizer.wgsl`, compiled
 with the other pipelines, so warm-up and the pipeline cache cover it) draws
 bars, mirrored bars, a ring round the cover, a line or a particle field
 from `Bars` (bar count, sensitivity, rise smoothing, fall speed, frequency
@@ -528,7 +528,7 @@ Playing's strip (centred, 8 points round it) and the same bottom band as
 the bars in Stage and the full window, with 15% of the band (4 to 32
 points) kept free at the top and bottom and the trace fading out through
 the side margins. Settings show Channels and Sensitivity for the scope
-instead of the bars' rows; `YTFAST_GPUI_SCOPE=mono|stereo|xy` overrides.
+instead of the bars' rows; `ENCORE_SCOPE=mono|stereo|xy` overrides.
 
 **Cost** (`scripts/gpui-measure.sh`, profiling build, test audio, signed
 out, dark, 1280x1000, the visualiser in Now Playing and the full window
@@ -558,7 +558,7 @@ Measured on 2026-10-06: Fedora 43, KDE Plasma 6 Wayland,
 Intel UHD 630 (Vulkan), 1920x1080 at **120 Hz**, gpui-kit 0.7.1 / gpui-pre
 0.3.8 / wgpu 29.0.4, release build. The machine was shared with other agents'
 builds (load 3 to 8 for the numbers below, 20+ for the first runs), so CPU
-figures are ±3 points. The spike ran with `YTFAST_GPUI_VISUALS_SPIKE=1`
+figures are ±3 points. The spike ran with `ENCORE_VISUALS_SPIKE=1`
 (removed since) and drew everything into the page area; its file names
 below (`gpu.rs`, `spike.rs`) are now `renderer.rs` and `effects.rs`.
 
@@ -661,7 +661,7 @@ Rejected:
 
 **Since M22 (2026-10-07): the audio engine's own tap, in process, on every
 OS.** mpv and the PipeWire tap below are gone (M23). The output callback of
-`ytfast-audio` copies its mix (after the equalizer and the decks' volumes)
+`encore-audio` copies its mix (after the equalizer and the decks' volumes)
 as mono into a lock-free ring of atomics (`audio/src/tap.rs`) while an
 `AudioTap` is open, and skips the copy otherwise; the spectrum thread takes
 1/60 s of it per frame and drops anything more than 0.2 s behind. The
@@ -674,7 +674,7 @@ command line tools (`visuals/pipewire.rs`, `visuals/spectrum.rs`).
 - mpv's stream is the node named `ytfast` (`--audio-client-name=ytfast`,
   media class `Stream/Output/Audio`).
 - `pw-record --raw --format f32 --rate 48000 --channels 2 --latency 10ms
-  --target 0 -P '{ node.name = ytfast-visuals-<pid> media.class =
+  --target 0 -P '{ node.name = encore-visuals-<pid> media.class =
   Stream/Input/Audio/Analyzer node.dont-reconnect = true }' -` opens an
   unlinked capture node and writes PCM to its stdout.
 - A linker thread runs `pw-dump` once a second and `pw-link`s the FL/FR
@@ -719,7 +719,7 @@ Rejected:
 ### Whole-song waveform
 
 **Since M23 (2026-10-07): decoded with the audio engine's own decoder**
-(`ytfast_audio::decode_mono`: range requests, symphonia and libopus, to
+(`encore_audio::decode_mono`: range requests, symphonia and libopus, to
 ~8 kHz mono by block averages), from the URL the resolver cached, in the
 background and cached per video id. No ffmpeg, no mpv IPC. History below.
 

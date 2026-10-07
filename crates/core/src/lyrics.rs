@@ -12,7 +12,7 @@ use crate::parse;
 const LRCLIB: &str = "https://lrclib.net/api";
 /// LRCLIB asks clients to name themselves.
 const USER_AGENT: &str = concat!(
-    "ytfast/",
+    "encore-yt/",
     env!("CARGO_PKG_VERSION"),
     " (",
     env!("CARGO_PKG_REPOSITORY"),

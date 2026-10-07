@@ -2,13 +2,13 @@
 //! progress as a thin line along the bottom edge. The expand button brings
 //! back the full window.
 
+use encore_core::backend::Command;
+use encore_core::desktop::Request;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::desktop::Request;
 
 use super::super::{runs_text, widgets};
 use crate::assets::Glyph;

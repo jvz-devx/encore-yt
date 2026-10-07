@@ -9,10 +9,10 @@ use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
 
+use encore_core::backend::Command;
+use encore_core::model::{Item, ItemKind, Page, Target, Track};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::{Item, ItemKind, Page, Target, Track};
 
 use super::control::{self, FromPage};
 use crate::app::MusicApp;
@@ -584,7 +584,7 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
             return;
         }
         "eq" if !rest.is_empty() => {
-            let preset = ytfast::equalizer::Preset::ALL
+            let preset = encore_core::equalizer::Preset::ALL
                 .into_iter()
                 .find(|p| p.label().to_lowercase().starts_with(&rest.to_lowercase()));
             let words = match preset {
@@ -802,7 +802,7 @@ fn rank(app: &MusicApp, pa: &PlayAnything) -> Vec<Hit> {
         library_keys.push(target.key());
         if let Some(page) = page_of(&target) {
             // Liked Music's own list, not the Suggestions after it.
-            let items: Vec<&Item> = match ytfast::account::entries(page) {
+            let items: Vec<&Item> = match encore_core::account::entries(page) {
                 Some(own) if target == Target::browse("VLLM") => own.items.iter().collect(),
                 _ => page.shelves.iter().flat_map(|s| &s.items).collect(),
             };

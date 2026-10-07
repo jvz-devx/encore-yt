@@ -7,14 +7,14 @@
 //! read it through [`Likes`], so every visible copy of a song agrees.
 //!
 //! For checks signed out (no song is liked then),
-//! `YTFAST_GPUI_FAKE_LIKED=<videoId,videoId,…>` marks those songs liked, and
-//! `YTFAST_GPUI_FAKE_LIKED=every<N>` (e.g. `every3`) about one song in N.
+//! `ENCORE_FAKE_LIKED=<videoId,videoId,…>` marks those songs liked, and
+//! `ENCORE_FAKE_LIKED=every<N>` (e.g. `every3`) about one song in N.
 
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
-use ytfast::account::Marks;
-use ytfast::model::{LikeStatus, Track};
+use encore_core::account::Marks;
+use encore_core::model::{LikeStatus, Track};
 
 use crate::app::MusicApp;
 
@@ -72,7 +72,7 @@ impl Fake {
 fn fake() -> Option<&'static Fake> {
     static FAKE: OnceLock<Option<Fake>> = OnceLock::new();
     FAKE.get_or_init(|| {
-        let value = std::env::var("YTFAST_GPUI_FAKE_LIKED").ok()?;
+        let value = std::env::var("ENCORE_FAKE_LIKED").ok()?;
         let value = value.trim();
         if let Some(n) = value.strip_prefix("every") {
             return n.parse().ok().filter(|n| *n > 0).map(Fake::Every);

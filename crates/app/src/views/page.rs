@@ -21,10 +21,10 @@ mod transition;
 
 use std::rc::Rc;
 
+use encore_core::model::{Item, Page, Shelf};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::v_flex;
 use gpui_kit::*;
-use ytfast::model::{Item, Page, Shelf};
 
 use crate::app::MusicApp;
 use crate::nav::View;

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use encore_core::paths::Paths;
 use gpui_kit::*;
-use ytfast::paths::Paths;
 
 use super::download::{self, Progress};
 use super::feed::{self, Release};
@@ -56,7 +56,7 @@ impl Updates {
     pub fn new(paths: &Paths) -> Self {
         let path = paths.config.join("updates.json");
         let http = reqwest::Client::builder()
-            .user_agent(concat!("ytfast-gpui/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("encore-yt/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(15))
             .build()
             .map_err(|e| log::warn!("update: no HTTP client: {e}"))
@@ -104,7 +104,7 @@ impl MusicApp {
             return;
         }
         log::info!(
-            "update: Music {} ({:?}), pre-releases {}",
+            "update: Encore {} ({:?}), pre-releases {}",
             super::VERSION,
             self.updates.install,
             self.updates.prefs.prereleases()
@@ -170,7 +170,7 @@ impl MusicApp {
             Ok(Some(release)) => {
                 log::info!("update: {} is available", release.version);
                 if !manual {
-                    self.notice(format!("Music {} is available", release.version), cx);
+                    self.notice(format!("Encore {} is available", release.version), cx);
                 }
                 State::Available(release)
             }
@@ -286,7 +286,7 @@ impl MusicApp {
     pub(crate) fn updates_window_opened(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.on_next_frame(window, |this, _, cx| {
             if let Some(version) = super::acknowledge() {
-                this.toast(format!("Updated to Music {version}"), cx);
+                this.toast(format!("Updated to Encore {version}"), cx);
             }
             if let Some(error) = super::startup_error() {
                 this.error = Some(error);

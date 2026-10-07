@@ -1,9 +1,9 @@
 //! The player bar follows the backend's reports: the song, play or pause,
 //! and the times.
 
+use encore_core::backend::{Command, Event};
+use encore_core::model::{Playback, Track};
 use gpui_kit::TestAppContext;
-use ytfast::backend::{Command, Event};
-use ytfast::model::{Playback, Track};
 
 use super::home::{on_home, quick_picks};
 

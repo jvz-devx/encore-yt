@@ -21,7 +21,7 @@ took 7 min at `-j 3` without the rustc wrapper (`RUSTC_WRAPPER=`).
 Hot crates kept at opt-level 3 (`[profile.release.package.*]` in
 crates/app/Cargo.toml): symphonia and its codec and format crates, the libopus
 adapter and opusic-sys (libopus is C; cc takes cargo's opt-level), rubato,
-realfft, rustfft, audioadapter*, cpal, ytfast-audio, ytfast-visuals, wgpu,
+realfft, rustfft, audioadapter*, cpal, encore-audio, encore-visuals, wgpu,
 wgpu-core, wgpu-hal, wgpu-types, naga and gpui-pre-wgpu (GPUI's renderer,
 which draws the effects' frames). Generic code is instantiated in the crate
 that uses it, so these crates' uses of core, alloc and hashbrown stay at 3
@@ -30,13 +30,13 @@ CPU bar, and each variant is a full rebuild.
 
 The `profiling` profile inherits release, overrides included (checked with
 `cargo build --profile profiling -v`: anyhow and log at `opt-level=s`,
-ytfast-audio, rubato and symphonia-core at 3). Only LTO and codegen units
+encore-audio, rubato and symphonia-core at 3). Only LTO and codegen units
 differ, so its CPU numbers stand for release builds.
 
 ## CPU
 
 `scripts/gpui-measure.sh` (app CPU in % of one core over 10 s), signed out
-in fresh XDG dirs, `YTFAST_FAKE_STREAM` with the test audio, a song opened
+in fresh XDG dirs, `ENCORE_FAKE_STREAM` with the test audio, a song opened
 over MPRIS, then Now Playing with the effects on; three samples per state,
 1280x1000 window, release binaries.
 

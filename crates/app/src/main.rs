@@ -1,4 +1,5 @@
-//! ytfast-gpui: a GPUI interface on ytfast's backend. See docs/gpui/PLAN.md.
+//! Encore: a native YouTube Music client in GPUI, on the backend in
+//! crates/core. See docs/gpui/PLAN.md.
 
 // No console window behind the app in a Windows release build.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -37,27 +38,27 @@ fn main() -> anyhow::Result<()> {
     // The update helper runs here and exits; a start after an update keeps
     // its receipt (M16).
     let args = update::intercept();
-    let paths = ytfast::paths::Paths::new()?;
+    let paths = encore_core::paths::Paths::new()?;
     // A running instance takes the message; this process is then done.
     let Some(launch) = desktop::command_line(&paths, args) else {
         return Ok(());
     };
-    fastframe_log::Logging::new("ytfast-gpui", update::VERSION)
-        .filter("ytfast=info,ytfast_gpui=info,warn")
-        .file(paths.cache.join("ytfast-gpui.log"))
-        .panic_log(paths.cache.join("panics-gpui.log"))
+    fastframe_log::Logging::new("encore-yt", update::VERSION)
+        .filter("encore_core=info,encore_yt=info,warn")
+        .file(paths.cache.join("encore-yt.log"))
+        .panic_log(paths.cache.join("panics.log"))
         .init()
         .map_err(|e| anyhow!("logging: {e}"))?;
+    if let Some(note) = encore_core::paths::migration_note() {
+        log::info!("{note}");
+    }
     startup::mark(startup::Milestone::Logging);
     // Slow parts of the start, on threads of their own while the platform
     // and the window start (M17): the desktop's look, the cover art client
     // and the backend.
     let asking = theme::ask_desktop();
     let http = std::thread::spawn(|| {
-        reqwest_client::ReqwestClient::user_agent(concat!(
-            "ytfast-gpui/",
-            env!("CARGO_PKG_VERSION")
-        ))
+        reqwest_client::ReqwestClient::user_agent(concat!("encore-yt/", env!("CARGO_PKG_VERSION")))
     });
     let early = app::Early::start(paths.clone())?;
     let motion_path = paths.config.join("motion.json");
@@ -70,7 +71,7 @@ fn main() -> anyhow::Result<()> {
             // Settings → Motion, before the theme applies the desktop's
             // reduced motion through it.
             theme::motion::init(motion_path);
-            // Fonts, colours and gpui-component's theme (YTFAST_GPUI_THEME=light).
+            // Fonts, colours and gpui-component's theme (ENCORE_THEME=light).
             theme::init(asking, cx);
             startup::mark(startup::Milestone::Theme);
             // Each area binds its own shortcuts in the "Music" key context

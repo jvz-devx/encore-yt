@@ -1,7 +1,7 @@
 //! Song-change notifications (Settings, off by default) through
 //! `org.freedesktop.Notifications`: the title, the artists and the cached
 //! cover. Each replaces the previous one. Only real song changes count
-//! (not pause, resume or queue edits), and none appear while a ytfast window
+//! (not pause, resume or queue edits), and none appear while a Encore window
 //! has the focus: the song is on screen already.
 
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ pub(crate) async fn run(
             None => None,
         };
         let mut hints: HashMap<&str, Value<'_>> = HashMap::new();
-        hints.insert("desktop-entry", Value::from("ytfast"));
+        hints.insert("desktop-entry", Value::from(crate::APP_ID));
         hints.insert("transient", Value::from(true));
         if let Some(file) = &image {
             hints.insert(
@@ -72,7 +72,7 @@ pub(crate) async fn run(
                 Some("org.freedesktop.Notifications"),
                 "Notify",
                 &(
-                    "Music",
+                    crate::APP_NAME,
                     replaces,
                     "audio-x-generic",
                     title.as_str(),

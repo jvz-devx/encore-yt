@@ -1,4 +1,4 @@
-//! `YTFAST_GPUI_FRAME_LOG=<ms>` logs every window frame whose UI thread
+//! `ENCORE_FRAME_LOG=<ms>` logs every window frame whose UI thread
 //! work (the shell's render through the last layer's paint: render,
 //! layout, prepaint and paint, not GPUI's GPU submission) took longer than
 //! that many milliseconds. For measuring hitches such as an effect's first
@@ -20,7 +20,7 @@ thread_local! {
 fn threshold() -> Option<f64> {
     static THRESHOLD: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
     *THRESHOLD.get_or_init(|| {
-        std::env::var("YTFAST_GPUI_FRAME_LOG")
+        std::env::var("ENCORE_FRAME_LOG")
             .ok()
             .and_then(|v| v.parse().ok())
     })

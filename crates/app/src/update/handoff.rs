@@ -59,7 +59,7 @@ fn prepare(job: &Job) -> Result<()> {
         }
         Kind::Mac => {
             let app = mac_extract(job)?;
-            probe(&app.join("Contents/MacOS/ytfast-gpui"), &job.version)
+            probe(&app.join("Contents/MacOS/encore-yt"), &job.version)
         }
         // A setup program can't be asked; it is run by the helper.
         Kind::Windows => Ok(()),
@@ -86,14 +86,14 @@ pub fn probe(exe: &Path, version: &str) -> Result<()> {
     let output = child.wait_with_output()?;
     let said = String::from_utf8_lossy(&output.stdout);
     ensure!(
-        said.trim() == format!("ytfast-gpui {version}"),
-        "The download isn't Music {version} (it says {:?})",
+        said.trim() == format!("encore-yt {version}"),
+        "The download isn't Encore {version} (it says {:?})",
         said.trim()
     );
     Ok(())
 }
 
-/// macOS: copies `ytfast.app` out of the disk image to `new.app` and checks
+/// macOS: copies `Encore.app` out of the disk image to `new.app` and checks
 /// it is this app.
 fn mac_extract(job: &Job) -> Result<PathBuf> {
     let mount = job.file("mnt");
@@ -126,7 +126,7 @@ fn mac_extract(job: &Job) -> Result<PathBuf> {
         .arg(new.join("Contents/Info.plist"))
         .output()?;
     ensure!(
-        String::from_utf8_lossy(&id.stdout).trim() == "io.github.jvz-devx.ytfast-gpui",
+        String::from_utf8_lossy(&id.stdout).trim() == "io.github.jvz-devx.encore-yt",
         "The disk image holds another app"
     );
     let _ = Command::new("xattr")
@@ -145,7 +145,7 @@ fn copy_helper(job: &Job) -> Result<PathBuf> {
         let bundle = job.file("helper.app");
         run(Command::new("ditto").arg(&job.target).arg(&bundle))
             .context("Couldn't prepare the update helper")?;
-        return Ok(bundle.join("Contents/MacOS/ytfast-gpui"));
+        return Ok(bundle.join("Contents/MacOS/encore-yt"));
     }
     let helper = job.file(if cfg!(windows) {
         "helper.exe"

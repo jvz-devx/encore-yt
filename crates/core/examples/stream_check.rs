@@ -2,7 +2,7 @@
 //! with the stream resolver in several formats at once (one search
 //! suggestion for the visitor id, the player script only when it isn't
 //! cached, and one `player` request), then plays each
-//! format through `ytfast-audio`: first audio, a seek to the middle, a seek
+//! format through `encore-audio`: first audio, a seek to the middle, a seek
 //! to 3 s before the end with the same stream queued behind it, and the
 //! join between the two (the played length against the container's, and
 //! the frames between one track's end and the next one's start).
@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use ytfast_audio::{Engine, Event, Load};
+use encore_audio::{Engine, Event, Load};
 
 static START: OnceLock<Instant> = OnceLock::new();
 
@@ -43,7 +43,8 @@ struct Logger;
 impl log::Log for Logger {
     fn enabled(&self, m: &log::Metadata) -> bool {
         m.level() <= log::Level::Info
-            && (m.target().starts_with("ytfast_audio") || m.target().starts_with("ytfast::streams"))
+            && (m.target().starts_with("encore_audio")
+                || m.target().starts_with("encore_core::streams"))
     }
     fn log(&self, r: &log::Record) {
         if self.enabled(r.metadata()) {
@@ -98,7 +99,7 @@ fn main() -> Result<()> {
 /// formats an earlier run saved within the hour.
 fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
     let who = if signed_in { "signed-in" } else { "signed-out" };
-    let saved = ytfast::paths::Paths::new()?
+    let saved = encore_core::paths::Paths::new()?
         .runtime
         .join(format!("stream-check-{video}-{who}.tsv"));
     let fresh = std::fs::metadata(&saved)
@@ -138,11 +139,11 @@ fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
 /// Every audio format the app would pick from, one per line: itag, user
 /// agent (`NA`), URL.
 async fn resolve_now(video: &str, signed_in: bool) -> Result<String> {
-    let paths = ytfast::paths::Paths::new()?;
-    let client = Arc::new(ytfast::innertube::Client::new());
+    let paths = encore_core::paths::Paths::new()?;
+    let client = Arc::new(encore_core::innertube::Client::new());
     if signed_in {
-        let preferred = ytfast::settings::Settings::load(&paths).browser_profile;
-        let session = ytfast::auth::load(&paths.runtime, preferred.as_deref())?;
+        let preferred = encore_core::settings::Settings::load(&paths).browser_profile;
+        let session = encore_core::auth::load(&paths.runtime, preferred.as_deref())?;
         client.set_session(Some(session));
     }
     // The visitor id the stream requests need, as the app has it from
@@ -151,7 +152,7 @@ async fn resolve_now(video: &str, signed_in: bool) -> Result<String> {
         .suggestions("a")
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let native = ytfast::streams::Native::new(client, &paths.cache, &paths.config);
+    let native = encore_core::streams::Native::new(client, &paths.cache, &paths.config);
     if signed_in {
         native.prepare().await?;
     }

@@ -130,7 +130,7 @@ impl Render for Flight {
 }
 
 /// How long a trip takes: Settings → Visuals (`motion::SLOW` by default),
-/// or `YTFAST_GPUI_VISUALS_FLIGHT_MS` (to look at it in slow motion), at
+/// or `ENCORE_VISUALS_FLIGHT_MS` (to look at it in slow motion), at
 /// the motion speed; `None` when motion is reduced or instant.
 fn duration() -> Option<Duration> {
     motion::duration(Duration::from_millis(u64::from(

@@ -10,27 +10,27 @@
 default_job = "check"
 
 [jobs.check]
-command = ["cargo", "check", "-p", "ytfast-gpui"]
+command = ["cargo", "check", "-p", "encore-yt"]
 need_stdout = false
 
 [jobs.check-core]
-command = ["cargo", "check", "-p", "ytfast"]
+command = ["cargo", "check", "-p", "encore-core"]
 need_stdout = false
 
 [jobs.check-visuals]
-command = ["cargo", "check", "-p", "ytfast-visuals"]
+command = ["cargo", "check", "-p", "encore-visuals"]
 need_stdout = false
 
 [jobs.clippy]
-command = ["cargo", "clippy", "-p", "ytfast-gpui", "--", "-D", "warnings"]
+command = ["cargo", "clippy", "-p", "encore-yt", "--", "-D", "warnings"]
 need_stdout = false
 
 [jobs.test-core]
-command = ["cargo", "test", "-p", "ytfast", "--lib", "--tests"]
+command = ["cargo", "test", "-p", "encore-core", "--lib", "--tests"]
 need_stdout = true
 
 [jobs.test-visuals]
-command = ["cargo", "test", "-p", "ytfast-visuals"]
+command = ["cargo", "test", "-p", "encore-visuals"]
 need_stdout = true
 
 [keybindings]

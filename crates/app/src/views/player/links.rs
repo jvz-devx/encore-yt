@@ -4,8 +4,8 @@
 
 use std::ops::Range;
 
+use encore_core::model::{Target, Track};
 use gpui_kit::*;
-use ytfast::model::{Target, Track};
 
 use crate::app::MusicApp;
 use crate::theme::Colors;

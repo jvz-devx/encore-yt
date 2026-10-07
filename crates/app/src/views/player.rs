@@ -6,14 +6,14 @@ pub(crate) mod layer;
 pub(super) mod links;
 mod side;
 
+use encore_core::backend::Command;
+use encore_core::model::Repeat;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::slider::Slider;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::backend::Command;
-use ytfast::model::Repeat;
 
 use super::clock;
 use super::widgets;

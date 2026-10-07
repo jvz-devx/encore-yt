@@ -3,8 +3,8 @@
 //! song cards report through audition's listener (`views::extras::audition`),
 //! which already holds their hover.
 
+use encore_core::model::Item;
 use gpui_kit::*;
-use ytfast::model::Item;
 
 use crate::app::MusicApp;
 use crate::pages::Want;

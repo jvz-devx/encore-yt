@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
+use encore_core::backend::{Command, Event};
+use encore_core::model::{Item, Page, Target};
 use gpui_kit::{Modifiers, TestAppContext, point, px};
-use ytfast::backend::{Command, Event};
-use ytfast::model::{Item, Page, Target};
 
 use super::home::on_home;
 use super::{Ui, WINDOW, fixture};

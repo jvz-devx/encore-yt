@@ -26,11 +26,11 @@ mod sidebar;
 mod top_bar;
 mod widgets;
 
+use encore_core::model::Run;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Run;
 
 use crate::app::MusicApp;
 use crate::theme::{self, Type, radius, size, space};

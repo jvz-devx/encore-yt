@@ -2,11 +2,11 @@
 //! browser or cookie file (or why nobody is), the account's channels to
 //! switch between, Reconnect, and Settings.
 
+use encore_core::model::Account;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Account;
 
 use super::super::widgets;
 use crate::app::MusicApp;

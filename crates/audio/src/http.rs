@@ -152,7 +152,7 @@ impl HttpSource {
         })
     }
 
-    /// A local file, read whole at once (tests, `YTFAST_FAKE_STREAM`).
+    /// A local file, read whole at once (tests, `ENCORE_FAKE_STREAM`).
     pub fn local(path: &str) -> Result<Self> {
         let data = std::fs::read(path).with_context(|| format!("reading {path}"))?;
         let len = data.len() as u64;

@@ -16,15 +16,15 @@ use crate::settings::Category;
 use crate::theme::{Colors, Type, radius, size, space};
 use crate::update;
 
-const REPOSITORY: &str = "https://github.com/jvz-devx/ytfast-gpui";
+const REPOSITORY: &str = "https://github.com/jvz-devx/encore-yt";
 /// What the installers put next to the app (`packaging`).
 const NOTICES: &str = include_str!("../../../../../packaging/THIRD-PARTY.txt");
 
-/// Who made what Music is built on: name, what it does here, licence, link.
+/// Who made what Encore is built on: name, what it does here, licence, link.
 const CREDITS: &[(&str, &str, &str, &str)] = &[
     (
         "ytfast",
-        "Where Music started, by Tyler Mayberry; its backend still runs it",
+        "Where Encore started, by Tyler Mayberry; its backend still runs it",
         "MIT",
         "https://github.com/MayberryDT/ytfast",
     ),
@@ -107,7 +107,7 @@ fn hero(c: &Colors) -> AnyElement {
             v_flex()
                 .min_w_0()
                 .gap(space::XXS)
-                .child(div().type_title().child("Music"))
+                .child(div().type_title().child(encore_core::APP_NAME))
                 .child(
                     div()
                         .type_small()
@@ -152,7 +152,7 @@ fn channel(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement
 /// Settings, cache and logs, each with Open.
 fn folders(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
     let paths = &app.paths;
-    let log = paths.cache.join("ytfast-gpui.log");
+    let log = paths.cache.join("encore-yt.log");
     vec![
         place("settings", "Settings", &paths.config, false, c, cx),
         place(
@@ -208,7 +208,7 @@ fn home_relative(path: &Path) -> String {
     }
 }
 
-/// The licence, a line per project Music builds on, and the notices.
+/// The licence, a line per project Encore builds on, and the notices.
 fn credits(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
     let source = super::focusable(
         widgets::pill_button(
@@ -298,7 +298,7 @@ fn notices(open: bool, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     v_flex()
         .child(super::row(
             "Third-party notices",
-            Some("The licences the installers carry with Music".into()),
+            Some("The licences the installers carry with Encore".into()),
             button,
             c,
         ))

@@ -1,11 +1,11 @@
 //! The song row (DESIGN.md "Song row"): thumb or track number, title,
 //! linked subtitle, the like mark (M25), duration.
 
+use encore_core::model::{Item, ItemKind, Shelf};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Item, ItemKind, Shelf};
 
 use super::item_keys::Anchor;
 use super::runs::runs_line;

@@ -4,12 +4,12 @@
 //! an [`AccountAction`]; `crate::account` shows it at once and rolls it
 //! back if YouTube Music refuses.
 
+use encore_core::account::{AccountAction, Dialog};
+use encore_core::model::{Header, LikeStatus, Track};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::h_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::account::{AccountAction, Dialog};
-use ytfast::model::{Header, LikeStatus, Track};
 
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;

@@ -1,32 +1,32 @@
 #!/bin/bash
-# Installs Music (ytfast) on macOS from GitHub Releases, without Homebrew:
+# Installs Encore on macOS from GitHub Releases, without Homebrew:
 #
-#   curl -fsSL https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/scripts/install-macos.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jvz-devx/encore-yt/main/scripts/install-macos.sh | bash
 #
 # It picks the build for this Mac (Apple silicon or Intel), downloads the
 # newest release's disk image (pre-releases included), checks it against the
-# release's checksums.txt, and copies ytfast.app to /Applications (or
+# release's checksums.txt, and copies Encore.app to /Applications (or
 # ~/Applications when /Applications isn't writable), replacing an older copy.
 # The app isn't notarized; curl doesn't set the quarantine flag, and the
 # script clears it anyway, so the app opens without the Gatekeeper dialog.
 #
-# YTFAST_VERSION=v0.1.0-alpha.1 installs that release instead of the newest.
+# ENCORE_VERSION=v0.1.0-alpha.1 installs that release instead of the newest.
 #
 # Written for the bash 3.2 that macOS ships.
 
 set -euo pipefail
 
-REPO="jvz-devx/ytfast-gpui"
+REPO="jvz-devx/encore-yt"
 API="https://api.github.com/repos/$REPO"
-APP="ytfast.app"
-BUNDLE_ID="io.github.jvz-devx.ytfast-gpui"
+APP="Encore.app"
+BUNDLE_ID="io.github.jvz-devx.encore-yt"
 
 work=""
 mount=""
 
 say() { printf '%s\n' "$*"; }
 die() {
-	printf 'Music install: %s\n' "$*" >&2
+	printf 'Encore install: %s\n' "$*" >&2
 	exit 1
 }
 
@@ -61,15 +61,15 @@ check_macos() {
 	version="$(sw_vers -productVersion)"
 	major="${version%%.*}"
 	if [[ "$major" -lt "$need" ]]; then
-		die "Music needs macOS $need or newer on this Mac; this one has $version."
+		die "Encore needs macOS $need or newer on this Mac; this one has $version."
 	fi
 }
 
 # The release's JSON: the pinned tag, or the newest release (the list is
 # newest first and includes pre-releases).
 release_json() {
-	if [[ -n "${YTFAST_VERSION:-}" ]]; then
-		curl -fsSL "$API/releases/tags/$YTFAST_VERSION" || die "No release $YTFAST_VERSION."
+	if [[ -n "${ENCORE_VERSION:-}" ]]; then
+		curl -fsSL "$API/releases/tags/$ENCORE_VERSION" || die "No release $ENCORE_VERSION."
 	else
 		curl -fsSL "$API/releases?per_page=1" || die "Couldn't reach GitHub Releases."
 	fi
@@ -119,17 +119,29 @@ destination() {
 
 # Quits a running copy, so its bundle can be replaced.
 quit_running() {
-	pgrep -x ytfast-gpui >/dev/null 2>&1 || return 0
-	say "Quitting Music..."
+	pgrep -x encore-yt >/dev/null 2>&1 || return 0
+	say "Quitting Encore..."
 	osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
 	local waited=0
 	while [[ "$waited" -lt 10 ]]; do
-		pgrep -x ytfast-gpui >/dev/null 2>&1 || return 0
+		pgrep -x encore-yt >/dev/null 2>&1 || return 0
 		sleep 1
 		waited=$((waited + 1))
 	done
-	pkill -x ytfast-gpui 2>/dev/null || true
+	pkill -x encore-yt 2>/dev/null || true
 	sleep 1
+}
+
+# ytfast.app, as the app was called before the rename, if it is ours.
+# Its settings and sign-in move to the new folders when Encore starts.
+remove_old_name() {
+	local old
+	for old in "/Applications/ytfast.app" "$HOME/Applications/ytfast.app"; do
+		[[ -d "$old" ]] || continue
+		[[ "$(defaults read "$old/Contents/Info" CFBundleIdentifier 2>/dev/null)" == "io.github.jvz-devx.ytfast-gpui" ]] || continue
+		pkill -x ytfast-gpui 2>/dev/null || true
+		rm -rf "$old" && say "Removed $old (the app's former name)."
+	done
 }
 
 main() {
@@ -140,16 +152,16 @@ main() {
 	check_macos
 
 	trap cleanup EXIT
-	work="$(mktemp -d "${TMPDIR:-/tmp}/ytfast-install.XXXXXX")"
+	work="$(mktemp -d "${TMPDIR:-/tmp}/encore-install.XXXXXX")"
 
 	json="$(release_json)"
 	tag="$(printf '%s' "$json" | tag_name)"
 	[[ -n "$tag" ]] || die "Couldn't find a release."
 	version="${tag#v}"
-	file="ytfast-gpui-$version-macos-$arch.dmg"
+	file="encore-yt-$version-macos-$arch.dmg"
 	base="https://github.com/$REPO/releases/download/$tag"
 
-	say "Downloading Music $version for $arch..."
+	say "Downloading Encore $version for $arch..."
 	curl -fL --retry 3 --progress-bar -o "$work/$file" "$base/$file" || die "Couldn't download $file."
 
 	expected="$(expected_sha256 "$file" "$json" "$base")"
@@ -174,9 +186,10 @@ main() {
 	rm -rf "$app"
 	mv "$app.new" "$app"
 	xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
+	remove_old_name
 
-	say "Installed Music $version in $app."
-	say "Open it from Launchpad or Spotlight (ytfast), or run: open \"$app\""
+	say "Installed Encore $version in $app."
+	say "Open it from Launchpad or Spotlight (Encore), or run: open \"$app\""
 }
 
 main "$@"

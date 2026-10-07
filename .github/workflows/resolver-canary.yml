@@ -67,8 +67,8 @@ jobs:
 
       - name: Build the test and the resolver
         run: |
-          cargo test --locked -p ytfast --test resolver_offline --no-run
-          cargo build --locked -p ytfast --example resolve_rust
+          cargo test --locked -p encore-core --test resolver_offline --no-run
+          cargo build --locked -p encore-core --example resolve_rust
 
       - name: Canary
         env:

@@ -3,8 +3,8 @@
 //! hands the app events and reads the commands it sent without a network,
 //! audio or D-Bus.
 
-use ytfast::backend::{Backend, Command, Event};
-use ytfast::desktop::Now;
+use encore_core::backend::{Backend, Command, Event};
+use encore_core::desktop::Now;
 
 pub enum Link {
     Live(Backend),

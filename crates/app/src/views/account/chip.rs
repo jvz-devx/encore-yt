@@ -1,11 +1,11 @@
 //! The account chip at the right of the top bar: who is signed in (photo
 //! and name), or that nobody is. It opens the account menu.
 
+use encore_core::model::Account;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::h_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::Account;
 
 use super::super::widgets;
 use crate::app::MusicApp;

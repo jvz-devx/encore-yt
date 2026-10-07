@@ -4,11 +4,11 @@
 
 mod row;
 
+use encore_core::backend::Command;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
-use ytfast::backend::Command;
 
 use super::widgets::{self, Pill};
 use crate::app::MusicApp;

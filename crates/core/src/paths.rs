@@ -1,28 +1,42 @@
-//! Where ytfast keeps things.
+//! Where Encore keeps things.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use sha2::Digest;
 
+/// The folder name under the config, cache and runtime directories, and
+/// the command's name.
+pub const NAME: &str = "encore-yt";
+
+/// The one line saying what moved from the former name's folders, for the
+/// log (logging starts after the folders are known).
+static MIGRATED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// What the first start after the rename moved, if anything.
+pub fn migration_note() -> Option<&'static str> {
+    MIGRATED.get().map(String::as_str)
+}
+
 #[derive(Clone, Debug)]
 pub struct Paths {
-    /// `~/.config/ytfast`: themes.
+    /// `~/.config/encore-yt`: themes.
     pub config: PathBuf,
-    /// `~/.cache/ytfast`: pages and covers (personal data, 0700).
+    /// `~/.cache/encore-yt`: pages and covers (personal data, 0700).
     pub cache: PathBuf,
-    /// `$XDG_RUNTIME_DIR/ytfast` (0700): resolved streams and the
+    /// `$XDG_RUNTIME_DIR/encore-yt` (0700): resolved streams and the
     /// single-instance socket. Gone at logout.
     pub runtime: PathBuf,
 }
 
 impl Paths {
     pub fn new() -> Result<Self> {
-        let dirs = directories::ProjectDirs::from("", "", "ytfast").context("no home directory")?;
+        migrate_old_folders();
+        let dirs = directories::ProjectDirs::from("", "", NAME).context("no home directory")?;
         let runtime = std::env::var_os("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir)
-            .join("ytfast");
+            .join(NAME);
         let paths = Self {
             config: dirs.config_dir().to_path_buf(),
             cache: dirs.cache_dir().to_path_buf(),
@@ -51,6 +65,42 @@ impl Paths {
     pub fn searches_file(&self) -> PathBuf {
         self.cache.join("searches.json")
     }
+}
+
+/// Moves `~/.config/encore-yt` and `~/.cache/encore-yt` (and the macOS and
+/// Windows equivalents) to the new name on the first start after the
+/// rename, before anything makes the new folders. A failure leaves the old
+/// folders as they were and is noted; the app then starts fresh.
+fn migrate_old_folders() {
+    let Some(base) = directories::BaseDirs::new() else {
+        return;
+    };
+    let (config, cache) = (base.config_dir(), base.cache_dir());
+    let note = match crate::migrate::move_folders(&[config, cache], crate::migrate::OLD_NAME, NAME)
+    {
+        Ok(moved) if moved.is_empty() => return,
+        Ok(moved) => {
+            let settings = directories::ProjectDirs::from("", "", NAME)
+                .map(|dirs| dirs.config_dir().join("settings.json"));
+            if let Some(settings) = settings
+                && let Err(e) =
+                    crate::migrate::rename_profile(&settings, crate::migrate::OLD_NAME, NAME)
+            {
+                log::warn!("settings: {e}");
+            }
+            let moved: Vec<_> = moved.iter().map(|p| p.display().to_string()).collect();
+            format!(
+                "moved the {} folders to {}",
+                crate::migrate::OLD_NAME,
+                moved.join(" and ")
+            )
+        }
+        Err(e) => format!(
+            "couldn't move the {} folders: {e}",
+            crate::migrate::OLD_NAME
+        ),
+    };
+    let _ = MIGRATED.set(note);
 }
 
 fn private_dir(dir: &Path) -> Result<()> {

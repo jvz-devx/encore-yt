@@ -18,9 +18,9 @@
 
 use std::time::Duration;
 
+use encore_core::backend::{Backend, Command, Event};
+use encore_core::paths::Paths;
 use gpui_kit::*;
-use ytfast::backend::{Backend, Command, Event};
-use ytfast::paths::Paths;
 
 pub use crate::link::Link;
 
@@ -61,7 +61,7 @@ pub struct MusicApp {
     pub focus: FocusHandle,
     /// The newest playback report that came while no window was open; the
     /// player's sliders need a window to move.
-    pending_playback: Option<ytfast::model::Playback>,
+    pending_playback: Option<encore_core::model::Playback>,
     _subscriptions: Vec<Subscription>,
     _events: Task<()>,
     _clock: Task<()>,
@@ -156,7 +156,7 @@ impl MusicApp {
         };
         // The sound settings as saved, until the backend first reports
         // (it does only once something plays or a session comes back).
-        let saved = ytfast::settings::Settings::load(&app.paths);
+        let saved = encore_core::settings::Settings::load(&app.paths);
         app.player.playback.normalize = saved.normalizes();
         app.player.playback.equalizer = saved.equalizer;
         app.player.playback.mixes = saved.mixes;
@@ -268,7 +268,7 @@ const HOME_SEQ: u64 = 1;
 
 impl Early {
     pub fn start(paths: Paths) -> std::io::Result<Self> {
-        let thread = std::thread::Builder::new().name("ytfast-start".into());
+        let thread = std::thread::Builder::new().name("encore-start".into());
         thread
             .spawn(move || {
                 let (wake_tx, wake) = smol::channel::bounded::<()>(1);

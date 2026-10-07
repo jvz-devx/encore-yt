@@ -7,12 +7,12 @@
 mod library;
 mod signed_out;
 
+use encore_core::model::{Account, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{Icon, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use ytfast::model::{Account, Target};
 
 use super::widgets;
 use crate::app::MusicApp;
@@ -117,7 +117,9 @@ fn brand(rail: bool, c: &Colors) -> impl IntoElement {
                 .pl(px(2.))
                 .child(widgets::glyph(Glyph::Play, px(14.), c.on_media)),
         )
-        .when(!rail, |s| s.child(div().type_heading().child("Music")))
+        .when(!rail, |s| {
+            s.child(div().type_heading().child(encore_core::APP_NAME))
+        })
 }
 
 /// A navigation item: icon and label, or the icon alone on the rail (the

@@ -1,4 +1,4 @@
-# ytfast-gpui
+# Encore
 
 A native YouTube Music app for the desktop, written in Rust with [GPUI](https://www.gpui.rs), the UI framework behind the Zed editor. No Electron, no webview: GPUI draws the interface on the GPU, custom wgpu shaders draw the effects, and a built-in Rust audio engine plays the music. It runs on Linux (built for KDE Plasma on Wayland, X11 works too), Windows and macOS.
 
@@ -8,19 +8,19 @@ It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music
 
 ## Download
 
-[Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing and nothing else is bundled: the app finds the streams and plays them itself.
+[Releases](https://github.com/jvz-devx/encore-yt/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing and nothing else is bundled: the app finds the streams and plays them itself.
 
 **macOS** (Apple silicon or Intel, macOS 11 or newer). With Homebrew:
 
 ```sh
-brew tap jvz-devx/ytfast-gpui https://github.com/jvz-devx/ytfast-gpui
-brew install --cask jvz-devx/ytfast-gpui/ytfast-gpui
+brew tap jvz-devx/encore-yt https://github.com/jvz-devx/encore-yt
+brew install --cask jvz-devx/encore-yt/encore-yt
 ```
 
 Without Homebrew:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/scripts/install-macos.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jvz-devx/encore-yt/main/scripts/install-macos.sh | bash
 ```
 
 Both pick the build for your Mac and clear the quarantine flag, so the app opens without the Gatekeeper dialog even though it isn't notarized. The script checks the download against the release's `checksums.txt`, and Homebrew checks the SHA-256 in the cask. The script installs to /Applications, or to ~/Applications if you can't write to /Applications.
@@ -28,21 +28,23 @@ Both pick the build for your Mac and clear the quarantine flag, so the app opens
 **Windows** (x86_64). In PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/scripts/install-windows.ps1 | iex
+irm https://raw.githubusercontent.com/jvz-devx/encore-yt/main/scripts/install-windows.ps1 | iex
 ```
 
-The script downloads the setup program, checks it against `checksums.txt` and installs it for your user. A file downloaded this way doesn't get the browser's "downloaded from the internet" mark, so SmartScreen doesn't stop the unsigned setup. Once the package is accepted into winget, `winget install jvz-devx.ytfast` works too.
+The script downloads the setup program, checks it against `checksums.txt` and installs it for your user. A file downloaded this way doesn't get the browser's "downloaded from the internet" mark, so SmartScreen doesn't stop the unsigned setup. Once the package is accepted into winget, `winget install jvz-devx.encore-yt` works too.
 
-**Linux** (x86_64, glibc 2.35 or newer): the `.AppImage` (`chmod +x` it and run), or the `.deb` / `.rpm` (`sudo apt install ./ytfast-gpui-*.deb`, `sudo dnf install ./ytfast-gpui-*.rpm`). The packages add a "Music" menu entry and a `ytfast-gpui` command.
+**Linux** (x86_64, glibc 2.35 or newer): the `.AppImage` (`chmod +x` it and run), or the `.deb` / `.rpm` (`sudo apt install ./encore-yt-*.deb`, `sudo dnf install ./encore-yt-*.rpm`). The packages add an "Encore" menu entry and an `encore-yt` command.
 
-**By hand**, from [Releases](https://github.com/jvz-devx/ytfast-gpui/releases), checked against its `checksums.txt` if you like (`shasum -a 256` on macOS, `Get-FileHash` on Windows):
+**By hand**, from [Releases](https://github.com/jvz-devx/encore-yt/releases), checked against its `checksums.txt` if you like (`shasum -a 256` on macOS, `Get-FileHash` on Windows):
 
-- macOS: open the `macos-arm64` or `macos-x86_64` `.dmg` and drag ytfast to Applications. The first time, macOS refuses to open it. On macOS 14 and earlier, right-click the app and choose Open; on macOS 15 and later, try to open it once, then choose Open Anyway in System Settings → Privacy & Security. `xattr -dr com.apple.quarantine /Applications/ytfast.app` does the same in a terminal.
+- macOS: open the `macos-arm64` or `macos-x86_64` `.dmg` and drag Encore to Applications. The first time, macOS refuses to open it. On macOS 14 and earlier, right-click the app and choose Open; on macOS 15 and later, try to open it once, then choose Open Anyway in System Settings → Privacy & Security. `xattr -dr com.apple.quarantine /Applications/Encore.app` does the same in a terminal.
 - Windows: `…-setup.exe` installs for your user with a Start menu entry; SmartScreen warns about the unsigned installer: More info, Run anyway. `…-portable.zip` holds the same files.
 
 Media keys and the system's media controls work everywhere (MPRIS on Linux, the media overlay on Windows, Now Playing on macOS). The tray, song-change notifications and following the system's light/dark setting are Linux-only for now, and on Windows and macOS closing the window quits.
 
-**Updates:** once a day Music looks at Releases for a newer version and shows "Update available" in the top bar; Settings → Updates has Check now and the release notes. The AppImage, the Windows installer and the macOS app update themselves with Update and restart, however you installed them (Homebrew, winget, the scripts or by hand): the download must match the release's `checksums.txt`, and if the new version doesn't open its window within a minute, the previous one comes back. The `.deb`, `.rpm` and portable zip only say a new version is out, so update those the way you installed them. Pre-releases are offered while you run one (every release so far is one); Settings can turn that and the daily check off.
+**Coming from ytfast-gpui** (the app's earlier name): install Encore once by any of the ways above; versions of ytfast-gpui don't offer it as an update. On its first start Encore moves the old settings, sign-in and cache (`~/.config/ytfast` and `~/.cache/ytfast`, or the macOS and Windows equivalents) to its own folders. The Windows setup and the macOS script remove the old app; elsewhere uninstall it yourself.
+
+**Updates:** once a day Encore looks at Releases for a newer version and shows "Update available" in the top bar; Settings → Updates has Check now and the release notes. The AppImage, the Windows installer and the macOS app update themselves with Update and restart, however you installed them (Homebrew, winget, the scripts or by hand): the download must match the release's `checksums.txt`, and if the new version doesn't open its window within a minute, the previous one comes back. The `.deb`, `.rpm` and portable zip only say a new version is out, so update those the way you installed them. Pre-releases are offered while you run one (every release so far is one); Settings can turn that and the daily check off.
 
 ## What it does
 
@@ -68,12 +70,12 @@ Press **?** for every shortcut. The common ones: **Space** play or pause, **←/
 The running app takes commands:
 
 ```sh
-ytfast-gpui toggle        # play or pause (also: play, pause)
-ytfast-gpui next          # or: previous
-ytfast-gpui like          # like or unlike the playing song
-ytfast-gpui show          # bring back the window
-ytfast-gpui open <link>   # a YouTube Music or YouTube link; starts the app if needed
-ytfast-gpui quit
+encore-yt toggle        # play or pause (also: play, pause)
+encore-yt next          # or: previous
+encore-yt like          # like or unlike the playing song
+encore-yt show          # bring back the window
+encore-yt open <link>   # a YouTube Music or YouTube link; starts the app if needed
+encore-yt quit
 ```
 
 ## Signing in
@@ -91,8 +93,8 @@ YouTube rotates the cookies of a session that stays in use, so an exported file 
 You need Rust 1.98 or newer, CMake, a C compiler and, on Linux, the Wayland/X11, xkbcommon, Vulkan, fontconfig and ALSA development packages. Nothing is needed at runtime beyond the audio system (PipeWire or PulseAudio, or ALSA, on Linux).
 
 ```sh
-git clone https://github.com/jvz-devx/ytfast-gpui
-cd ytfast-gpui
+git clone https://github.com/jvz-devx/encore-yt
+cd encore-yt
 cargo run --release
 ```
 
@@ -110,13 +112,13 @@ just shaders             # validate the WGSL shaders with naga
 bacon                    # background checks while you edit
 ```
 
-`scripts/gpui-smoke.sh` builds the release app, runs it signed out and drives it on the desktop (pages, playback across track changes, a seek, Now Playing, Up next), capturing each state. `scripts/gpui-input.sh` drives KDE Wayland for visual checks. `YTFAST_FAKE_STREAM=<audio file>` plays a local file instead of YouTube streams, for checks that don't need real streams.
+`scripts/gpui-smoke.sh` builds the release app, runs it signed out and drives it on the desktop (pages, playback across track changes, a seek, Now Playing, Up next), capturing each state. `scripts/gpui-input.sh` drives KDE Wayland for visual checks. `ENCORE_FAKE_STREAM=<audio file>` plays a local file instead of YouTube streams, for checks that don't need real streams.
 
 Further reading: [docs/gpui/PLAN.md](docs/gpui/PLAN.md) (milestones and their evidence), [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) (the design system), [docs/gpui/VISUALS.md](docs/gpui/VISUALS.md) (effects and their costs), [docs/gpui/BUILD-SPEED.md](docs/gpui/BUILD-SPEED.md), [AGENTS.md](AGENTS.md) (rules for coding agents, and people).
 
 ## Credits
 
-ytfast-gpui started from [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry (MIT), whose backend it still builds on.
+Encore (first called ytfast-gpui) started from [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry (MIT), whose backend it still builds on.
 
 - [fastframe](https://github.com/crmne/fastframe) by Carmine Paolino (MIT): the log setup, and the self-updater is adapted from its `fastframe-update`.
 - [GPUI](https://github.com/zed-industries/zed) by Zed Industries and [gpui-kit](https://github.com/longbridge/gpui-kit) (gpui-component) by Longbridge (both Apache-2.0).

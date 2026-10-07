@@ -8,11 +8,11 @@
 //! turns a switch. Tab onto a card out of sight scrolls its carousel and
 //! the page to it.
 
+use encore_core::account::Edit;
+use encore_core::backend::{Command, Event};
+use encore_core::equalizer::Preset;
+use encore_core::model::{Account, Mixes, Page, ShelfStyle, Sleep, Target};
 use gpui_kit::{Modifiers, TestAppContext, point, px};
-use ytfast::account::Edit;
-use ytfast::backend::{Command, Event};
-use ytfast::equalizer::Preset;
-use ytfast::model::{Account, Mixes, Page, ShelfStyle, Sleep, Target};
 
 use super::Ui;
 use super::home::{home_row, on_home, quick_picks};

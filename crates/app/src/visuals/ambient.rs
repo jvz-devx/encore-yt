@@ -14,9 +14,9 @@
 use std::f32::consts::TAU;
 use std::time::Instant;
 
+use encore_visuals::Look;
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::Look;
 
 use super::config::{self, ParticleColour};
 

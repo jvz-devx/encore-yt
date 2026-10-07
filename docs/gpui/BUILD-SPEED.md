@@ -17,7 +17,7 @@ rough. Commands are from the justfile (`scripts/dev.sh`).
 | Backend tests (parser fixtures) | `just test backend` | 3.1 s |
 | Visuals tests | `just test visuals` | 0.4 s (54 s the first time) |
 | Verify the app before finishing | `just verify gpui` | 4.0 s |
-| Release build after one edit (LTO) | `cd gpui && cargo build --release` | 175 s |
+| Release build after one edit (fat LTO since M26, SIZE.md) | `cd gpui && cargo build --release` | 283 s |
 | Profiling build after one edit (no LTO) | `just profiling` | 17 s |
 
 ## New worktrees

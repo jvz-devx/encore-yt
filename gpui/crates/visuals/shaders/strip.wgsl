@@ -23,16 +23,19 @@ struct Params {
     // The most-replayed ridge over the seek bar: x: on (0/1), y: its
     // height in points where the heat is greatest
     ridge: vec4<f32>,
-    // Display-space colours: the window base, signal (the fill), ink (the
-    // playhead and the unplayed track; w: the track's opacity), the
-    // halo's accent.
-    base: vec4<f32>,
+    // The window base as OKLab (xyz) and its relative luminance (w).
+    base_lab: vec4<f32>,
+    // Display-space colours: signal (the fill), ink (the playhead and the
+    // unplayed track; w: the track's opacity).
     signal: vec4<f32>,
     ink: vec4<f32>,
-    accent: vec4<f32>,
-    // The ridge ahead of the playhead (behind it is signal)
+    // The halos' colour, linear RGB (from the cover's accent and the look).
+    halo: vec4<f32>,
+    // Display space: the ridge ahead of the playhead (behind it is signal).
     muted: vec4<f32>,
-    palette: array<vec4<f32>, 4>,
+    // The cover's four colours as OKLab a and b (xy). Colours that are
+    // the same for every pixel are worked out once, by the app.
+    palette_ab: array<vec4<f32>, 4>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -96,18 +99,6 @@ fn to_display(c: vec3<f32>) -> vec3<f32> {
     return select(hi, lo, x <= vec3<f32>(0.0031308));
 }
 
-fn oklab(c: vec3<f32>) -> vec3<f32> {
-    let l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
-    let m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
-    let s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
-    let r = pow(max(vec3<f32>(l, m, s), vec3<f32>(0.0)), vec3<f32>(1.0 / 3.0));
-    return vec3<f32>(
-        0.2104542553 * r.x + 0.7936177850 * r.y - 0.0040720468 * r.z,
-        1.9779984951 * r.x - 2.4285922050 * r.y + 0.4505937099 * r.z,
-        0.0259040371 * r.x + 0.7827717662 * r.y - 0.8086757660 * r.z,
-    );
-}
-
 fn oklab_to_linear(lab: vec3<f32>) -> vec3<f32> {
     let l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
     let m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
@@ -138,22 +129,24 @@ fn glow(p: vec2<f32>) -> vec3<f32> {
     let v = p.y / size.y;
     let warp = noise(vec2<f32>(u * 3.0 + t * 0.045, v * 1.3 - t * 0.03)) - 0.5;
     let uw = u + warp * 0.09;
-    var anchors = array<f32, 4>(0.06, 0.35, 0.64, 0.92);
     var ab = vec2<f32>(0.0);
     var weight = 0.0;
     for (var i = 0; i < 4; i++) {
         let fi = f32(i);
-        let centre = anchors[i] + 0.06 * sin(t * (0.09 + 0.025 * fi) + fi * 1.7);
+        // Anchored at 0.06, 0.35, 0.64 and 0.92 of the bar (no array: an
+        // indexed local array goes through memory on some GPUs).
+        let anchor = 0.06 + 0.29 * fi - 0.01 * step(2.5, fi);
+        let centre = anchor + 0.06 * sin(t * (0.09 + 0.025 * fi) + fi * 1.7);
         let width = 0.17 + 0.03 * sin(t * 0.07 + fi * 2.3);
         let d = (uw - centre) / width;
         let w = exp(-d * d);
-        ab += oklab(to_linear(params.palette[i].rgb)).yz * w;
+        ab += params.palette_ab[i].xy * w;
         weight += w;
     }
     ab /= max(weight, 1e-3);
     let rise = smoothstep(0.02, 0.92 - 0.12 * breath, v);
     let amount = min(weight, 1.0) * rise * rise * (0.72 + 0.28 * breath) * params.clock.w;
-    let base = oklab(to_linear(params.base.rgb));
+    let base = params.base_lab.xyz;
     var lab = base;
     if light {
         lab.x = min(base.x + LIGHT_LIFT * amount, 0.99);
@@ -165,7 +158,7 @@ fn glow(p: vec2<f32>) -> vec3<f32> {
     // Chroma moves luminance a little at a given lightness (blue darkens):
     // one correction keeps the light look at least as light as the base
     // and the dark look under the cap.
-    let y_base = dot(oklab_to_linear(base), LUMA);
+    let y_base = params.base_lab.w;
     for (var i = 0; i < 2; i++) {
         let y = dot(oklab_to_linear(lab), LUMA);
         let goal = select(min(y, DARK_CAP), max(y, y_base), light);
@@ -184,19 +177,6 @@ fn glow(p: vec2<f32>) -> vec3<f32> {
         rgb = oklab_to_linear(lab);
     }
     return rgb;
-}
-
-// The accent made into a glow colour: vivid and light in the dark look,
-// a deeper tone in the light one.
-fn halo_color() -> vec3<f32> {
-    let lab = oklab(to_linear(params.accent.rgb));
-    let ab = lab.yz;
-    let c = length(ab);
-    let hue = select(vec2<f32>(1.0, 0.0), ab / c, c > 1e-4);
-    if params.output.z > 0.5 {
-        return oklab_to_linear(vec3<f32>(0.66, hue * max(c, 0.1)));
-    }
-    return oklab_to_linear(vec3<f32>(0.74, hue * clamp(c, 0.09, 0.16)));
 }
 
 fn round_rect(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32) -> f32 {
@@ -220,15 +200,19 @@ fn halos(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
     let kick = params.clock.z;
     let breath = params.clock.y;
     let light = params.output.z > 0.5;
-    let tone = halo_color();
+    let tone = params.halo.rgb;
     let strength = select(1.0, 0.95, light);
     var out = color;
-    if params.play.w > 0.5 {
+    // Beyond 60 points the spill and the ring are under half a step of 8-bit
+    // colour: those pixels skip the work.
+    let reach = 60.0 * s;
+    if params.play.w > 0.5 && distance(p, params.play.xy) - params.play.z < reach {
         let d = distance(p, params.play.xy) - params.play.z;
         let spill = exp(-max(d, 0.0) / (9.0 * s)) * 0.16 * breath * step(0.0, d);
         out = mix(out, tone, clamp((ring(d, 2.0, kick, s) + spill) * strength, 0.0, 0.8));
     }
-    if params.cover_state.y > 0.5 {
+    let near_cover = all(p > params.cover.xy - reach) && all(p < params.cover.zw + reach);
+    if params.cover_state.y > 0.5 && near_cover {
         let d = round_rect(p, params.cover.xy, params.cover.zw, params.cover_state.x);
         let spill = exp(-max(d, 0.0) / (12.0 * s)) * 0.14 * breath * step(0.0, d);
         out = mix(out, tone, clamp((ring(d, 2.0, kick, s) + spill) * strength, 0.0, 0.8));
@@ -355,7 +339,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let p = in.uv * params.output.xy;
     var color = glow(p);
     color = halos(p, color);
-    if params.seek_state.w > 0.5 {
+    // The seek bar's bloom and playhead ring fade out within 20 points of
+    // its track, and the ridge rises 11 above it: other pixels skip them.
+    let s = params.output.w;
+    let near_seek = p.x > params.seek.x - 20.0 * s && p.x < params.seek.z + 20.0 * s
+        && p.y > params.seek.y - 8.0 * s && p.y < params.seek.y + 41.0 * s;
+    if params.seek_state.w > 0.5 && near_seek {
         if params.ridge.x > 0.5 {
             color = ridge(p, color);
         }

@@ -11,7 +11,7 @@ use gpui_kit::*;
 use ytfast::desktop::Request;
 use ytfast::paths::Paths;
 
-use crate::app::MusicApp;
+use crate::app::{Early, MusicApp};
 use crate::nav::View;
 
 /// The app, held here so it lives while no window shows it.
@@ -20,16 +20,16 @@ struct Main(Entity<MusicApp>);
 impl Global for Main {}
 
 enum Opening {
-    First(Paths),
+    First(Paths, Early),
     Again(Entity<MusicApp>),
 }
 
 /// Opens the first window and keeps the process running without one.
-pub fn start(paths: Paths, link: Option<String>, cx: &mut App) {
+pub fn start(paths: Paths, early: Early, link: Option<String>, cx: &mut App) {
     // GPUI quits on Linux once the last window closes; this app decides.
     cx.set_quit_mode(QuitMode::Explicit);
     cx.on_window_closed(closed).detach();
-    let app = match open(Opening::First(paths), cx) {
+    let app = match open(Opening::First(paths, early), cx) {
         Ok(app) => app,
         Err(e) => {
             log::error!("opening the window: {e}");
@@ -48,7 +48,7 @@ pub fn start(paths: Paths, link: Option<String>, cx: &mut App) {
 fn open(opening: Opening, cx: &mut App) -> anyhow::Result<Entity<MusicApp>> {
     let bounds = match &opening {
         Opening::Again(app) => app.read(cx).desktop.bounds,
-        Opening::First(_) => None,
+        Opening::First(..) => None,
     };
     let options = WindowOptions {
         titlebar: Some(TitlebarOptions {
@@ -64,7 +64,7 @@ fn open(opening: Opening, cx: &mut App) -> anyhow::Result<Entity<MusicApp>> {
     };
     let (handle, app) = gpui_kit::open_window(options, cx, move |window, cx| {
         let app = match opening {
-            Opening::First(paths) => cx.new(|cx| MusicApp::new(paths, window, cx)),
+            Opening::First(paths, early) => cx.new(|cx| MusicApp::new(paths, early, window, cx)),
             Opening::Again(app) => app,
         };
         app.update(cx, |this, cx| this.window_opened(window, cx));

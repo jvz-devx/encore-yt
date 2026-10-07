@@ -45,7 +45,8 @@ fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow!("logging: {e}"))?;
     startup::mark(startup::Milestone::Logging);
     // Slow parts of the start, on threads of their own while the platform
-    // starts (M17): the desktop's look and the cover art client.
+    // and the window start (M17): the desktop's look, the cover art client
+    // and the backend.
     let asking = theme::ask_desktop();
     let http = std::thread::spawn(|| {
         reqwest_client::ReqwestClient::user_agent(concat!(
@@ -53,6 +54,7 @@ fn main() -> anyhow::Result<()> {
             env!("CARGO_PKG_VERSION")
         ))
     });
+    let early = app::Early::start(paths.clone())?;
 
     gpui_kit::application()
         .with_assets(assets::AppAssets)
@@ -78,7 +80,7 @@ fn main() -> anyhow::Result<()> {
                 Err(e) => log::warn!("no HTTP client for cover art: {e}"),
             }
             // The window, and the app living on without it (M4).
-            desktop::start(paths, launch.link, cx);
+            desktop::start(paths, early, launch.link, cx);
         });
     Ok(())
 }

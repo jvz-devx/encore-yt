@@ -181,10 +181,18 @@ impl MusicApp {
         if !needed {
             return;
         }
-        self.pages.seq += 1;
-        let seq = self.pages.seq;
+        let seq = self.pages.seq + 1;
+        self.page_requested(target.clone(), seq);
+        self.backend.send(Command::Page { target, seq });
+    }
+
+    /// Notes that page `target` was asked for as request `seq` (sent by
+    /// `ensure_page`, or for Home by `app::Early` before the window).
+    pub(crate) fn page_requested(&mut self, target: Target, seq: u64) {
+        let key = target.key();
+        self.pages.seq = self.pages.seq.max(seq);
         let state = self.pages.states.entry(key).or_insert_with(|| PageState {
-            target: target.clone(),
+            target,
             page: None,
             loading: false,
             cached: false,
@@ -198,7 +206,6 @@ impl MusicApp {
         state.error = None;
         state.reload = None;
         state.seq = seq;
-        self.backend.send(Command::Page { target, seq });
     }
 
     /// Asks again for a page that failed or shows its saved copy.

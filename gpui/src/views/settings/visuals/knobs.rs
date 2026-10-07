@@ -22,6 +22,9 @@ pub enum Knob {
     Swirl,
     Motes,
     MoteSize,
+    MoteBrightness,
+    Twinkle,
+    Wave,
     Bloom,
     BassPulse,
     Intensity,
@@ -40,11 +43,14 @@ pub enum Knob {
 }
 
 impl Knob {
-    const ALL: [Knob; 19] = [
+    const ALL: [Knob; 22] = [
         Knob::Blur,
         Knob::Swirl,
         Knob::Motes,
         Knob::MoteSize,
+        Knob::MoteBrightness,
+        Knob::Twinkle,
+        Knob::Wave,
         Knob::Bloom,
         Knob::BassPulse,
         Knob::Intensity,
@@ -66,8 +72,11 @@ impl Knob {
         match self {
             Knob::Blur => "Blur",
             Knob::Swirl => "Swirl speed",
-            Knob::Motes => "Motes",
-            Knob::MoteSize => "Mote size",
+            Knob::Motes => "Amount",
+            Knob::MoteSize => "Size",
+            Knob::MoteBrightness => "Brightness",
+            Knob::Twinkle => "Twinkle",
+            Knob::Wave => "Wave strength",
             Knob::Bloom => "Bloom",
             Knob::BassPulse => "Bass pulse",
             Knob::Intensity => "Colour",
@@ -88,6 +97,7 @@ impl Knob {
     fn range(self) -> (f32, f32, f32, bool) {
         match self {
             Knob::MoteSize => (0.3, 2., 0.05, false),
+            Knob::Twinkle => (0., 1., 0.05, false),
             Knob::Dissolve => (200., 3000., 50., false),
             Knob::Flight => (120., 2000., 20., false),
             Knob::Bars => (16., 128., 4., false),
@@ -108,6 +118,9 @@ impl Knob {
             Knob::Swirl => b.swirl,
             Knob::Motes => b.motes_amount,
             Knob::MoteSize => b.mote_size,
+            Knob::MoteBrightness => b.mote_brightness,
+            Knob::Twinkle => b.twinkle,
+            Knob::Wave => b.wave_strength,
             Knob::Bloom => b.bloom,
             Knob::BassPulse => b.bass_pulse,
             Knob::Intensity => b.intensity,
@@ -134,6 +147,9 @@ impl Knob {
             Knob::Swirl => b.swirl = x,
             Knob::Motes => b.motes_amount = x,
             Knob::MoteSize => b.mote_size = x,
+            Knob::MoteBrightness => b.mote_brightness = x,
+            Knob::Twinkle => b.twinkle = x,
+            Knob::Wave => b.wave_strength = x,
             Knob::Bloom => b.bloom = x,
             Knob::BassPulse => b.bass_pulse = x,
             Knob::Intensity => b.intensity = x,

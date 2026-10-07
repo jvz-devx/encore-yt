@@ -3,10 +3,12 @@
 //!
 //! The file is versioned, every field has a default and unknown fields are
 //! ignored, so an older or newer file still loads. Four presets (Off, Calm,
-//! Default, Vivid) set the effects' strength; Default is the look the app
-//! had before these settings. The visualiser's own choices (style, where it
-//! shows, bars, frequencies, colours) and Stage's are kept when a preset is
-//! picked.
+//! Default, Vivid) set the effects' strength: Default is the backdrop as the
+//! app had it before these settings with a quieter glow and quieter halos
+//! on the player bar; Vivid has the bar's glow and halos as before and a
+//! livelier backdrop. The
+//! visualiser's own choices (style, where it shows, bars, frequencies,
+//! colours), Stage's and the frame rate are kept when a preset is picked.
 //!
 //! The settings live on the UI thread ([`get`], [`set`]); the effects read
 //! them on every render, so a change shows in the next frame. Environment
@@ -23,9 +25,13 @@ use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
 /// The file's format version; files from newer builds still load.
-pub const VERSION: u32 = 1;
-/// The frame rates the cap offers.
-pub const FPS: [u32; 4] = [15, 20, 30, 60];
+/// Version 2: the frame rate offers 120 and the display's rate, and 30 is
+/// the default (version 1's default was 20).
+pub const VERSION: u32 = 2;
+/// The frame rate that follows the display (`fps` in the file).
+pub const DISPLAY_FPS: u32 = 0;
+/// The frame rates Settings offers; [`DISPLAY_FPS`] is the display's rate.
+pub const FPS: [u32; 5] = [15, 30, 60, 120, DISPLAY_FPS];
 /// The visualiser's bar counts: least, most.
 pub const BARS: (u32, u32) = (16, 128);
 /// The frequency range the analysis covers, in Hz.
@@ -78,7 +84,8 @@ pub struct VisualsConfig {
     pub preset: Preset,
     /// Any effect at all (the Off preset turns this off).
     pub on: bool,
-    /// The most window frames a second while something animates.
+    /// The most window frames a second while something animates, or
+    /// [`DISPLAY_FPS`] for the display's rate.
     pub fps: u32,
     pub backdrop: Backdrop,
     pub glow: Glow,
@@ -98,14 +105,21 @@ pub struct Backdrop {
     pub on: bool,
     pub blur: f32,
     pub swirl: f32,
-    pub motes: bool,
-    /// How many motes, 0..2.
-    pub motes_amount: f32,
-    pub mote_size: f32,
     pub bloom: f32,
     pub bass_pulse: f32,
     /// How much of the cover's colour shows.
     pub intensity: f32,
+    /// The fine sparkles drifting over it (the ambient layer).
+    pub motes: bool,
+    /// How many sparkles, 0..2.
+    pub motes_amount: f32,
+    pub mote_size: f32,
+    pub mote_brightness: f32,
+    /// How much they fade in and out, 0..1.
+    pub twinkle: f32,
+    /// The soft light wave the sparkles gather round.
+    pub wave: bool,
+    pub wave_strength: f32,
 }
 
 /// The player bar's glow of the cover's palette.
@@ -369,7 +383,7 @@ impl Default for VisualsConfig {
             version: VERSION,
             preset: Preset::Default,
             on: true,
-            fps: 20,
+            fps: 30,
             backdrop: Backdrop::default(),
             glow: Glow::default(),
             seek: Seek::default(),
@@ -394,6 +408,10 @@ impl Default for Backdrop {
             bloom: 1.,
             bass_pulse: 1.,
             intensity: 1.,
+            mote_brightness: 1.,
+            twinkle: 0.6,
+            wave: true,
+            wave_strength: 1.,
         }
     }
 }
@@ -402,7 +420,7 @@ impl Default for Glow {
     fn default() -> Self {
         Self {
             on: true,
-            intensity: 1.,
+            intensity: 0.55,
         }
     }
 }
@@ -420,7 +438,7 @@ impl Default for Halos {
     fn default() -> Self {
         Self {
             on: true,
-            strength: 1.,
+            strength: 0.5,
         }
     }
 }
@@ -456,8 +474,8 @@ impl Default for Visualizer {
             peak_fall: 0.6,
             palette: Palette::Cover,
             custom: [Swatch::Rose, Swatch::Violet],
-            opacity: 0.9,
-            glow: 0.6,
+            opacity: 0.85,
+            glow: 0.4,
         }
     }
 }
@@ -478,6 +496,7 @@ impl VisualsConfig {
                 ..self.visualizer.clone()
             },
             stage: self.stage.clone(),
+            fps: self.fps,
             ..base
         };
         match preset {
@@ -490,26 +509,28 @@ impl VisualsConfig {
     }
 
     fn calm(&mut self) {
-        self.fps = 15;
         let b = &mut self.backdrop;
-        (b.swirl, b.motes_amount, b.mote_size) = (0.5, 0.5, 0.8);
-        (b.bloom, b.bass_pulse, b.intensity) = (0.7, 0.3, 0.8);
-        self.glow.intensity = 0.6;
-        self.halos.strength = 0.4;
+        (b.swirl, b.motes_amount, b.mote_size) = (0.6, 0.6, 0.9);
+        (b.bloom, b.bass_pulse, b.intensity) = (0.6, 0.4, 0.85);
+        (b.mote_brightness, b.wave_strength) = (0.7, 0.6);
+        self.glow.intensity = 0.4;
+        self.halos.strength = 0.3;
         self.dissolve.ms = 1400;
         self.flight.ms = 420;
         let v = &mut self.visualizer;
         (v.sensitivity, v.smoothing, v.decay) = (0.9, 0.75, 0.8);
-        (v.opacity, v.glow) = (0.7, 0.3);
+        (v.opacity, v.glow) = (0.7, 0.2);
     }
 
+    /// More of everything: the bar's glow and halos as strong as before
+    /// Settings → Visuals, the backdrop livelier than that.
     fn vivid(&mut self) {
-        self.fps = 30;
         let b = &mut self.backdrop;
-        (b.blur, b.swirl, b.motes_amount, b.mote_size) = (0.8, 1.5, 1.8, 1.3);
-        (b.bloom, b.bass_pulse, b.intensity) = (1.6, 1.8, 1.35);
-        self.glow.intensity = 1.4;
-        self.halos.strength = 1.6;
+        (b.blur, b.swirl, b.motes_amount, b.mote_size) = (0.9, 1.3, 1.4, 1.15);
+        (b.bloom, b.bass_pulse, b.intensity, b.mote_brightness) = (1.3, 1.4, 1.2, 1.2);
+        b.wave_strength = 1.4;
+        self.glow.intensity = 1.;
+        self.halos.strength = 1.;
         self.dissolve.ms = 700;
         let v = &mut self.visualizer;
         (v.sensitivity, v.smoothing, v.decay) = (1.2, 0.35, 2.2);
@@ -523,18 +544,27 @@ impl VisualsConfig {
 
     /// Values from a file (or a hand edit) brought into their ranges.
     fn clamped(mut self) -> Self {
-        self.version = VERSION;
-        if !FPS.contains(&self.fps) {
-            self.fps = 20;
+        // Version 1's default of 20 is 30 now; other rates it doesn't offer
+        // go to the default too.
+        if !FPS.contains(&self.fps) || (self.version < 2 && self.fps == 20) {
+            self.fps = 30;
         }
+        self.version = VERSION;
         let m = |v: &mut f32, hi: f32| *v = if v.is_finite() { v.clamp(0., hi) } else { 1. };
         let b = &mut self.backdrop;
         for v in [&mut b.blur, &mut b.swirl, &mut b.motes_amount, &mut b.bloom] {
             m(v, 2.);
         }
-        for v in [&mut b.mote_size, &mut b.bass_pulse, &mut b.intensity] {
+        for v in [
+            &mut b.mote_size,
+            &mut b.bass_pulse,
+            &mut b.intensity,
+            &mut b.mote_brightness,
+            &mut b.wave_strength,
+        ] {
             m(v, 2.);
         }
+        m(&mut b.twinkle, 1.);
         m(&mut self.glow.intensity, 2.);
         m(&mut self.halos.strength, 2.);
         self.dissolve.ms = self.dissolve.ms.clamp(200, 3000);

@@ -39,6 +39,7 @@
 //! it) and `YTFAST_GPUI_FRAME_LOG=<ms>` logs frames slower than that
 //! ([`timing`]).
 
+mod ambient;
 mod backdrop;
 mod bar;
 pub mod config;

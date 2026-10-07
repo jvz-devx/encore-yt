@@ -1,12 +1,13 @@
 // The Now Playing backdrop: a slowly flowing, blurred copy of the cover over
-// a gradient of its palette, a soft bloom of its brightest colours, motes
-// that drift up and swell on the beat, toned so text stays legible on top.
+// a gradient of its palette and a soft bloom of its brightest colours,
+// toned so text stays legible on top. The sparkles and the light wave are
+// the visualiser shader's ambient layer, drawn over this at full size.
 // Output is BGRA8 in display (gamma) space, as GPUI's atlas expects.
 
 struct Params {
     // x: seconds, y: bass 0..1, z: kick 0..1, w: level 0..1
     audio: vec4<f32>,
-    // xy: output size in pixels, z: light look (0/1), w: particles (0/1)
+    // xy: output size in pixels, z: light look (0/1), w: unused
     output: vec4<f32>,
     // x: weight of the new cover (cross-fade), y: has a cover (0/1),
     // z: the flow's clock (seconds times the swirl speed)
@@ -16,8 +17,7 @@ struct Params {
     // x: the box's corner radius, y: pixels per point, z: the shadow's
     // alpha, w: on (0/1)
     shadow: vec4<f32>,
-    // Strengths, 1 for the Default look: x: blur, y: how many motes (0..2),
-    // z: mote size, w: bloom
+    // Strengths, 1 for the Default look: x: blur, y and z: unused, w: bloom
     tune: vec4<f32>,
     // x: colour intensity
     tune2: vec4<f32>,
@@ -105,28 +105,6 @@ fn wide_blur(uv: vec2<f32>, radius: f32) -> vec3<f32> {
         sum += cover_at(uv + vec2<f32>(cos(a), sin(a)) * radius);
     }
     return sum / 7.0;
-}
-
-// Motes: one per grid cell (some cells empty), drifting up and swaying,
-// swelling with the kick. Two layers at different depths.
-fn motes(uv: vec2<f32>, aspect: f32, t: f32, kick: f32) -> f32 {
-    var sum = 0.0;
-    for (var layer = 0; layer < 2; layer++) {
-        let depth = f32(layer);
-        let cells = 6.0 + depth * 5.0;
-        let speed = 0.012 + depth * 0.01;
-        let q = vec2<f32>(uv.x * aspect, uv.y + t * speed) * cells;
-        let cell = floor(q);
-        let h = hash4(cell + depth * 31.0);
-        let sway = vec2<f32>(sin(t * 0.4 + h.z * 6.28), cos(t * 0.3 + h.x * 6.28)) * 0.08;
-        let centre = 0.25 + 0.5 * h.xy + sway;
-        let d = length(fract(q) - centre);
-        let size = (0.035 + 0.04 * h.z) * (1.0 + 0.9 * kick) * params.tune.z;
-        let twinkle = 0.55 + 0.45 * sin(t * (0.6 + h.w) + h.w * 40.0);
-        let alive = step(1.0 - 0.5 * params.tune.y, h.w);
-        sum += alive * twinkle * smoothstep(size, size * 0.15, d) * (1.0 - 0.35 * depth);
-    }
-    return sum;
 }
 
 // Dark look: luminance compressed under DARK_CAP, hue kept, a floor so it
@@ -244,15 +222,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         color *= 1.0 - 0.3 * dot(p, p);
     }
 
-    if params.output.w > 0.5 {
-        let m = motes(in.uv, aspect, t, kick);
-        let tint = mix(vec3<f32>(1.0), params.palette[(u32(t * 0.05) % 4u)].rgb, 0.35);
-        if light {
-            color = mix(color, vec3<f32>(1.0), m * 0.6);
-        } else {
-            color += tint * m * (0.07 + 0.08 * kick);
-        }
-    }
 
     // GPUI blends shadows in display space: the same here.
     if params.shadow.w > 0.5 {

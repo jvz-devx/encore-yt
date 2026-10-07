@@ -1,12 +1,13 @@
 // The audio visualiser: bars, mirrored bars, a ring round the cover, a line
 // spectrum or a particle field, from the bars the app worked out of the
-// spectrum. Drawn with an alpha channel (straight, not premultiplied, as
+// spectrum; and the backdrop's ambient layer (style 5): a soft flowing light
+// wave and fine sparkles drifting along it. Drawn with an alpha channel (straight, not premultiplied, as
 // GPUI's sprites take it) over the backdrop. Positions are in output
 // pixels. Colour is BGRA8 in display (gamma) space.
 
 struct Params {
     // xy: output size in pixels, z: style (0 bars, 1 mirrored, 2 ring,
-    // 3 line, 4 particles), w: bar count
+    // 3 line, 4 particles, 5 ambient), w: bar count
     output: vec4<f32>,
     // x: seconds, y: bass, z: kick, w: level (0..1)
     audio: vec4<f32>,
@@ -19,6 +20,11 @@ struct Params {
     shape: vec4<f32>,
     // x: pixels per point, y: has a cover (0/1)
     extra: vec4<f32>,
+    // The ambient layer's sparkles: x: amount 0..2, y: size 0..2,
+    // z: twinkle 0..1, w: brightness 0..2
+    ambient: vec4<f32>,
+    // The ambient layer's wave: x: strength 0..2 (0 off)
+    wave: vec4<f32>,
     // The gradient along the spectrum, linear RGB, low to high.
     stops: array<vec4<f32>, 4>,
     // Four bars to a vec4: heights, then peak caps, 0..1.
@@ -411,6 +417,99 @@ fn particles(p: vec2<f32>) -> Ink {
     return ink;
 }
 
+// The ambient layer's wave: three ribbons' centres at `x` (0..1 across),
+// in output heights from the top, slowly undulating with the clock `t`.
+fn ribbon(i: i32, x: f32, t: f32) -> f32 {
+    let k = f32(i);
+    let a = sin(6.2832 * (x * (0.55 + 0.12 * k) + 0.23 * k) + t * (0.09 + 0.025 * k));
+    let b = sin(6.2832 * (x * (1.15 - 0.2 * k) - 0.31 * k) - t * (0.05 + 0.02 * k));
+    return 0.56 + 0.03 * k + (0.1 - 0.02 * k) * a + 0.04 * b;
+}
+
+// How close a point at height `y` (output heights) is to the wave, 0..1.
+fn near_wave(x: f32, y: f32, t: f32) -> f32 {
+    var d = 1.0;
+    for (var i = 0; i < 3; i++) {
+        d = min(d, abs(y - ribbon(i, x, t)));
+    }
+    return exp(-(d * d) / 0.03);
+}
+
+// The ambient layer (the backdrop's, PS3-XMB-like): two or three soft,
+// translucent ribbons of the cover's colours flowing slowly across, and
+// fine sparkles, mostly a pixel or two, drifting along them. Each sparkle
+// is one per grid cell in three layers of depth (far ones smaller, fainter
+// and slower), from a hash of its cell that stays put while the grid
+// drifts, so nothing shimmers; it twinkles slowly and gathers loosely
+// round the wave. The music only lifts the brightness a little.
+fn ambient(p: vec2<f32>) -> Ink {
+    let size = params.output.xy;
+    let s = params.extra.x;
+    let t = params.shape.z;
+    let uv = p / size;
+    let light = params.look.w > 0.5;
+    let lift = 1.0 + 0.25 * params.audio.w;
+    var ink = Ink(vec3<f32>(1.0), 0.0);
+    let wave = params.wave.x;
+    if wave > 0.0 {
+        for (var i = 0; i < 3; i++) {
+            let k = f32(i);
+            let d = (uv.y - ribbon(i, uv.x, t)) / (0.07 + 0.03 * k);
+            // A soft sheet with a faint brighter crest.
+            let sheet = exp(-d * d) * 0.07 + exp(-d * d * 60.0) * 0.05;
+            var color = params.stops[i].rgb;
+            if light {
+                color = mix(color, vec3<f32>(1.0), 0.65);
+            } else {
+                color = mix(color, vec3<f32>(1.0), 0.25);
+            }
+            ink = over(ink, color, sheet * wave * (1.0 - 0.25 * k));
+        }
+    }
+    let amount = params.ambient.x;
+    if amount <= 0.0 {
+        return ink;
+    }
+    let q = p / s;
+    for (var layer = 0; layer < 3; layer++) {
+        let depth = f32(layer);
+        // Cell size in points, drift in points a second.
+        let cell = 16.0 + 9.0 * depth;
+        let drift = 3.0 + 3.5 * depth;
+        // 97 cells round: the hashes repeat, so the drift can wrap without
+        // a jump.
+        let g = (q + vec2<f32>(t * drift, 0.0)) / cell;
+        let c = floor(g);
+        let cx = c.x - 97.0 * floor(c.x / 97.0);
+        let h = hash4(vec2<f32>(cx, c.y) + depth * 41.0);
+        let alive = step(1.0 - 0.32 * amount, h.w);
+        if alive < 0.5 {
+            continue;
+        }
+        let sway = vec2<f32>(sin(t * 0.21 + h.z * 6.28), cos(t * 0.17 + h.x * 6.28)) * 0.07;
+        let centre = 0.25 + 0.5 * h.xy + sway;
+        // Its distance in device pixels.
+        let d = length(fract(g) - centre) * cell * s;
+        // Mostly one or two pixels across with a soft core; one in fifteen
+        // a little larger.
+        let big = select(1.0, 1.7, h.z > 0.93);
+        let r = max((0.7 + 0.25 * depth) * big * params.ambient.y * mix(1.0, s, 0.5), 0.7);
+        let core = exp(-(d * d) / (r * r));
+        // A slow fade in and out, seconds long, never a blink.
+        let phase = params.audio.x * (0.5 + 0.6 * h.y) + h.w * 40.0;
+        let twinkle = mix(1.0, 0.2 + 0.8 * smoothstep(-1.0, 1.0, sin(phase)), params.ambient.z);
+        let at = ((c + centre) * cell - vec2<f32>(t * drift, 0.0)) * s / size;
+        let gather = mix(0.3, 1.0, near_wave(at.x, at.y, t));
+        let bright = (0.28 + 0.2 * depth) * twinkle * gather * lift * params.ambient.w;
+        var color = vec3<f32>(1.0);
+        if !light {
+            color = mix(vec3<f32>(1.0), gradient(h.x), 0.3);
+        }
+        ink = over(ink, color, core * bright);
+    }
+    return ink;
+}
+
 // Display space from linear, per channel.
 fn to_display(c: vec3<f32>) -> vec3<f32> {
     let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -432,8 +531,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         ink = ring(p);
     } else if style == 3 {
         ink = line(p);
-    } else {
+    } else if style == 4 {
         ink = particles(p);
+    } else {
+        ink = ambient(p);
     }
     // Glows fade out before the frame's edge, so its box never shows:
     // all round for the ring and the particles, at the top for the bands
@@ -443,6 +544,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var edge = p.y;
     if style == 2 || style == 4 {
         edge = min(min(p.x, size.x - p.x), min(p.y, size.y - p.y));
+    } else if style == 5 {
+        // The ambient layer fills its panel.
+        edge = margin;
     }
     let alpha = clamp(ink.alpha * params.look.x, 0.0, 1.0) * smoothstep(0.0, margin, edge);
     return vec4<f32>(to_display(ink.color), alpha);

@@ -367,6 +367,30 @@ default. Not done: Stage has no backdrop yet (Stage belongs to M6; it can
 place `visuals::slot` boxes the same way), a window covered by another one
 wasn't tested, and the frame rate doesn't switch to 60 on its own.
 
+## Taste (M21, 2026-10-07)
+
+The rules every effect, preset and capture is checked against.
+
+- **Restraint.** One focal effect at a time; ambient effects stay under the
+  content and never compete with covers, text or controls. If you notice
+  an effect before the music, it is too strong. Default should look calm
+  and expensive (think Apple Music's animated backgrounds); Vivid is
+  opt-in.
+- **Motion.** Ambient motion runs on time scales of seconds, eased, never
+  linear ramps or hard on/off, and fluid at the chosen frame rate (no
+  stepping: the backdrop draws with every paced frame). The music moves
+  things through smoothed envelopes: no strobing, no element pulsing on
+  every kick, no flashes of brightness. Reduced motion holds a still frame.
+- **Colour.** From the cover's palette in OKLab, moderate chroma, no neon,
+  no pure white or black blooms; text keeps 4.5:1 in light and dark;
+  gradients are dithered so nothing bands.
+- **Shape.** Soft falloffs and no visible geometry in ambient effects
+  (frames fade out before their edges); the visualiser may be crisp but
+  sits on the layout (baselines, margins) and uses the app's radii.
+- **Checks.** Captures in light and dark with a vivid, a muted and a
+  near-monochrome cover, viewed at full size, until nothing looks cheap or
+  busy.
+
 # The spike (2026-10-06)
 
 Measured on 2026-10-06: Fedora 43, KDE Plasma 6 Wayland,

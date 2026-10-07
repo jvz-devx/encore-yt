@@ -36,8 +36,6 @@ pub struct FrameParams {
     /// Overall level, 0..1.
     pub level: f32,
     pub look: Look,
-    /// Floating motes; off under reduced motion.
-    pub particles: bool,
     /// The large cover's drop shadow, drawn here rather than by GPUI: a
     /// wide blurred box costs GPUI's renderer 2-3 ms of GPU time in every
     /// window frame, this pass next to nothing.
@@ -52,9 +50,6 @@ pub struct FrameParams {
 pub struct Tune {
     /// The wide blur's radius and weight.
     pub blur: f32,
-    /// How many motes, 0..2 (1: half the cells hold one).
-    pub motes: f32,
-    pub mote_size: f32,
     pub bloom: f32,
     /// How much colour the tone mapping keeps.
     pub intensity: f32,
@@ -64,8 +59,6 @@ impl Default for Tune {
     fn default() -> Self {
         Self {
             blur: 1.0,
-            motes: 1.0,
-            mote_size: 1.0,
             bloom: 1.0,
             intensity: 1.0,
         }
@@ -198,11 +191,10 @@ impl Renderer {
         });
         let mix = mix * mix * (3.0 - 2.0 * mix);
         let light = if p.look == Look::Light { 1.0 } else { 0.0 };
-        let particles = if p.particles { 1.0 } else { 0.0 };
         let has_cover = if self.has_cover { 1.0 } else { 0.0 };
         let (width, height) = self.target.size();
         let mut floats = vec![p.seconds, p.bass, p.kick, p.level];
-        floats.extend([width as f32, height as f32, light, particles]);
+        floats.extend([width as f32, height as f32, light, 0.0]);
         floats.extend([mix, has_cover, p.flow, 0.0]);
         let shadow = p.shadow.unwrap_or_default();
         floats.extend(shadow.rect);
@@ -213,7 +205,7 @@ impl Renderer {
             if p.shadow.is_some() { 1.0 } else { 0.0 },
         ]);
         let t = &p.tune;
-        floats.extend([t.blur, t.motes, t.mote_size, t.bloom]);
+        floats.extend([t.blur, 0.0, 0.0, t.bloom]);
         floats.extend([t.intensity, 0.0, 0.0, 0.0]);
         let (new, old) = (self.palettes[self.front], self.palettes[1 - self.front]);
         for (n, o) in new.iter().zip(&old) {
@@ -269,15 +261,12 @@ mod tests {
     fn strongest() -> Tune {
         Tune {
             blur: 2.0,
-            motes: 2.0,
-            mote_size: 2.0,
             bloom: 2.0,
             intensity: 2.0,
         }
     }
 
-    /// The darkest and brightest pixel of a loud frame. Particles are left
-    /// out: a mote is a few pixels that drift past, brighter on purpose.
+    /// The darkest and brightest pixel of a loud frame.
     fn luminance_range(renderer: &mut Renderer, look: Look, tune: Tune) -> (f32, f32) {
         let params = FrameParams {
             seconds: 3.0,
@@ -285,7 +274,6 @@ mod tests {
             kick: 1.0,
             level: 1.0,
             look,
-            particles: false,
             shadow: None,
             flow: 3.0,
             tune,

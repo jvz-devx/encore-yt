@@ -3,7 +3,8 @@
 //! (glow, seek bar, halos) whenever a song plays. It also runs the cover
 //! dissolves, which the shell paints over the app ([`Effects::overlay`]).
 //!
-//! It re-renders on its own timer (`fps()`, 30 by default) and never
+//! It re-renders on its own timer (`fps()`, 30 by default, or with the
+//! display when Settings → Visuals' frame rate says so) and never
 //! notifies `MusicApp`. Frames stop when the window isn't visible
 //! (minimised), playback is paused, or motion is reduced (then a still
 //! frame is drawn when something changes). One `ytfast_visuals::Gpu` serves
@@ -17,6 +18,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::*;
 use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
+use super::ambient::Ambient;
 use super::backdrop::{self, Backdrop};
 use super::bar::{self, Bar};
 use super::device::Device;
@@ -37,8 +39,12 @@ const DRIFT_FPS: f32 = 3.;
 /// rate beats draw at most.
 const BEAT_STEP: f32 = 0.12;
 const BEAT_FPS: f32 = 10.;
-/// The backdrop moves slowly: a new picture every other window frame.
-const BACKDROP_FPS: f32 = 10.;
+/// The backdrop draws with every paced frame up to this rate; above it
+/// (120 or the display's rate) every other one, which still looks fluid.
+const BACKDROP_FPS: f32 = 60.;
+/// The ticker's rate while only the player bar moves and the frame rate
+/// follows the display (its frames come on beats and the playhead).
+const BAR_ONLY_FPS: u32 = 30;
 
 /// What the app tells the layer on each render.
 #[derive(Clone, Debug, Default)]
@@ -90,6 +96,8 @@ pub struct Effects {
     bands: Bands,
     art: Option<Art>,
     backdrop: Backdrop,
+    /// The sparkles and the light wave over the backdrop.
+    ambient: Ambient,
     bar: Bar,
     vis: Vis,
     changes: Rc<RefCell<[Change; 2]>>,
@@ -113,6 +121,8 @@ pub struct Effects {
     /// When Now Playing was last shown, for dropping the backdrop.
     shown_at: Instant,
     ticker: Option<Task<()>>,
+    /// The ticker's period, to start a new one when the frame rate changes.
+    ticker_period: Duration,
     reaper: Option<Task<()>>,
     window: Option<AnyWindowHandle>,
     _visibility: Option<Subscription>,
@@ -130,6 +140,7 @@ impl Effects {
             bands: Bands::default(),
             art: None,
             backdrop: Backdrop::default(),
+            ambient: Ambient::default(),
             bar: Bar::new(),
             vis: Vis::default(),
             changes: Rc::new(RefCell::new([
@@ -149,6 +160,7 @@ impl Effects {
             drew_at: Instant::now(),
             shown_at: Instant::now(),
             ticker: None,
+            ticker_period: Duration::ZERO,
             reaper: None,
             window: None,
             _visibility: None,
@@ -179,6 +191,7 @@ impl Effects {
         }
         self.window = Some(handle);
         self.backdrop.forget();
+        self.ambient.hide(cx);
         self.bar.forget();
         self.vis.forget();
         for change in self.changes.borrow_mut().iter_mut() {
@@ -252,7 +265,7 @@ impl Effects {
         }
         // Other redraws (the app's clock, input) don't add frames.
         let since = self.last.map_or(1.0, |l| (now - l).as_secs_f32());
-        if since < 0.8 / fps() as f32 {
+        if self.rate().is_some_and(|fps| since < 0.8 / fps as f32) {
             return (false, 0.0);
         }
         let dt = if self.last.is_some() {
@@ -265,18 +278,30 @@ impl Effects {
         (true, dt)
     }
 
+    /// The paced frames' rate now: `fps()`, or with the display `None`
+    /// (unless only the bar moves).
+    fn rate(&self) -> Option<u32> {
+        fps().or(self.bar_only.then_some(BAR_ONLY_FPS))
+    }
+
     /// While animating, a timer notifies this view at `fps()`; GPUI would
     /// otherwise draw at the display's rate (120 Hz here) through
-    /// `request_animation_frame`. Dropping the task stops it.
-    fn pace(&mut self, animate: bool, cx: &mut Context<Self>) {
-        if !animate {
+    /// `request_animation_frame`, which is what the display's rate asks
+    /// for. Dropping the task stops it.
+    fn pace(&mut self, animate: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let fps = self.rate();
+        if !animate || fps.is_none() {
             self.ticker = None;
+            if animate {
+                window.request_animation_frame();
+            }
             return;
         }
-        if self.ticker.is_some() {
+        let period = Duration::from_secs_f32(1.0 / fps.unwrap_or(BAR_ONLY_FPS) as f32);
+        if self.ticker.is_some() && self.ticker_period == period {
             return;
         }
-        let period = Duration::from_secs_f32(1.0 / fps() as f32);
+        self.ticker_period = period;
         self.ticker = Some(cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(period).await;
@@ -359,6 +384,7 @@ impl Effects {
         let backdrop = self.backdrop_shows();
         if !backdrop && self.backdrop.has_renderer() && self.shown_at.elapsed() >= KEEP {
             self.backdrop.release(cx);
+            self.ambient.release(cx);
         }
         if self.drew_at.elapsed() >= KEEP && !backdrop {
             log::info!("visuals: idle, releasing the GPU");
@@ -521,11 +547,18 @@ impl Render for Effects {
                 Some((area, _)) if !(skip("backdrop") && self.backdrop.image().is_some()) => {
                     let shadow = cover_shadow(input.showing, cx);
                     let tick = paced(backdrop_due);
-                    self.backdrop.update(&tick, area, art, shadow, window)
+                    self.backdrop.update(&tick, area, art, shadow, window);
+                    if Ambient::wanted() && !skip("ambient") {
+                        let palette = self.bar.palette();
+                        let flow = self.backdrop.flow();
+                        self.ambient.update(&tick, area, flow, &palette, window, cx);
+                    } else {
+                        self.ambient.hide(cx);
+                    }
                 }
                 Some(_) => {}
                 None if backdrop_shows && backdrop_on => window.request_animation_frame(),
-                None => {}
+                None => self.ambient.hide(cx),
             }
             match vis_place.filter(|_| moving && input.playing) {
                 Some(place) => {
@@ -567,7 +600,7 @@ impl Render for Effects {
         if pending && self.ticker.is_none() {
             window.request_animation_frame();
         }
-        self.pace(animate, cx);
+        self.pace(animate, window, cx);
         self.keep_reaping(cx);
 
         let c = theme::colors(cx);
@@ -576,6 +609,9 @@ impl Render for Effects {
         let paint = Paint {
             backdrop: (backdrop_shows && backdrop_on)
                 .then(|| self.backdrop.image())
+                .flatten(),
+            ambient: (backdrop_shows && backdrop_on && Ambient::wanted())
+                .then(|| self.ambient.image())
                 .flatten(),
             scene: self.scene_backdrop(),
             vis: vis_place.and_then(|_| self.vis.image()),
@@ -613,6 +649,8 @@ impl Render for Effects {
 /// What the layer paints, captured for the canvas.
 struct Paint {
     backdrop: Option<std::sync::Arc<RenderImage>>,
+    /// The ambient layer's frame, over the backdrop at full size.
+    ambient: Option<std::sync::Arc<RenderImage>>,
     fallback: Background,
     showing: bool,
     /// The backdrop fills a scene (Stage, the full-window visualiser).
@@ -653,6 +691,9 @@ impl Paint {
                     let _ = window.paint_image(panel, fitted, corners, image, 0, false);
                 }
                 None => window.paint_quad(fill(panel, self.fallback).corner_radii(corners)),
+            }
+            if let Some(image) = self.ambient {
+                let _ = window.paint_image(panel, panel, corners, image, 0, false);
             }
         }
         if let Some((image, bounds)) = self.vis {
@@ -809,11 +850,13 @@ fn head_speed(bar: Option<&bar::Input>, scale: f32, cx: &App) -> f32 {
     f32::from(seek.size.width) * scale / bar.duration as f32
 }
 
-/// Window frames per second at most: Settings → Visuals' frame rate cap
-/// or `YTFAST_GPUI_VISUALS_FPS`, 20 by default (the spectrum's rate; each
-/// frame costs 8-10 ms of GPU time).
-fn fps() -> u32 {
-    super::config::get().fps.max(1)
+/// Window frames per second at most while effects move: Settings →
+/// Visuals' frame rate or `YTFAST_GPUI_VISUALS_FPS`, 30 by default (each
+/// frame redraws the window: 6-10 ms of GPU time on the UHD 630); `None`
+/// for the display's own rate.
+fn fps() -> Option<u32> {
+    let fps = super::config::get().fps;
+    (fps != super::config::DISPLAY_FPS).then_some(fps.max(1))
 }
 
 /// Paced frames over five seconds, logged while animating.

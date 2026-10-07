@@ -16,8 +16,10 @@ use crate::target::{Frame, Target};
 
 /// The most bars the shader holds (four to a vec4).
 pub const MAX_BARS: usize = 128;
-/// Six vec4s, four colour stops, then the bars and the peaks.
-const PARAMS_SIZE: u64 = (6 + 4 + 2 * MAX_BARS as u64 / 4) * 16;
+/// Eight vec4s, four colour stops, then the bars and the peaks.
+const PARAMS_SIZE: u64 = (8 + 4 + 2 * MAX_BARS as u64 / 4) * 16;
+/// The style that draws the backdrop's ambient layer (wave and sparkles).
+pub const AMBIENT: u32 = 5;
 /// Levels under this are drawn as nothing (about -39 dB from the loudest).
 const FLOOR: f32 = 0.18;
 /// A peak cap stays this long before it falls, in seconds.
@@ -102,7 +104,7 @@ impl Bars {
 /// Inputs for one frame. Positions and sizes are in output pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct VisualizerParams<'a> {
-    /// 0 bars, 1 mirrored, 2 ring, 3 line, 4 particles.
+    /// 0 bars, 1 mirrored, 2 ring, 3 line, 4 particles, [`AMBIENT`].
     pub style: u32,
     pub seconds: f32,
     /// The particles' clock: runs faster when the music is loud.
@@ -126,6 +128,22 @@ pub struct VisualizerParams<'a> {
     /// The gradient along the spectrum, linear RGB, low to high.
     pub stops: [[f32; 3]; 4],
     pub bars: &'a Bars,
+    /// The ambient layer's settings (only [`AMBIENT`] reads them).
+    pub ambient: Ambient,
+}
+
+/// The backdrop's ambient layer: sparkles and the wave. Strengths are 1
+/// for the Default look.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Ambient {
+    /// How many sparkles, 0..2 (0: none).
+    pub amount: f32,
+    pub size: f32,
+    /// How much they fade in and out, 0..1.
+    pub twinkle: f32,
+    pub brightness: f32,
+    /// The wave's strength, 0..2 (0: none).
+    pub wave: f32,
 }
 
 pub struct Visualizer {
@@ -206,6 +224,9 @@ impl Visualizer {
         floats.extend(cover);
         floats.extend([corner, p.reach, p.travel, p.treble]);
         floats.extend([p.scale, flag(p.cover.is_some()), 0.0, 0.0]);
+        let a = &p.ambient;
+        floats.extend([a.amount, a.size, a.twinkle, a.brightness]);
+        floats.extend([a.wave, 0.0, 0.0, 0.0]);
         for stop in &p.stops {
             floats.extend(*stop);
             floats.push(1.0);
@@ -304,6 +325,7 @@ mod tests {
                     [0.3, 0.4, 1.0],
                 ],
                 bars: &bars,
+                ambient: Ambient::default(),
             };
             let frame = vis.frame_now(&p).expect("frame");
             let lit = frame.bgra.chunks(4).filter(|px| px[3] > 128).count();
@@ -318,6 +340,55 @@ mod tests {
                 lit < 160 * 120 / 10,
                 "style {style} silent: {lit} opaque pixels"
             );
+        }
+    }
+
+    /// The ambient layer stays in the background: its sparkles and wave
+    /// light many pixels a little and none of them strongly, also on the
+    /// beat, in either look.
+    #[test]
+    fn ambient_layer_stays_faint() {
+        let gpu = match Gpu::new() {
+            Ok(gpu) => gpu,
+            Err(e) => {
+                eprintln!("skipped, no GPU: {e:#}");
+                return;
+            }
+        };
+        let mut vis = Visualizer::new(&gpu, 320, 240);
+        let bars = Bars::default();
+        for look in [Look::Dark, Look::Light] {
+            let p = VisualizerParams {
+                style: AMBIENT,
+                seconds: 3.0,
+                travel: 3.0,
+                bass: 1.0,
+                kick: 1.0,
+                level: 1.0,
+                treble: 0.5,
+                look,
+                opacity: 1.0,
+                glow: 0.0,
+                peaks: false,
+                scale: 1.0,
+                cover: None,
+                reach: 0.0,
+                stops: [[0.9, 0.4, 0.5]; 4],
+                bars: &bars,
+                ambient: Ambient {
+                    amount: 1.0,
+                    size: 1.0,
+                    twinkle: 0.6,
+                    brightness: 1.0,
+                    wave: 1.0,
+                },
+            };
+            let frame = vis.frame_now(&p).expect("frame");
+            let alphas: Vec<u8> = frame.bgra.chunks(4).map(|px| px[3]).collect();
+            let lit = alphas.iter().filter(|a| **a > 4).count();
+            let strongest = alphas.iter().copied().max().unwrap_or(0);
+            assert!(lit > 320 * 240 / 20, "{look:?}: only {lit} pixels lit");
+            assert!(strongest < 230, "{look:?}: a pixel at alpha {strongest}");
         }
     }
 }

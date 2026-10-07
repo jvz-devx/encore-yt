@@ -44,6 +44,7 @@ pub fn section(
     let saved = config::saved();
     let mut rows = vec![look(&saved, c, cx), presets(&saved, c, cx)];
     if saved.on {
+        rows.push(frame_rate(&saved, c, cx));
         rows.push(
             v_flex()
                 .gap(space::XS)
@@ -51,7 +52,6 @@ pub fn section(
                 .children(GROUPS.map(|g| group(g, &saved, c, cx)))
                 .into_any_element(),
         );
-        rows.push(frame_rate(&saved, c, cx));
     }
     super::section("Visuals", c, rows)
 }
@@ -114,18 +114,22 @@ fn presets(saved: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> Any
 
 fn frame_rate(saved: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     let chips = config::FPS.map(|fps| {
-        super::choice(
-            ("visuals-fps", fps as usize),
-            format!("{fps}"),
-            saved.fps == fps,
-            c,
-        )
-        .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.fps = fps)))
+        let label = if fps == config::DISPLAY_FPS {
+            "Match display".to_string()
+        } else {
+            format!("{fps} fps")
+        };
+        super::choice(("visuals-fps", fps as usize), label, saved.fps == fps, c)
+            .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| s.fps = fps)))
     });
     v_flex()
+        .pb(space::SM)
         .child(super::row(
             "Frame rate",
-            Some("Frames a second at most while effects move. Fewer use less power.".into()),
+            Some(
+                "How smoothly the effects move. Higher looks more fluid and uses more power."
+                    .into(),
+            ),
             div(),
             c,
         ))
@@ -324,16 +328,34 @@ fn body(
             rows.push(knobs::row(Knob::BassPulse, on, c, cx));
             rows.push(toggle(
                 "visuals-motes",
-                "Motes",
-                "Specks of light drifting up, flaring on the beat",
+                "Particles",
+                "Fine sparkles drifting along the wave, a little brighter on the beat",
                 s.backdrop.motes,
                 on,
                 c,
                 cx,
                 |s, v| s.backdrop.motes = v,
             ));
-            rows.push(knobs::row(Knob::Motes, on && s.backdrop.motes, c, cx));
-            rows.push(knobs::row(Knob::MoteSize, on && s.backdrop.motes, c, cx));
+            let motes = on && s.backdrop.motes;
+            for k in [
+                Knob::Motes,
+                Knob::MoteSize,
+                Knob::MoteBrightness,
+                Knob::Twinkle,
+            ] {
+                rows.push(knobs::row(k, motes, c, cx));
+            }
+            rows.push(toggle(
+                "visuals-light-wave",
+                "Wave",
+                "Soft ribbons of the cover's colours flowing slowly across",
+                s.backdrop.wave,
+                on,
+                c,
+                cx,
+                |s, v| s.backdrop.wave = v,
+            ));
+            rows.push(knobs::row(Knob::Wave, on && s.backdrop.wave, c, cx));
             rows
         }
         Group::Glow => vec![knobs::row(Knob::Glow, on, c, cx)],

@@ -12,8 +12,8 @@ use super::frames::Frames;
 use crate::theme::Colors;
 
 /// The backdrop renders at `SCALE` of the panel's size, at most this wide;
-/// GPUI scales it to the panel. A blurred image and soft motes look the
-/// same at 0.4 as at 0.5, for 36% fewer pixels of a costly shader (about
+/// GPUI scales it to the panel. A blurred image looks the same at 0.4 as
+/// at 0.5, for 36% fewer pixels of a costly shader (about
 /// 2% of the GPU at 10 frames a second on the UHD 630).
 const MAX_WIDTH: f32 = 512.;
 const SCALE: f32 = 0.4;
@@ -41,6 +41,12 @@ pub struct Backdrop {
 }
 
 impl Backdrop {
+    /// The flow's clock (seconds at the swirl speed), which the ambient
+    /// layer's wave follows too.
+    pub fn flow(&self) -> f32 {
+        self.flow
+    }
+
     pub fn image(&self) -> Option<std::sync::Arc<RenderImage>> {
         self.frames.image()
     }
@@ -128,13 +134,10 @@ impl Backdrop {
             kick: (tick.kick * b.bass_pulse).min(1.5),
             level: tick.level,
             look: tick.look,
-            particles: b.motes && !tick.reduce && !super::effects::skip("particles"),
             shadow: self.shadow,
             flow: self.flow,
             tune: Tune {
                 blur: b.blur,
-                motes: b.motes_amount,
-                mote_size: b.mote_size,
                 bloom: b.bloom,
                 intensity: b.intensity,
             },

@@ -154,6 +154,7 @@ impl Vis {
             reach: f32::from(reach(place, cx)) * scale,
             stops: stops(v.palette, &v.custom, palette, tick.look, cx),
             bars: &self.bars,
+            ambient: Default::default(),
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {
@@ -268,7 +269,7 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
 
 /// The gradient's four stops (linear RGB), toned for the look: light and
 /// vivid over the dark backdrop, deeper over the light one.
-fn stops(
+pub(super) fn stops(
     palette: Palette,
     custom: &[config::Swatch; 2],
     cover: &[[f32; 4]; 4],

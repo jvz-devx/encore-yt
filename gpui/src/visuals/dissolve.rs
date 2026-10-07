@@ -13,8 +13,13 @@ use super::frames::Frames;
 use super::slots::{Slot, Slots};
 use crate::theme::{radius, size};
 
-/// How long the burn takes.
-const DURATION: Duration = Duration::from_millis(900);
+/// How long a dissolve takes (Settings → Visuals, 900 ms by default) at
+/// the motion speed (Settings → Motion); `None` at the instant speed.
+pub fn duration() -> Option<Duration> {
+    crate::theme::motion::duration(Duration::from_millis(u64::from(
+        super::config::get().dissolve.ms,
+    )))
+}
 
 pub struct Change {
     slot: Slot,
@@ -100,7 +105,7 @@ impl Change {
             self.started = Some(Instant::now());
         }
         let t = self.started.map_or(0.0, |at| {
-            at.elapsed().as_secs_f32() / DURATION.as_secs_f32()
+            duration().map_or(1.0, |d| at.elapsed().as_secs_f32() / d.as_secs_f32())
         });
         if t >= 1.0 {
             self.finish(cx);

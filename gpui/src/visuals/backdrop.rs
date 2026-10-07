@@ -5,15 +5,15 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer};
+use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer, Tune};
 
 use super::effects::Tick;
 use super::frames::Frames;
 use crate::theme::Colors;
 
 /// The backdrop renders at `SCALE` of the panel's size, at most this wide;
-/// GPUI scales it to the panel. A blurred image and soft motes look the
-/// same at 0.4 as at 0.5, for 36% fewer pixels of a costly shader (about
+/// GPUI scales it to the panel. A blurred image looks the same at 0.4 as
+/// at 0.5, for 36% fewer pixels of a costly shader (about
 /// 2% of the GPU at 10 frames a second on the UHD 630).
 const MAX_WIDTH: f32 = 512.;
 const SCALE: f32 = 0.4;
@@ -27,6 +27,14 @@ pub struct Backdrop {
     palette: Option<[[f32; 4]; 4]>,
     /// The cover shadow last drawn.
     shadow: Option<CoverShadow>,
+    /// The flow's clock (it runs at the swirl speed), and the animation
+    /// time it last moved with.
+    flow: f32,
+    /// The light wave's clock: the flow's at the wave's speed.
+    wave_clock: f32,
+    seconds: f32,
+    /// The settings' revision last drawn with.
+    revision: u64,
     /// Frames still to render although nothing moves (a new cover or size
     /// under reduced motion or while paused; the first frame shows a frame
     /// late).
@@ -35,6 +43,12 @@ pub struct Backdrop {
 }
 
 impl Backdrop {
+    /// The light wave's clock (the flow's at the wave's speed), which the
+    /// sparkles gather round too.
+    pub fn wave_clock(&self) -> f32 {
+        self.wave_clock
+    }
+
     pub fn image(&self) -> Option<std::sync::Arc<RenderImage>> {
         self.frames.image()
     }
@@ -106,17 +120,39 @@ impl Backdrop {
             self.cover = Some(url.clone());
             self.pending = self.pending.max(2);
         }
+        let config = super::config::get();
+        let b = &config.backdrop;
+        if config_changed(&mut self.revision) {
+            self.pending = self.pending.max(2);
+        }
+        let passed = (tick.seconds - self.seconds).max(0.);
+        self.flow += passed * b.swirl;
+        self.wave_clock += passed * b.swirl * config.wave.speed;
+        self.seconds = tick.seconds;
         if !tick.due && self.pending == 0 {
             return;
         }
         let params = FrameParams {
             seconds: tick.seconds,
-            bass: tick.bass,
-            kick: tick.kick,
+            bass: (tick.bass * b.bass_pulse).min(1.5),
+            kick: (tick.kick * b.bass_pulse).min(1.5),
             level: tick.level,
             look: tick.look,
-            particles: !tick.reduce && !super::effects::skip("particles"),
             shadow: self.shadow,
+            flow: self.flow,
+            tune: Tune {
+                blur: b.blur,
+                bloom: b.bloom,
+                intensity: b.intensity,
+                wave: if config.wave.on {
+                    config.wave.strength
+                } else {
+                    0.
+                },
+                wave_clock: self.wave_clock,
+                ribbons: config.wave.ribbons,
+                wave_height: config.wave.height,
+            },
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {
@@ -149,6 +185,12 @@ impl Backdrop {
     pub fn set_fallback(&mut self, palette: [[f32; 4]; 4]) {
         self.palette = Some(palette);
     }
+}
+
+/// Whether the settings changed since `revision` (which is moved on).
+pub fn config_changed(revision: &mut u64) -> bool {
+    let now = super::config::revision();
+    std::mem::replace(revision, now) != now
 }
 
 /// The large cover's drop shadow, which the backdrop draws in place of

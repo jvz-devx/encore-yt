@@ -18,7 +18,8 @@ struct Params {
     play: vec4<f32>,
     // The cover thumbnail: left, top, right, bottom
     cover: vec4<f32>,
-    // x: the cover's corner radius, y: on (0/1)
+    // x: the cover's corner radius, y: on (0/1), z: the halos' strength
+    // (1 the Default look, 0 none)
     cover_state: vec4<f32>,
     // The most-replayed ridge over the seek bar: x: on (0/1), y: its
     // height in points where the heat is greatest
@@ -201,7 +202,7 @@ fn halos(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
     let breath = params.clock.y;
     let light = params.output.z > 0.5;
     let tone = params.halo.rgb;
-    let strength = select(1.0, 0.95, light);
+    let strength = select(1.0, 0.95, light) * params.cover_state.z;
     var out = color;
     // Beyond 60 points the spill and the ring are under half a step of 8-bit
     // colour: those pixels skip the work.
@@ -338,7 +339,9 @@ fn ridge(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let p = in.uv * params.output.xy;
     var color = glow(p);
-    color = halos(p, color);
+    if params.cover_state.z > 0.0 {
+        color = halos(p, color);
+    }
     // The seek bar's bloom and playhead ring fade out within 20 points of
     // its track, and the ridge rises 11 above it: other pixels skip them.
     let s = params.output.w;

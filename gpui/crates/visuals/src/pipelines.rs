@@ -27,22 +27,25 @@ pub(crate) struct Pipelines {
     pub backdrop: Effect,
     pub strip: Effect,
     pub dissolve: Effect,
+    pub visualizer: Effect,
 }
 
 impl Pipelines {
-    /// Compiles the three effects on `device`, through `cache` when there
+    /// Compiles the four effects on `device`, through `cache` when there
     /// is one.
     pub fn new(device: &wgpu::Device, cache: Option<&wgpu::PipelineCache>) -> Self {
-        let effect = |label, source| {
+        let effect = |label, source, textures| {
             let module = shader(device, label, source);
-            let layout = layout(device, label, 2);
+            let layout = layout(device, label, textures);
             let pipeline = pipeline(device, label, &module, &layout, cache);
             Effect { layout, pipeline }
         };
         Self {
-            backdrop: effect("backdrop", include_str!("../shaders/backdrop.wgsl")),
-            strip: effect("strip", include_str!("../shaders/strip.wgsl")),
-            dissolve: effect("dissolve", include_str!("../shaders/dissolve.wgsl")),
+            backdrop: effect("backdrop", include_str!("../shaders/backdrop.wgsl"), 2),
+            strip: effect("strip", include_str!("../shaders/strip.wgsl"), 2),
+            dissolve: effect("dissolve", include_str!("../shaders/dissolve.wgsl"), 2),
+            // The spectrum is in its uniforms: no textures.
+            visualizer: effect("visualizer", include_str!("../shaders/visualizer.wgsl"), 0),
         }
     }
 }
@@ -261,6 +264,7 @@ mod tests {
     /// device on the same GPU reads it and leaves one file.
     #[test]
     fn the_cache_is_kept_on_disk() {
+        let _one = crate::gpu_test_lock();
         let dir = std::env::temp_dir().join(format!("ytfast-pipelines-{}", std::process::id()));
         let files = || {
             std::fs::read_dir(&dir)

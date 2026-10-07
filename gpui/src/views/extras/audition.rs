@@ -1,7 +1,8 @@
 //! Audition on song rows and cards: they report the pointer and the middle
 //! button (`listen`), and mark the song while it is auditioned (`ring`): a
 //! ring in signal breathes around it while it plays, and holds still,
-//! fainter, while it is being prepared.
+//! fainter, while it is being prepared. The breath follows the motion
+//! speed and holds still under reduced motion (Settings → Motion).
 
 use std::time::Duration;
 
@@ -10,7 +11,7 @@ use ytfast::model::Track;
 
 use crate::app::MusicApp;
 use crate::extras::Shown;
-use crate::theme::{self, radius};
+use crate::theme::{self, motion, radius};
 
 /// The ring's gap outside the element, and its line.
 const GAP: Pixels = px(3.);
@@ -70,16 +71,18 @@ pub fn ring(track: Option<&Track>, corner: Pixels, cx: &App) -> Option<AnyElemen
         .rounded(outer)
         .border(LINE)
         .border_color(c.signal);
-    Some(if shown.playing {
-        ring.with_animation(
-            SharedString::from(format!("audition-ring:{id}")),
-            Animation::new(Duration::from_millis(1100))
-                .repeat()
-                .with_easing(pulsating_between(0.35, 1.)),
-            |el, t| el.opacity(t),
-        )
-        .into_any_element()
-    } else {
-        ring.opacity(0.3).into_any_element()
+    let breath = motion::duration(Duration::from_millis(1100));
+    Some(match breath {
+        Some(breath) if shown.playing => ring
+            .with_animation(
+                SharedString::from(format!("audition-ring:{id}")),
+                Animation::new(breath)
+                    .repeat()
+                    .with_easing(pulsating_between(0.35, 1.)),
+                |el, t| el.opacity(t),
+            )
+            .into_any_element(),
+        None if shown.playing => ring.opacity(0.8).into_any_element(),
+        _ => ring.opacity(0.3).into_any_element(),
     })
 }

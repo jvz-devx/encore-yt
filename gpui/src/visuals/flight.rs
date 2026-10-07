@@ -2,9 +2,10 @@
 //!
 //! Opening Now Playing lifts a copy of the cover from the player bar into
 //! the large cover's place (the real one stays hidden until it lands);
-//! closing flies it back down over the page. It runs for `motion::SLOW`
-//! with `motion::ease_out`, drawn by this view alone, and not at all under
-//! reduced motion.
+//! closing flies it back down over the page. It runs for its time in
+//! Settings → Visuals at the motion speed (Settings → Motion) with
+//! `motion::ease_out`, drawn by this view alone, and not at all under
+//! reduced motion or at the instant speed.
 
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,7 @@ use crate::theme::{self, elevation, motion, radius, size, space};
 struct Trip {
     opening: bool,
     started: Instant,
+    took: Duration,
     /// Closing: where the large cover was.
     from: Option<Bounds<Pixels>>,
 }
@@ -41,16 +43,19 @@ impl Flight {
     /// Starts a trip when Now Playing opens or closes; true while one runs.
     pub fn follow(&mut self, showing: bool, _window: &mut Window, cx: &mut Context<Self>) -> bool {
         let was = self.showing.replace(showing);
-        if was.is_some_and(|was| was != showing) && !super::reduced_motion(cx) {
+        let on = super::config::get().flight.on;
+        let took = duration().filter(|_| on && !super::reduced_motion(cx));
+        if let Some(took) = took.filter(|_| was.is_some_and(|was| was != showing)) {
             let from = Slots::get(cx, Slot::Cover);
             if showing || from.is_some() {
                 self.trip = Some(Trip {
                     opening: showing,
                     started: Instant::now(),
+                    took,
                     from,
                 });
                 self._landed = Some(cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(duration()).await;
+                    cx.background_executor().timer(took).await;
                     let _ = this.update(cx, |this, cx| this.land(cx));
                 }));
                 cx.notify();
@@ -79,14 +84,14 @@ impl Render for Flight {
         let Some(trip) = &self.trip else {
             return layer;
         };
-        let (opening, started, from) = (trip.opening, trip.started, trip.from);
+        let (opening, started, took, from) = (trip.opening, trip.started, trip.took, trip.from);
         let covers = Slots::covers(cx);
         let shadows = elevation::high(&theme::colors(cx));
         layer.child(
             canvas(
                 |_, _, _| (),
                 move |_, (), window, cx| {
-                    let t = (started.elapsed().as_secs_f32() / duration().as_secs_f32()).min(1.);
+                    let t = (started.elapsed().as_secs_f32() / took.as_secs_f32()).min(1.);
                     let bar = player_cover(window.viewport_size());
                     let (from, to) = if opening {
                         (Some(bar), Slots::get(cx, Slot::Cover))
@@ -124,13 +129,13 @@ impl Render for Flight {
     }
 }
 
-/// How long a trip takes: `motion::SLOW`, or `YTFAST_GPUI_VISUALS_FLIGHT_MS`
-/// (to look at the flight in slow motion).
-fn duration() -> Duration {
-    std::env::var("YTFAST_GPUI_VISUALS_FLIGHT_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .map_or(motion::SLOW, Duration::from_millis)
+/// How long a trip takes: Settings → Visuals (`motion::SLOW` by default),
+/// or `YTFAST_GPUI_VISUALS_FLIGHT_MS` (to look at it in slow motion), at
+/// the motion speed; `None` when motion is reduced or instant.
+fn duration() -> Option<Duration> {
+    motion::duration(Duration::from_millis(u64::from(
+        super::config::get().flight.ms,
+    )))
 }
 
 /// The player bar's cover: `space::LG` from the left, centred in the bar.

@@ -367,6 +367,122 @@ default. Not done: Stage has no backdrop yet (Stage belongs to M6; it can
 place `visuals::slot` boxes the same way), a window covered by another one
 wasn't tested, and the frame rate doesn't switch to 60 on its own.
 
+## Taste (M21, 2026-10-07)
+
+The rules every effect, preset and capture is checked against.
+
+- **Restraint.** One focal effect at a time; ambient effects stay under the
+  content and never compete with covers, text or controls. If you notice
+  an effect before the music, it is too strong. Default should look calm
+  and expensive (think Apple Music's animated backgrounds); Vivid is
+  opt-in.
+- **Motion.** Ambient motion runs on time scales of seconds, eased, never
+  linear ramps or hard on/off, and fluid at the chosen frame rate (no
+  stepping: the backdrop draws with every paced frame). The music moves
+  things through smoothed envelopes: no strobing, no element pulsing on
+  every kick, no flashes of brightness. Reduced motion holds a still frame.
+- **Colour.** From the cover's palette in OKLab, moderate chroma, no neon,
+  no pure white or black blooms; text keeps 4.5:1 in light and dark;
+  gradients are dithered so nothing bands.
+- **Shape.** Soft falloffs and no visible geometry in ambient effects
+  (frames fade out before their edges); the visualiser may be crisp but
+  sits on the layout (baselines, margins) and uses the app's radii.
+- **Checks.** Captures in light and dark with a vivid, a muted and a
+  near-monochrome cover, viewed at full size, until nothing looks cheap or
+  busy.
+
+## Settings → Visuals and the visualiser (M21, 2026-10-07)
+
+**Settings.** `visuals::config` keeps every effect's settings in
+`visuals.json` in the config directory (versioned; missing and unknown
+fields load; ranges are clamped on load). Presets: Off (`on: false`, every
+effect at once), Calm, Default (the backdrop as before M21, the player
+bar's glow at 55% and its halos at 50%: they read as too strong)
+and Vivid (glow and halos as before, a livelier backdrop and more
+sparkles). A preset keeps the visualiser's choices, Stage's, the
+particles' look (size, softness, depth, direction, colour), the wave's
+shape and the frame rate. `YTFAST_GPUI_VISUALS=0`, `_PRESET`, `_FPS`,
+`_FLIGHT_MS`, `_SKIP` and `YTFAST_GPUI_VISUALIZER` still override without
+saving. Settings → Visuals is a view of its own in tabs (General, Backdrop,
+Particles, Player bar, Visualiser, Transitions; `views/settings/visuals`),
+a card per effect, Reset per tab; Ctrl+K "visuals" offers the four presets.
+Sliders show their change in the next frame and save when let go.
+
+**Frame rate.** 15, 20, 30, 60, 120 or the display's (frames then come
+with GPUI's `request_animation_frame`). Default: the display's on macOS,
+30 on Windows, 20 on Linux, where a window frame costs the UHD 630 6-10 ms
+and 30 doubles Now Playing's GPU use (table below). The backdrop draws with
+every other window frame, 10 to 30 a second: it is blurred and moves
+slowly. What stepped before (on a 120 Hz Mac: the motes at 10
+frames a second) now moves with every window frame.
+
+**Sparkles and the wave.** After the PS3's XrossMediaBar. The light wave is
+one to three translucent ribbons of the palette in `backdrop.wgsl` (soft
+enough for its 0.4 scale), on a clock of the swirl speed times the wave's
+speed. The sparkles are GPUI quads over the backdrop (`visuals::ambient`):
+one per grid cell in three depths (far ones smaller, fainter, slower, as
+far as the depth spread says), from an integer hash of the cell, so they
+don't shimmer while the grid drifts; radius in device pixels (0.7 to 1.4
+by default), a halo quad only for the near and large ones, a twinkle over
+seconds, brighter near the wave, and lifted at most half the reaction by
+the music's smoothed level. First tried as a full-size frame of the
+visualiser shader: 7% CPU and 12% GPU at 30 fps here, mostly the read-back
+and upload, so they became quads (about 300 at amount 1; each costs GPUI
+about 2 µs of CPU a frame, which is why there aren't more).
+
+**Visualiser.** `ytfast_visuals::Visualizer` (`visualizer.wgsl`, compiled
+with the other pipelines, so warm-up and the pipeline cache cover it) draws
+bars, mirrored bars, a ring round the cover, a line or a particle field
+from `Bars` (bar count, sensitivity, rise smoothing, fall speed, frequency
+range and spacing, peak caps), straight alpha, painted over the backdrop.
+Regions: Now Playing's strip over the spectrum (or in its place); the ring
+round the cover, which shrinks the cover to leave the ring its room inside
+the panel (`now_playing_ring_room`, and `stage_ring_room` beside Stage's
+lyrics); a band along the bottom of Stage's body that the body keeps free
+(`stage_band`); the whole scene for particles. It draws only with paced
+frames while music plays and the window is visible, not under reduced
+motion. The ring renders at full size on whole pixels: at 0.75 its frame's
+edge left a faint line in Stage.
+
+**Colour and calm.** A sepia or black-and-white cover no longer turns the
+window muddy olive: the backdrop's tone mapping keeps less of the cover's
+colour the less colourful its palette is (from 25% under OKLab chroma
+0.05 to all of it at 0.12), and the visualiser's stops cap their chroma
+the same way, so such covers give a quiet grey with a trace of their hue.
+The stops run from deeper to lighter along the spectrum, so bars carry a
+gradient even from a one-colour palette. Bars and mirrored bars are pills
+with gaps that deepen from base to tip, with a gentler glow and fainter
+peak caps; levels are drawn on a calmer scale (0.86 of v^1.25) so loud
+passages don't pin the top; in Stage and the full window the bands keep a
+7% margin at each side. Now Playing shows one music graphic, the
+spectrum or the visualiser, never both stacked (the earlier "Both" loads
+as the visualiser). Captures `h-sepia*`, `h-bw`, `h-vivid*`.
+
+**Motion.** The cover flight, the cover dissolve and the audition ring take
+Settings → Motion's speed and reduced motion (`motion::duration`); the
+full-window visualiser fades in through `with_motion`.
+
+**Cost** (`scripts/gpui-measure.sh`, profiling builds, test audio, signed
+out, 1280x1000, Now Playing after N; `main` = 142d187, back to back, app
+closed 8.9%):
+
+| State | GPU main | GPU M21 | CPU main | CPU M21 |
+|---|---|---|---|---|
+| Home playing | 15.9% | 15.3-15.5% | 4.6% | 4.8-4.9% |
+| Now Playing, default (20 fps) | 26.9-27.2% | 26.4-27.3% | 7.6-7.7% | 8.9-9.0% |
+| Now Playing, 30 fps* | | 50.9% | | 13.7% |
+| Now Playing, 60 fps* | | 63.8% | | 23.0% |
+
+\* Before the backdrop went to every other frame. The default costs the
+GPU what main did; the sparkles add about 1.3 points of one core.
+
+Captures (`artifacts/gpui/`, gitignored): `v-np-*` and `v-full-*` (each
+style in Now Playing and the full window), `v-stage-mirrored`,
+`v-stage-ring`, `v-max-*`/`v-min-*` (extremes, light and dark), `x-l-*`
+and `f-dark-*` (the tabs, light and dark), `y-*` (three covers in light
+and dark), `z-*-full` and `c3` (sparkles at full size), `f-np-vivid`,
+`f-np-off`.
+
 # The spike (2026-10-06)
 
 Measured on 2026-10-06: Fedora 43, KDE Plasma 6 Wayland,

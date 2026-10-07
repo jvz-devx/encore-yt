@@ -36,12 +36,43 @@ pub struct FrameParams {
     /// Overall level, 0..1.
     pub level: f32,
     pub look: Look,
-    /// Floating motes; off under reduced motion.
-    pub particles: bool,
     /// The large cover's drop shadow, drawn here rather than by GPUI: a
     /// wide blurred box costs GPUI's renderer 2-3 ms of GPU time in every
     /// window frame, this pass next to nothing.
     pub shadow: Option<CoverShadow>,
+    /// The flow's clock: seconds that pass at the swirl speed.
+    pub flow: f32,
+    pub tune: Tune,
+}
+
+/// The backdrop's strengths; 1 everywhere is the Default look.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tune {
+    /// The wide blur's radius and weight.
+    pub blur: f32,
+    pub bloom: f32,
+    /// How much colour the tone mapping keeps.
+    pub intensity: f32,
+    /// The light wave's strength (0: none), its clock, its ribbons (1..3)
+    /// and the height of its middle (0 top, 1 bottom).
+    pub wave: f32,
+    pub wave_clock: f32,
+    pub ribbons: u32,
+    pub wave_height: f32,
+}
+
+impl Default for Tune {
+    fn default() -> Self {
+        Self {
+            blur: 1.0,
+            bloom: 1.0,
+            intensity: 1.0,
+            wave: 1.0,
+            wave_clock: 0.0,
+            ribbons: 3,
+            wave_height: 0.56,
+        }
+    }
 }
 
 /// A drop shadow under a rounded box, as the theme's `elevation::high`
@@ -170,12 +201,11 @@ impl Renderer {
         });
         let mix = mix * mix * (3.0 - 2.0 * mix);
         let light = if p.look == Look::Light { 1.0 } else { 0.0 };
-        let particles = if p.particles { 1.0 } else { 0.0 };
         let has_cover = if self.has_cover { 1.0 } else { 0.0 };
         let (width, height) = self.target.size();
         let mut floats = vec![p.seconds, p.bass, p.kick, p.level];
-        floats.extend([width as f32, height as f32, light, particles]);
-        floats.extend([mix, has_cover, 0.0, 0.0]);
+        floats.extend([width as f32, height as f32, light, 0.0]);
+        floats.extend([mix, has_cover, p.flow, 0.0]);
         let shadow = p.shadow.unwrap_or_default();
         floats.extend(shadow.rect);
         floats.extend([
@@ -184,6 +214,10 @@ impl Renderer {
             shadow.opacity,
             if p.shadow.is_some() { 1.0 } else { 0.0 },
         ]);
+        let t = &p.tune;
+        floats.extend([t.blur, t.wave, t.wave_clock, t.bloom]);
+        let colour = colour_kept(&self.palettes[self.front]);
+        floats.extend([t.intensity, t.ribbons as f32, t.wave_height, colour]);
         let (new, old) = (self.palettes[self.front], self.palettes[1 - self.front]);
         for (n, o) in new.iter().zip(&old) {
             floats.extend((0..4).map(|i| o[i] + (n[i] - o[i]) * mix));
@@ -192,8 +226,23 @@ impl Renderer {
     }
 }
 
-/// Three vec4s and four palette colours.
-const PARAMS_SIZE: u64 = 9 * 16;
+/// How much of the cover's colour the tone mapping keeps: all of it for a
+/// colourful cover, little for a sepia or black-and-white one, whose tint
+/// pushed to full saturation turns the whole window muddy. From the
+/// palette's strongest OKLab chroma between 0.05 and 0.12.
+fn colour_kept(palette: &[[f32; 4]; 4]) -> f32 {
+    let chroma = palette
+        .iter()
+        .map(|c| {
+            let lab = crate::color::oklab(crate::color::to_linear([c[0], c[1], c[2]]));
+            lab[1].hypot(lab[2])
+        })
+        .fold(0.0, f32::max);
+    0.25 + 0.75 * ((chroma - 0.05) / 0.07).clamp(0.0, 1.0)
+}
+
+/// Seven vec4s and four palette colours.
+const PARAMS_SIZE: u64 = 11 * 16;
 
 #[cfg(test)]
 mod tests {
@@ -210,6 +259,7 @@ mod tests {
     /// and the light look light enough for `text_muted` on top (4.5:1).
     #[test]
     fn frames_stay_in_the_text_safe_range() {
+        let _one = crate::gpu_test_lock();
         let gpu = match Gpu::new() {
             Ok(gpu) => gpu,
             Err(e) => {
@@ -221,8 +271,11 @@ mod tests {
         for bgra in [[255u8, 255, 255, 255], [120, 20, 10, 255]] {
             let cover = bgra.repeat(32 * 32);
             renderer.set_cover(&Cover::from_bgra(32, 32, &cover), false);
-            for look in [Look::Dark, Look::Light] {
-                let (min, max) = luminance_range(&mut renderer, look);
+            for (look, tune) in [Look::Dark, Look::Light]
+                .into_iter()
+                .flat_map(|look| [(look, Tune::default()), (look, strongest())])
+            {
+                let (min, max) = luminance_range(&mut renderer, look, tune);
                 match look {
                     Look::Dark => assert!(max < 0.05, "dark look too bright: {max}"),
                     Look::Light => assert!(min > 0.63, "light look too dark: {min}"),
@@ -231,17 +284,30 @@ mod tests {
         }
     }
 
-    /// The darkest and brightest pixel of a loud frame. Particles are left
-    /// out: a mote is a few pixels that drift past, brighter on purpose.
-    fn luminance_range(renderer: &mut Renderer, look: Look) -> (f32, f32) {
+    /// The settings' far ends (Settings → Visuals sliders at the right).
+    fn strongest() -> Tune {
+        Tune {
+            blur: 2.0,
+            bloom: 2.0,
+            intensity: 2.0,
+            wave: 2.0,
+            wave_clock: 3.0,
+            ribbons: 3,
+            wave_height: 0.5,
+        }
+    }
+
+    /// The darkest and brightest pixel of a loud frame.
+    fn luminance_range(renderer: &mut Renderer, look: Look, tune: Tune) -> (f32, f32) {
         let params = FrameParams {
             seconds: 3.0,
             bass: 1.0,
             kick: 1.0,
             level: 1.0,
             look,
-            particles: false,
             shadow: None,
+            flow: 3.0,
+            tune,
         };
         renderer.frame(&params).expect("first frame");
         let frame = renderer.frame(&params).expect("frame").expect("a frame");

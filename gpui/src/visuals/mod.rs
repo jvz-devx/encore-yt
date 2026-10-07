@@ -39,8 +39,10 @@
 //! it) and `YTFAST_GPUI_FRAME_LOG=<ms>` logs frames slower than that
 //! ([`timing`]).
 
+mod ambient;
 mod backdrop;
 mod bar;
+pub mod config;
 mod content;
 mod device;
 mod dissolve;
@@ -49,6 +51,7 @@ mod flight;
 mod frames;
 mod slots;
 mod timing;
+mod visualizer;
 mod waveform;
 
 use std::cell::Cell;
@@ -92,29 +95,43 @@ pub fn shell(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
     let playback = &app.player.playback;
     let playing = playback.playing && !playback.loading;
     let bar = bar_input(app, cx);
+    let scene = if !enabled() {
+        None
+    } else if app.extras.stage.open {
+        Some(visualizer::Place::Stage)
+    } else if app.extras.visualizer {
+        Some(visualizer::Place::Full)
+    } else {
+        None
+    };
     let input = effects::Input {
         showing: showing && enabled(),
         playing,
         now_playing: app.player.now_playing,
         bar,
+        scene,
     };
     layers
         .effects
         .update(cx, |effects, _| effects.input = input);
+    // Stage and the visualiser cover Now Playing without closing it: no
+    // flight when they open or close over it.
+    let open =
+        app.player.now_playing && app.player.now_playing_over.as_ref() == Some(&app.pages.view);
     layers
         .flight
-        .update(cx, |flight, cx| flight.follow(showing, window, cx));
+        .update(cx, |flight, cx| flight.follow(open, window, cx));
     // Cached, except after input the app's models may have taken: a cached
     // view renders again only when notified.
     let cache = !layers.input.take() && !uncached();
     let overlay = layers.effects.read(cx).overlay();
     let content = view(layers.content.clone().into(), cache);
     // Under the app's views, in the room they leave for it, so their
-    // dialogs and menus cover it. Stage hides it.
+    // dialogs and menus cover it. Stage and the visualiser hide it.
     // Redrawn afresh in this frame once its elapsed time or ridge would
     // show the position differently (`MusicApp::position_moved`).
     let bar_stale = app.player.bar_shown != Some(app.bar_shows(cx));
-    let bar_layer = (!app.extras.stage.open).then(|| {
+    let bar_layer = (!app.extras.stage.open && !app.extras.visualizer).then(|| {
         div()
             .absolute()
             .left_0()
@@ -170,8 +187,13 @@ fn view(view: AnyView, cache: bool) -> AnyElement {
 /// isn't on screen (Stage) or effects are off. Also asks for the song's
 /// waveform. (The bar tells the layer its cover, [`set_bar_cover`].)
 fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
-    if !enabled() || app.extras.stage.open {
+    if !enabled() {
         slots::set_bar_cover(None, cx);
+        return None;
+    }
+    // Stage and the full-window visualiser hand over the song's cover
+    // themselves, for the backdrop's colours.
+    if app.extras.stage.open || app.extras.visualizer {
         return None;
     }
     let player = &app.player;
@@ -211,6 +233,105 @@ pub fn position_moved(bar: bool, cx: &mut App) -> bool {
     true
 }
 
+/// Whether the effects paint behind Stage (its backdrop or visualiser):
+/// Stage leaves its background see-through then.
+pub fn paints_stage() -> bool {
+    let config = config::get();
+    enabled() && ((config.stage.backdrop && config.backdrop.on) || config.stage.visualizer)
+}
+
+/// The band Stage keeps free along the bottom of its body for the
+/// visualiser's bars or line (in a window `height` points tall), so the
+/// cover, titles and lyrics sit above it; nothing for the other styles or
+/// without the visualiser.
+pub fn stage_band(height: f32) -> Pixels {
+    let config = config::get();
+    let banded = matches!(
+        config.visualizer.style,
+        config::Style::Bars | config::Style::Mirrored | config::Style::Line
+    );
+    if enabled() && config.stage.visualizer && banded {
+        px((height * 0.16).clamp(72., 200.))
+    } else {
+        px(0.)
+    }
+}
+
+/// Whether the effects paint behind the full-window visualiser.
+pub fn paints_full() -> bool {
+    enabled()
+}
+
+/// How far the ring's bars reach out of a scene's cover of `side`.
+pub fn ring_reach(side: Pixels) -> Pixels {
+    (side * 0.2).min(px(120.))
+}
+
+/// How far the ring's bars reach out of Now Playing's cover of `side`.
+pub fn now_playing_ring_reach(side: Pixels) -> Pixels {
+    (side * 0.1).min(px(36.))
+}
+
+/// Room to keep round Now Playing's cover of about `side` for the ring
+/// (its gap off the cover, its bars and their caps), or nothing when the
+/// ring isn't the visualiser there. The cover shrinks by it, so the ring
+/// stays inside the panel.
+pub fn now_playing_ring_room(side: Pixels) -> Pixels {
+    let config = config::get();
+    let v = &config.visualizer;
+    if !(enabled() && v.now_playing.visualizer() && v.style == config::Style::Ring) {
+        return px(0.);
+    }
+    // The shader's gap: 3 px and 3 % of the cover.
+    px(3.) + side * 0.03 + now_playing_ring_reach(side) + px(8.)
+}
+
+/// How far the ring's bars reach out of Stage's cover of `side` (Stage
+/// shares its room with the lyrics, so less than the full window's).
+pub fn stage_ring_reach(side: Pixels) -> Pixels {
+    (side * 0.12).min(px(64.))
+}
+
+/// Room to keep round Stage's cover of about `side` for the ring, or
+/// nothing when the ring isn't Stage's visualiser. The cover shrinks by
+/// it, so the ring clears the titles, the lyrics and the window's edge.
+pub fn stage_ring_room(side: Pixels) -> Pixels {
+    let config = config::get();
+    if !(enabled() && config.stage.visualizer && config.visualizer.style == config::Style::Ring) {
+        return px(0.);
+    }
+    px(3.) + side * 0.03 + stage_ring_reach(side) + px(8.)
+}
+
+/// Stage's cover's corner radius at `side` (also the full-window
+/// visualiser's).
+pub fn stage_cover_radius(side: Pixels) -> Pixels {
+    (side * 0.02).clamp(theme::radius::MD, px(16.))
+}
+
+/// The height of Now Playing's strip above the title (`base` for the
+/// thin spectrum): taller while the visualiser draws its bars there.
+pub fn spectrum_height(base: Pixels) -> Pixels {
+    if strip_band() { base + px(24.) } else { base }
+}
+
+/// Where the visualiser draws in Now Playing's strip: all of it, with room
+/// round it for the glow.
+fn visualizer_strip(strip: Bounds<Pixels>) -> Bounds<Pixels> {
+    Bounds::from_corners(
+        point(strip.left() - px(8.), strip.top() - px(10.)),
+        point(strip.right() + px(8.), strip.bottom() + px(4.)),
+    )
+}
+
+/// Whether the visualiser draws a band in Now Playing's strip.
+fn strip_band() -> bool {
+    let config = config::get();
+    let v = &config.visualizer;
+    let banded = !matches!(v.style, config::Style::Ring | config::Style::Particles);
+    enabled() && v.now_playing.visualizer() && banded
+}
+
 /// The seek bar's width, as last laid out.
 pub fn seek_width(cx: &App) -> Option<Pixels> {
     slots::Slots::get(cx, Slot::Seek).map(|b| b.size.width)
@@ -219,7 +340,10 @@ pub fn seek_width(cx: &App) -> Option<Pixels> {
 /// Now Playing fills the page panel: the panel is left see-through and the
 /// effects layer paints it.
 pub fn fills_panel(app: &MusicApp) -> bool {
-    app.player.now_playing && app.player.now_playing_over.as_ref() == Some(&app.pages.view)
+    app.player.now_playing
+        && app.player.now_playing_over.as_ref() == Some(&app.pages.view)
+        && !app.extras.stage.open
+        && !app.extras.visualizer
 }
 
 /// Whether this layer paints Now Playing's waveform (so a position tick
@@ -241,10 +365,11 @@ fn uncached() -> bool {
     std::env::var_os("YTFAST_GPUI_VISUALS_UNCACHED").is_some_and(|v| v == "1")
 }
 
-/// Effects are on unless `YTFAST_GPUI_VISUALS=0`, and off in the UI tests
-/// (they need a GPU device and the audio engine).
-fn enabled() -> bool {
-    !cfg!(test) && std::env::var_os("YTFAST_GPUI_VISUALS").is_none_or(|v| v != "0")
+/// Effects are on unless Settings → Visuals has them off (the Off preset)
+/// or `YTFAST_GPUI_VISUALS=0`, and off in the UI tests (they need a GPU
+/// device and the audio engine).
+pub fn enabled() -> bool {
+    !cfg!(test) && config::get().on
 }
 
 /// Motion is reduced when the desktop asks for it ([`theme::reduced_motion`])
@@ -258,6 +383,7 @@ pub fn reduced_motion(cx: &App) -> bool {
 
 fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {
     if !cx.has_global::<Layers>() {
+        config::load(&app.paths.config);
         cx.set_global(slots::Slots::default());
         let input = Rc::new(Cell::new(false));
         let clock = app.player.clock.clone();

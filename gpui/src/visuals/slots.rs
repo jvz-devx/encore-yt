@@ -26,6 +26,12 @@ pub enum Slot {
     Play,
     /// The player bar's cover.
     BarCover,
+    /// The whole window under Stage or the full-window visualiser.
+    Stage,
+    /// The scene's area for the visualiser (above Stage's transport).
+    StageBody,
+    /// The scene's cover.
+    StageCover,
 }
 
 /// The cover's image URLs at the sizes the app loads them.
@@ -47,6 +53,9 @@ pub(super) struct Slots {
     seek: Cell<Option<Bounds<Pixels>>>,
     play: Cell<Option<Bounds<Pixels>>>,
     bar_cover: Cell<Option<Bounds<Pixels>>>,
+    stage: Cell<Option<Bounds<Pixels>>>,
+    stage_body: Cell<Option<Bounds<Pixels>>>,
+    stage_cover: Cell<Option<Bounds<Pixels>>>,
     covers: RefCell<Covers>,
     /// The effects layer paints the player bar's background and seek bar.
     bar_painted: Cell<bool>,
@@ -67,6 +76,9 @@ impl Slots {
             Slot::Seek => &self.seek,
             Slot::Play => &self.play,
             Slot::BarCover => &self.bar_cover,
+            Slot::Stage => &self.stage,
+            Slot::StageBody => &self.stage_body,
+            Slot::StageCover => &self.stage_cover,
         }
     }
 
@@ -122,7 +134,9 @@ pub fn paints_cover_shadow(cx: &App) -> bool {
         .is_some_and(|s| s.shadow_painted.get())
 }
 
-/// Tells the effects which cover image the player bar shows.
+/// Tells the effects which small cover image the player bar shows (or
+/// Stage and the full-window visualiser, which hide the bar): the bar's
+/// glow and the backdrop take their colours from it.
 pub fn set_bar_cover(url: Option<SharedString>, cx: &App) {
     if let Some(slots) = cx.try_global::<Slots>() {
         slots.covers.borrow_mut().small = url;

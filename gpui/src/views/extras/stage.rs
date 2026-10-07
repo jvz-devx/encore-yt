@@ -34,6 +34,14 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
     let (w, h) = (f32::from(view.width), f32::from(view.height));
     let margin = (w.min(h) * 0.06).max(32.);
     let track = app.player.current().cloned();
+    // The bar is hidden: the backdrop's colours come from this cover.
+    visuals::set_bar_cover(
+        track
+            .as_ref()
+            .and_then(|t| t.thumbnail.as_deref())
+            .map(|u| covers::sized(u, size::PLAYER_COVER).into()),
+        cx,
+    );
     if track.is_some() {
         app.request_current_lyrics();
     }
@@ -44,15 +52,20 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
     let words = lyrics
         .as_ref()
         .filter(|l| !l.lines.is_empty() || !l.text.trim().is_empty());
-    let room = h - margin - TRANSPORT - TITLES;
+    // The visualiser's band, when it shows, stays clear under the body.
+    let band = visuals::stage_band(h - TRANSPORT);
+    let room = h - margin - TRANSPORT - TITLES - f32::from(band);
     let side = if words.is_some() {
         room.min((w - 2. * margin) * 0.42)
     } else {
         room.min((w - 2. * margin) * 0.62)
     }
     .max(120.);
+    // The visualiser's ring, when it shows, stands in the cover's room.
+    let ring = visuals::stage_ring_room(px(side));
+    let side = (px(side) - ring * 2.).max(px(120.));
     let shadow = !visuals::paints_cover_shadow(cx);
-    let song = song_column(track.as_ref(), px(side), shadow, &c);
+    let song = song_column(track.as_ref(), side, ring, shadow, &c);
     let body = h_flex()
         .relative()
         .child(visuals::slot(Slot::StageBody))
@@ -61,6 +74,7 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .w_full()
         .px(px(margin))
         .pt(px(margin))
+        .pb(band)
         .gap(px(margin))
         .child(
             v_flex()
@@ -112,19 +126,28 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
 }
 
 /// The cover, huge, with the title and artists centred under it.
-fn song_column(track: Option<&Track>, side: Pixels, shadow: bool, c: &Colors) -> impl IntoElement {
-    let title_size = (f32::from(side) * 0.06).clamp(22., 34.);
+/// The cover (with `ring` of room round it for the visualiser's ring) and
+/// the song's title and artists under it.
+fn song_column(
+    track: Option<&Track>,
+    side: Pixels,
+    ring: Pixels,
+    shadow: bool,
+    c: &Colors,
+) -> impl IntoElement {
+    let room = side + ring * 2.;
+    let title_size = (f32::from(room) * 0.06).clamp(22., 34.);
     v_flex()
         .items_center()
-        .child(big_cover(
+        .child(div().m(ring).child(big_cover(
             track.and_then(|t| t.thumbnail.as_deref()),
             side,
             shadow,
             c,
-        ))
+        )))
         .children(track.map(|t| {
             v_flex()
-                .w(side * 1.2)
+                .w(room * 1.2)
                 .mt(space::XL)
                 .items_center()
                 .gap(space::XS)

@@ -186,8 +186,13 @@ fn view(view: AnyView, cache: bool) -> AnyElement {
 /// isn't on screen (Stage) or effects are off. Also asks for the song's
 /// waveform. (The bar tells the layer its cover, [`set_bar_cover`].)
 fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
-    if !enabled() || app.extras.stage.open || app.extras.visualizer {
+    if !enabled() {
         slots::set_bar_cover(None, cx);
+        return None;
+    }
+    // Stage and the full-window visualiser hand over the song's cover
+    // themselves, for the backdrop's colours.
+    if app.extras.stage.open || app.extras.visualizer {
         return None;
     }
     let player = &app.player;
@@ -234,6 +239,23 @@ pub fn paints_stage() -> bool {
     enabled() && ((config.stage.backdrop && config.backdrop.on) || config.stage.visualizer)
 }
 
+/// The band Stage keeps free along the bottom of its body for the
+/// visualiser's bars or line (in a window `height` points tall), so the
+/// cover, titles and lyrics sit above it; nothing for the other styles or
+/// without the visualiser.
+pub fn stage_band(height: f32) -> Pixels {
+    let config = config::get();
+    let banded = matches!(
+        config.visualizer.style,
+        config::Style::Bars | config::Style::Mirrored | config::Style::Line
+    );
+    if enabled() && config.stage.visualizer && banded {
+        px((height * 0.16).clamp(72., 200.))
+    } else {
+        px(0.)
+    }
+}
+
 /// Whether the effects paint behind the full-window visualiser.
 pub fn paints_full() -> bool {
     enabled()
@@ -242,6 +264,42 @@ pub fn paints_full() -> bool {
 /// How far the ring's bars reach out of a scene's cover of `side`.
 pub fn ring_reach(side: Pixels) -> Pixels {
     (side * 0.2).min(px(120.))
+}
+
+/// How far the ring's bars reach out of Now Playing's cover of `side`.
+pub fn now_playing_ring_reach(side: Pixels) -> Pixels {
+    (side * 0.1).min(px(36.))
+}
+
+/// Room to keep round Now Playing's cover of about `side` for the ring
+/// (its gap off the cover, its bars and their caps), or nothing when the
+/// ring isn't the visualiser there. The cover shrinks by it, so the ring
+/// stays inside the panel.
+pub fn now_playing_ring_room(side: Pixels) -> Pixels {
+    let config = config::get();
+    let v = &config.visualizer;
+    if !(enabled() && v.now_playing.visualizer() && v.style == config::Style::Ring) {
+        return px(0.);
+    }
+    // The shader's gap: 3 px and 3 % of the cover.
+    px(3.) + side * 0.03 + now_playing_ring_reach(side) + px(8.)
+}
+
+/// How far the ring's bars reach out of Stage's cover of `side` (Stage
+/// shares its room with the lyrics, so less than the full window's).
+pub fn stage_ring_reach(side: Pixels) -> Pixels {
+    (side * 0.12).min(px(64.))
+}
+
+/// Room to keep round Stage's cover of about `side` for the ring, or
+/// nothing when the ring isn't Stage's visualiser. The cover shrinks by
+/// it, so the ring clears the titles, the lyrics and the window's edge.
+pub fn stage_ring_room(side: Pixels) -> Pixels {
+    let config = config::get();
+    if !(enabled() && config.stage.visualizer && config.visualizer.style == config::Style::Ring) {
+        return px(0.);
+    }
+    px(3.) + side * 0.03 + stage_ring_reach(side) + px(8.)
 }
 
 /// Stage's cover's corner radius at `side` (also the full-window

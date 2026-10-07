@@ -81,7 +81,20 @@ fn cover_side(app: &MusicApp, window: &Window) -> Pixels {
         - BELOW_COVER
         - (visuals::spectrum_height(SPECTRUM) - SPECTRUM);
     let wide = view.width - size::SIDEBAR - space::SM - size::GUTTER * 2. - TABS - space::XXL;
-    high.min(wide).clamp(COVER_MIN, COVER_MAX)
+    let side = high.min(wide).clamp(COVER_MIN, COVER_MAX);
+    // The visualiser's ring stands round the cover, inside the same room.
+    (side - visuals::now_playing_ring_room(side) * 2.).max(COVER_MIN)
+}
+
+/// The room the ring keeps round a cover that shrank to `side` for it.
+fn ring_room(side: Pixels) -> Pixels {
+    let room = visuals::now_playing_ring_room(side);
+    // `cover_side` took it off the larger side; near enough the same.
+    if room > px(0.) {
+        visuals::now_playing_ring_room(side + room * 2.)
+    } else {
+        room
+    }
 }
 
 /// The cover, the spectrum, title, artists and album, the waveform, the
@@ -110,6 +123,7 @@ fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) ->
         .child(
             div()
                 .relative()
+                .my(ring_room(side))
                 .when(hidden, |d| d.opacity(0.))
                 .child(
                     widgets::cover(url.map(Into::into), side, false, c)

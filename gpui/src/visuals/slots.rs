@@ -134,7 +134,9 @@ pub fn paints_cover_shadow(cx: &App) -> bool {
         .is_some_and(|s| s.shadow_painted.get())
 }
 
-/// Tells the effects which cover image the player bar shows.
+/// Tells the effects which small cover image the player bar shows (or
+/// Stage and the full-window visualiser, which hide the bar): the bar's
+/// glow and the backdrop take their colours from it.
 pub fn set_bar_cover(url: Option<SharedString>, cx: &App) {
     if let Some(slots) = cx.try_global::<Slots>() {
         slots.covers.borrow_mut().small = url;

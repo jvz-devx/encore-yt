@@ -13,6 +13,7 @@ use ytfast::model::Track;
 use super::super::page::covers;
 use super::super::{runs_text, widgets};
 use crate::app::MusicApp;
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 use crate::visuals::{self, Slot, config};
 
@@ -29,6 +30,14 @@ pub fn visualizer(
     let (w, h) = (f32::from(view.width), f32::from(view.height));
     let side = px((h * 0.36).min(w * 0.34).max(120.));
     let track = app.player.current().cloned();
+    // The bar is hidden: the backdrop's colours come from this cover.
+    visuals::set_bar_cover(
+        track
+            .as_ref()
+            .and_then(|t| t.thumbnail.as_deref())
+            .map(|u| covers::sized(u, size::PLAYER_COVER).into()),
+        cx,
+    );
     let painted = visuals::paints_full();
     let shadow = !visuals::paints_cover_shadow(cx);
     let inner = div()
@@ -52,9 +61,10 @@ pub fn visualizer(
                 .child(song(track.as_ref(), side, shadow, &c)),
         )
         .child(top_bar(painted, &c, cx))
-        .with_animation(
+        .with_motion(
             "enter:visualizer",
-            Animation::new(motion::SLOW).with_easing(motion::ease_out),
+            motion::Kind::NowPlaying,
+            motion::SLOW,
             |el, t| el.opacity(t),
         );
     // Every area's shortcuts work here too (Space plays and pauses).

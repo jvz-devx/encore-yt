@@ -92,6 +92,7 @@ impl Vis {
         let Some(region) = region(place, v.style, cx) else {
             return;
         };
+        let region = whole_pixels(region, window.scale_factor());
         let scale = window.scale_factor() * render_scale(v.style);
         let size = (
             (f32::from(region.size.width) * scale)
@@ -166,14 +167,24 @@ impl Vis {
     }
 }
 
-/// The scale the style renders at, of device pixels: soft particles and
-/// the ring's glow look the same at less.
+/// The scale the style renders at, of device pixels: soft particles look
+/// the same at less. The ring's frame edge runs through the scene, where a
+/// scaled frame's last texels would show as a faint line, so it renders at
+/// full size.
 fn render_scale(style: Style) -> f32 {
     match style {
         Style::Particles => 0.5,
-        Style::Ring => 0.75,
         _ => 1.,
     }
+}
+
+/// `b` on whole device pixels, so the frame's texels meet the screen's.
+fn whole_pixels(b: Bounds<Pixels>, scale: f32) -> Bounds<Pixels> {
+    let snap = |v: Pixels| px((f32::from(v) * scale).round() / scale);
+    Bounds::from_corners(
+        point(snap(b.left()), snap(b.top())),
+        point(snap(b.right()), snap(b.bottom())),
+    )
 }
 
 /// The cover the ring goes round.
@@ -200,8 +211,9 @@ fn reach(place: Place, cx: &App) -> Pixels {
         .map_or(px(200.), |c| c.size.width);
     match place {
         // Clear of the strip and the title below the cover.
-        Place::NowPlaying => (side * 0.14).min(px(56.)),
-        Place::Stage | Place::Full => super::ring_reach(side),
+        Place::NowPlaying => super::now_playing_ring_reach(side),
+        Place::Stage => super::stage_ring_reach(side),
+        Place::Full => super::ring_reach(side),
     }
 }
 
@@ -211,7 +223,10 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
     let around = |c: Bounds<Pixels>, by: Pixels| c.dilate(by);
     match place {
         Place::NowPlaying => match style {
-            Style::Ring => cover.map(|c| around(c, reach(place, cx) + px(24.))),
+            Style::Ring => {
+                let page = Slots::get(cx, Slot::Page)?;
+                cover.map(|c| around(c, reach(place, cx) + px(24.)).intersect(&page))
+            }
             Style::Particles => {
                 let page = Slots::get(cx, Slot::Page)?;
                 let c = cover?;
@@ -223,6 +238,8 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
         Place::Stage | Place::Full => {
             let body = Slots::get(cx, Slot::StageBody)?;
             let band = if place == Place::Full { 0.26 } else { 0.22 };
+            // Stage keeps a band free under its cover and lyrics.
+            let kept = super::stage_band(f32::from(body.size.height));
             match style {
                 Style::Ring => cover.map(|c| around(c, reach(place, cx) + px(32.))),
                 Style::Particles => Slots::get(cx, Slot::Stage),
@@ -234,7 +251,11 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
                     } else {
                         band
                     };
-                    let h = body.size.height * band;
+                    let h = if place == Place::Stage && kept > px(0.) {
+                        kept
+                    } else {
+                        body.size.height * band
+                    };
                     Some(Bounds::new(
                         point(body.left(), body.bottom() - h),
                         size(body.size.width, h),

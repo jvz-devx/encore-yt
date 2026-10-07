@@ -38,6 +38,7 @@ Crates: `gpui` (the GPUI app), `visuals` (wgpu effects), `backend` (root crate w
 ## Rules
 
 - Cookie values and the Chromium cookie key are secrets. Never log, print or commit them; derived cookie files are 0600 and short-lived. Read the browser's cookie store read-only and never restart or modify the browser.
+- The app acts as the maintainer's main YouTube channel (M12). Checks never change that account or play real streams signed in: use `YTFAST_FAKE_STREAM` for playback and a fresh `XDG_CONFIG_HOME`/`XDG_CACHE_HOME` (signed out) for anything else.
 - Nothing from a real account goes into the repository: no captured responses, screenshots or logs with account data. E2E artifacts stay in the gitignored `artifacts/`. Public screenshots come from the signed-out `showcase` scenario, public videos from `scripts/demo.sh` (also signed out).
 - Colours come only from the Omarchy theme palette. Never hard-code colours.
 - Don't vendor or patch upstream crates here. Keep the egui/winit fork pins and the fastframe tag aligned with ZapFast/Spotifast and move them together.

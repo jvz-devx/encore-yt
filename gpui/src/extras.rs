@@ -37,6 +37,7 @@ actions!(
     extras,
     [
         ToggleStage,
+        ToggleVisualizer,
         StageFullscreen,
         ToggleEqualizer,
         JumpToPeak,
@@ -68,6 +69,8 @@ pub struct Extras {
     /// Redraws the sleep timer's countdown while one is set.
     pub sleep_tick: Option<Task<()>>,
     pub stage: Stage,
+    /// The full-window visualiser (V) is open.
+    pub visualizer: bool,
     pub(crate) hold: audition::Hold,
     /// The mini player's window while it is open.
     mini: Option<AnyWindowHandle>,
@@ -136,6 +139,7 @@ impl Extras {
                 panel_closed_at: None,
                 sleep_tick: None,
                 stage: Stage::default(),
+                visualizer: false,
                 hold: audition::Hold::default(),
                 mini: None,
                 mix_length,
@@ -164,12 +168,28 @@ impl MusicApp {
         self.extras.equalizer_open = false;
         self.extras.sleep_open = false;
         if open {
+            self.extras.visualizer = false;
             self.extras.stage.song = None;
             self.request_current_lyrics();
         } else if std::mem::take(&mut self.extras.stage.fullscreen) && window.is_fullscreen() {
             window.toggle_fullscreen();
         }
         log::info!("stage {}", if open { "opened" } else { "closed" });
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    /// V: the full-window visualiser (cover, title and the visualiser over
+    /// the backdrop) opens or closes; it replaces Stage.
+    pub fn toggle_visualizer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.extras.stage.open {
+            self.toggle_stage(window, cx);
+        }
+        let open = !self.extras.visualizer;
+        self.extras.visualizer = open;
+        self.extras.equalizer_open = false;
+        self.extras.sleep_open = false;
+        log::info!("visualiser {}", if open { "opened" } else { "closed" });
         window.focus(&self.focus, cx);
         cx.notify();
     }
@@ -250,6 +270,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f", ToggleStage, Some("Stage")),
         KeyBinding::new("escape", ToggleStage, Some("Stage")),
         KeyBinding::new("f11", StageFullscreen, Some("Stage")),
+        KeyBinding::new("v", ToggleVisualizer, Some(MUSIC)),
+        KeyBinding::new("v", ToggleVisualizer, Some("Stage")),
+        KeyBinding::new("v", ToggleVisualizer, Some("Visualizer")),
+        KeyBinding::new("escape", ToggleVisualizer, Some("Visualizer")),
     ]);
 }
 
@@ -258,6 +282,11 @@ pub fn on_actions(root: Div, cx: &mut Context<MusicApp>) -> Div {
     root.on_action(cx.listener(|this, _: &ToggleStage, window, cx| this.toggle_stage(window, cx)))
         .on_action(
             cx.listener(|this, _: &StageFullscreen, window, cx| this.stage_fullscreen(window, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &ToggleVisualizer, window, cx| {
+                this.toggle_visualizer(window, cx)
+            }),
         )
         .on_action(
             cx.listener(|this, _: &ToggleEqualizer, window, cx| this.toggle_equalizer(window, cx)),

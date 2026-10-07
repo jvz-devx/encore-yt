@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::Colorize as _;
 use gpui_kit::*;
-use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer};
+use ytfast_visuals::{Cover, CoverShadow, FrameCost, FrameParams, Renderer, Tune};
 
 use super::effects::Tick;
 use super::frames::Frames;
@@ -27,6 +27,12 @@ pub struct Backdrop {
     palette: Option<[[f32; 4]; 4]>,
     /// The cover shadow last drawn.
     shadow: Option<CoverShadow>,
+    /// The flow's clock (it runs at the swirl speed), and the animation
+    /// time it last moved with.
+    flow: f32,
+    seconds: f32,
+    /// The settings' revision last drawn with.
+    revision: u64,
     /// Frames still to render although nothing moves (a new cover or size
     /// under reduced motion or while paused; the first frame shows a frame
     /// late).
@@ -106,19 +112,32 @@ impl Backdrop {
             self.cover = Some(url.clone());
             self.pending = self.pending.max(2);
         }
+        let config = super::config::get();
+        let b = &config.backdrop;
+        if config_changed(&mut self.revision) {
+            self.pending = self.pending.max(2);
+        }
+        self.flow += (tick.seconds - self.seconds).max(0.) * b.swirl;
+        self.seconds = tick.seconds;
         if !tick.due && self.pending == 0 {
             return;
         }
         let params = FrameParams {
             seconds: tick.seconds,
-            bass: tick.bass,
-            kick: tick.kick,
+            bass: (tick.bass * b.bass_pulse).min(1.5),
+            kick: (tick.kick * b.bass_pulse).min(1.5),
             level: tick.level,
             look: tick.look,
-            particles: !tick.reduce && !super::effects::skip("particles"),
+            particles: b.motes && !tick.reduce && !super::effects::skip("particles"),
             shadow: self.shadow,
-            flow: tick.seconds,
-            tune: ytfast_visuals::Tune::default(),
+            flow: self.flow,
+            tune: Tune {
+                blur: b.blur,
+                motes: b.motes_amount,
+                mote_size: b.mote_size,
+                bloom: b.bloom,
+                intensity: b.intensity,
+            },
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {
@@ -151,6 +170,12 @@ impl Backdrop {
     pub fn set_fallback(&mut self, palette: [[f32; 4]; 4]) {
         self.palette = Some(palette);
     }
+}
+
+/// Whether the settings changed since `revision` (which is moved on).
+pub fn config_changed(revision: &mut u64) -> bool {
+    let now = super::config::revision();
+    std::mem::replace(revision, now) != now
 }
 
 /// The large cover's drop shadow, which the backdrop draws in place of

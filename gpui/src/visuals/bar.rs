@@ -57,6 +57,8 @@ struct Still {
     cover: bool,
     /// Device pixel positions of the bar's controls.
     layout: [i32; 6],
+    /// The settings' revision (Settings → Visuals).
+    revision: u64,
 }
 
 /// The palette cross-fading to a new cover's.
@@ -170,6 +172,11 @@ impl Bar {
         self.pending > 0
     }
 
+    /// The cover's colours as they show now (cross-fading).
+    pub fn palette(&self) -> [[f32; 4]; 4] {
+        self.palette.colours().0
+    }
+
     /// The most colourful palette entry: the rings' and the dissolve
     /// edge's hue.
     pub fn accent(&self) -> [f32; 3] {
@@ -221,14 +228,18 @@ impl Bar {
             strip.resize(size.0, size.1);
             self.pending = self.pending.max(2);
         }
-        if self.wave != input.video_id {
-            let values = input
-                .video_id
+        // The outline only while Settings → Visuals shows it.
+        let wanted = input
+            .video_id
+            .clone()
+            .filter(|_| super::config::get().seek.waveform);
+        if self.wave != wanted {
+            let values = wanted
                 .as_deref()
                 .and_then(|id| super::waveform::outline(id, cx));
             strip.set_waveform(values.as_deref());
-            if values.is_some() || input.video_id.is_none() {
-                self.wave = input.video_id.clone();
+            if values.is_some() || wanted.is_none() {
+                self.wave = wanted;
             }
         }
         let heat = input
@@ -319,6 +330,15 @@ impl Bar {
             .map(|b| (local(b), f32::from(cover_radius()) * scale));
         let (palette, glow) = self.palette.colours();
         let still = tick.reduce;
+        let config = super::config::get();
+        let glow = match &config.glow {
+            g if g.on => glow * g.intensity,
+            _ => 0.0,
+        };
+        let halos = match &config.halos {
+            h if h.on => h.strength,
+            _ => 0.0,
+        };
         StripParams {
             seconds: tick.seconds,
             breath: if still { 0.4 } else { self.breath },
@@ -329,8 +349,12 @@ impl Bar {
             seek,
             play,
             cover,
-            ridge: input.heat.as_ref().map(|_| RIDGE),
-            halos: 1.0,
+            ridge: input
+                .heat
+                .as_ref()
+                .filter(|_| config.seek.ridge)
+                .map(|_| RIDGE),
+            halos,
             colors: colours(cx, accent(&palette)),
             palette,
         }
@@ -360,6 +384,7 @@ impl Bar {
                 .video_id
                 .as_deref()
                 .is_some_and(|id| super::waveform::has_outline(id, cx)),
+            revision: super::config::revision(),
             heat: p.ridge.is_some(),
             cover: p.glow > 0.0,
             layout: [

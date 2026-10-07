@@ -41,7 +41,8 @@ impl Flight {
     /// Starts a trip when Now Playing opens or closes; true while one runs.
     pub fn follow(&mut self, showing: bool, _window: &mut Window, cx: &mut Context<Self>) -> bool {
         let was = self.showing.replace(showing);
-        if was.is_some_and(|was| was != showing) && !super::reduced_motion(cx) {
+        let on = super::config::get().flight.on;
+        if was.is_some_and(|was| was != showing) && on && !super::reduced_motion(cx) {
             let from = Slots::get(cx, Slot::Cover);
             if showing || from.is_some() {
                 self.trip = Some(Trip {
@@ -124,13 +125,10 @@ impl Render for Flight {
     }
 }
 
-/// How long a trip takes: `motion::SLOW`, or `YTFAST_GPUI_VISUALS_FLIGHT_MS`
-/// (to look at the flight in slow motion).
+/// How long a trip takes: Settings → Visuals (`motion::SLOW` by default),
+/// or `YTFAST_GPUI_VISUALS_FLIGHT_MS` (to look at it in slow motion).
 fn duration() -> Duration {
-    std::env::var("YTFAST_GPUI_VISUALS_FLIGHT_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .map_or(motion::SLOW, Duration::from_millis)
+    Duration::from_millis(u64::from(super::config::get().flight.ms))
 }
 
 /// The player bar's cover: `space::LG` from the left, centred in the bar.

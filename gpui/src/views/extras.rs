@@ -10,6 +10,7 @@ mod ridge;
 mod sleep;
 mod stage;
 mod stage_lyrics;
+mod visualizer;
 
 use gpui_kit::*;
 
@@ -18,6 +19,17 @@ use crate::app::MusicApp;
 pub use controls::{controls, mini_button, time_left};
 pub use ridge::ridge;
 pub use sleep::CHOICES as SLEEP_CHOICES;
+
+/// The full-window visualiser (V), `None` while it's closed.
+pub fn visualizer(
+    app: &mut MusicApp,
+    window: &mut Window,
+    cx: &mut Context<MusicApp>,
+) -> Option<AnyElement> {
+    app.extras
+        .visualizer
+        .then(|| visualizer::visualizer(app, window, cx))
+}
 
 /// Stage (F): the cover and large lyrics fill the window. `None` while it's
 /// closed. Called first on every frame of the main window, so it also runs

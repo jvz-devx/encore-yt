@@ -77,7 +77,8 @@ fn cover_side(app: &MusicApp, window: &Window) -> Pixels {
         - space::XS
         - space::XL
         - strip
-        - BELOW_COVER;
+        - BELOW_COVER
+        - (visuals::spectrum_height(SPECTRUM) - SPECTRUM);
     let wide = view.width - size::SIDEBAR - space::SM - size::GUTTER * 2. - TABS - space::XXL;
     high.min(wide).clamp(COVER_MIN, COVER_MAX)
 }
@@ -122,7 +123,7 @@ fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) ->
             div()
                 .relative()
                 .w(side)
-                .h(SPECTRUM)
+                .h(visuals::spectrum_height(SPECTRUM))
                 .mt(space::LG)
                 .child(visuals::slot(Slot::Spectrum)),
         )

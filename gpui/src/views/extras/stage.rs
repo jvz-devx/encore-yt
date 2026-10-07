@@ -17,6 +17,7 @@ use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::playback::SEEK_SCALE;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
+use crate::visuals::{self, Slot};
 
 /// The transport's band along the bottom.
 const TRANSPORT: f32 = 128.;
@@ -49,8 +50,11 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         room.min((w - 2. * margin) * 0.62)
     }
     .max(120.);
-    let song = song_column(track.as_ref(), px(side), &c);
+    let shadow = !visuals::paints_cover_shadow(cx);
+    let song = song_column(track.as_ref(), px(side), shadow, &c);
     let body = h_flex()
+        .relative()
+        .child(visuals::slot(Slot::StageBody))
         .flex_1()
         .min_h_0()
         .w_full()
@@ -81,7 +85,9 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
         .track_focus(&app.focus)
         .size_full()
         .relative()
-        .bg(c.base)
+        // The effects paint the backdrop and the visualiser behind it.
+        .when(!visuals::paints_stage(), |d| d.bg(c.base))
+        .child(visuals::slot(Slot::Stage))
         .text_color(c.text)
         .type_body()
         .image_cache(covers::root_cache(cx))
@@ -104,13 +110,14 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
 }
 
 /// The cover, huge, with the title and artists centred under it.
-fn song_column(track: Option<&Track>, side: Pixels, c: &Colors) -> impl IntoElement {
+fn song_column(track: Option<&Track>, side: Pixels, shadow: bool, c: &Colors) -> impl IntoElement {
     let title_size = (f32::from(side) * 0.06).clamp(22., 34.);
     v_flex()
         .items_center()
         .child(big_cover(
             track.and_then(|t| t.thumbnail.as_deref()),
             side,
+            shadow,
             c,
         ))
         .children(track.map(|t| {
@@ -143,8 +150,8 @@ fn song_column(track: Option<&Track>, side: Pixels, c: &Colors) -> impl IntoElem
         }))
 }
 
-fn big_cover(url: Option<&str>, side: Pixels, c: &Colors) -> impl IntoElement {
-    let corner = (side * 0.02).clamp(radius::MD, px(16.));
+fn big_cover(url: Option<&str>, side: Pixels, shadow: bool, c: &Colors) -> impl IntoElement {
+    let corner = visuals::stage_cover_radius(side);
     h_flex()
         .relative()
         .flex_none()
@@ -152,7 +159,8 @@ fn big_cover(url: Option<&str>, side: Pixels, c: &Colors) -> impl IntoElement {
         .justify_center()
         .rounded(corner)
         .bg(c.raised)
-        .shadow(elevation::high(c))
+        // The backdrop draws it while it shows.
+        .when(shadow, |d| d.shadow(elevation::high(c)))
         .child(widgets::icon(IconName::Music, side * 0.2, c.text_faint))
         .children(url.map(|url| {
             img(SharedString::from(covers::sized(url, COVER_SOURCE)))
@@ -170,6 +178,7 @@ fn big_cover(url: Option<&str>, side: Pixels, c: &Colors) -> impl IntoElement {
                 .border_1()
                 .border_color(c.outline),
         )
+        .child(visuals::slot(Slot::StageCover))
 }
 
 /// Full screen, the mini player and leave, in the top right corner.
@@ -234,7 +243,12 @@ fn transport(
             .flex_none()
             .type_caption()
             .tabular()
-            .text_color(c.text_faint)
+            // Muted rather than faint over the backdrop.
+            .text_color(if visuals::paints_stage() {
+                c.text_muted
+            } else {
+                c.text_faint
+            })
             .child(t)
     };
     v_flex()

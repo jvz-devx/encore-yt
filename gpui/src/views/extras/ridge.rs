@@ -20,6 +20,9 @@ const MARK: Pixels = px(16.);
 /// The ridge over the seek slider, or `None` while the song has no heat.
 /// It sits in the slider's box (`relative`), under the slider.
 pub fn ridge(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Option<AnyElement> {
+    if !crate::visuals::config::get().seek.ridge {
+        return None;
+    }
     let duration = app.player.playback.duration;
     let heat = app.current_heat().filter(|_| duration > 0.0)?.clone();
     let played = (app.player.position() / duration).clamp(0.0, 1.0) as f32;

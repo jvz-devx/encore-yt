@@ -41,6 +41,9 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
     if let Some(stage) = extras::stage(app, window, cx) {
         return stage;
     }
+    if let Some(visualizer) = extras::visualizer(app, window, cx) {
+        return visualizer;
+    }
     let c = theme::colors(cx);
     let main = if app.player.now_playing {
         now_playing::now_playing(app, window, cx)

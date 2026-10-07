@@ -2,10 +2,12 @@
 //! playlist or artist (or its ⋮ button) opens its actions. This is the
 //! menu's state and what its entries do; `views::menu` draws it.
 //!
-//! The open menu holds the keyboard (`MusicMenu` key context): the arrows
-//! and Tab move, Enter or Space chooses, Esc closes. Album, playlist and
-//! artist pages start loading as their menu opens, so Play next and Add to
-//! queue answer at once.
+//! The open menu holds the keyboard (`MusicMenu` key context, keys in
+//! `menu_keys`): the arrows and Tab move, Home/End and a first letter jump,
+//! Enter or Space chooses, → and ← open and close Add to playlist's
+//! submenu (`submenu`), Esc closes and gives the keyboard back. Album,
+//! playlist and artist pages start loading as their menu opens, so Play
+//! next and Add to queue answer at once.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -18,23 +20,12 @@ use ytfast::model::{Header, Item, ItemKind, LikeStatus, Run, Target, Track};
 use super::control::{self, FromPage};
 use crate::app::MusicApp;
 
-actions!(music_menu, [MenuUp, MenuDown, MenuChoose, MenuClose]);
-
-/// The key context of an open menu.
-pub const CONTEXT: &str = "MusicMenu";
-
-pub fn bind_keys(cx: &mut App) {
-    let menu = Some(CONTEXT);
-    cx.bind_keys([
-        KeyBinding::new("up", MenuUp, menu),
-        KeyBinding::new("shift-tab", MenuUp, menu),
-        KeyBinding::new("down", MenuDown, menu),
-        KeyBinding::new("tab", MenuDown, menu),
-        KeyBinding::new("enter", MenuChoose, menu),
-        KeyBinding::new("space", MenuChoose, menu),
-        KeyBinding::new("escape", MenuClose, menu),
-    ]);
-}
+pub use super::menu_keys::{
+    CONTEXT, MenuChoose, MenuClose, MenuDown, MenuFirst, MenuIn, MenuLast, MenuOut, MenuUp,
+    bind_keys,
+};
+use super::menu_keys::{find_letter, give_back, step};
+use super::submenu::{Sub, sub_entries};
 
 /// Where a song's menu was opened: what else it can offer.
 #[derive(Clone, Debug, PartialEq)]
@@ -139,6 +130,10 @@ pub struct Menu {
     /// The entry under the pointer or the keyboard.
     pub selected: Option<usize>,
     pub focus: FocusHandle,
+    /// Where the keyboard was when it opened; it goes back there.
+    back: Option<FocusHandle>,
+    /// Add to playlist's submenu, while open.
+    pub sub: Option<Sub>,
     /// Tells menus apart, so each one settles in.
     pub serial: u64,
 }
@@ -166,6 +161,13 @@ pub struct Entry {
     pub label: &'static str,
     pub does: Does,
     pub section: u8,
+}
+
+impl Entry {
+    /// Add to playlist opens a submenu rather than acting.
+    pub fn opens_sub(&self) -> bool {
+        matches!(self.does, Does::AddToPlaylist)
+    }
 }
 
 const QUEUE: u8 = 0;
@@ -403,6 +405,12 @@ impl MusicApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A menu opened over another gives the keyboard back to the first
+        // one's origin.
+        let back = match &self.desktop.layers.menu {
+            Some(open) => open.back.clone(),
+            None => window.focused(cx),
+        };
         self.close_layers(window, cx);
         if let Some(page) = subject.page() {
             self.ensure_page(page.clone(), false);
@@ -415,49 +423,159 @@ impl MusicApp {
             at,
             selected: None,
             focus,
+            back,
+            sub: None,
             serial: SERIAL.fetch_add(1, Ordering::Relaxed),
         });
         cx.notify();
     }
 
+    /// Closes the menu; the keyboard goes back to where it was.
     pub fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.desktop.layers.menu.take().is_some() {
-            window.focus(&self.focus, cx);
+        if let Some(menu) = self.desktop.layers.menu.take() {
+            give_back(menu.back, &self.focus, window, cx);
             cx.notify();
         }
     }
 
-    /// The arrows: moves the highlight by `delta`, wrapping.
-    pub fn move_in_menu(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(menu) = &self.desktop.layers.menu else {
-            return;
-        };
-        let count = entries(self, &menu.subject).len() as isize;
-        if count == 0 {
-            return;
+    /// Esc: the submenu first, then the menu.
+    pub fn escape_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.close_sub(cx) {
+            self.close_menu(window, cx);
         }
-        let at = match menu.selected {
-            Some(i) => (i as isize + delta).rem_euclid(count),
-            None if delta > 0 => 0,
-            None => count - 1,
+    }
+
+    /// The arrows: moves the highlight by `delta`, wrapping (in the
+    /// submenu while it has the keyboard).
+    pub fn move_in_menu(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let sub_count = self.sub_count();
+        let main_count = self.main_count();
+        let Some(menu) = &mut self.desktop.layers.menu else {
+            return;
         };
-        if let Some(menu) = &mut self.desktop.layers.menu {
-            menu.selected = Some(at as usize);
+        match &mut menu.sub {
+            Some(sub) if sub.selected.is_some() => {
+                sub.selected = step(sub.selected, delta, sub_count);
+            }
+            _ => {
+                menu.sub = None;
+                menu.selected = step(menu.selected, delta, main_count);
+            }
         }
         cx.notify();
     }
 
-    /// The pointer is on entry `i`.
+    /// Home and End: the first or last entry.
+    pub fn menu_end(&mut self, last: bool, cx: &mut Context<Self>) {
+        let sub_count = self.sub_count();
+        let main_count = self.main_count();
+        let Some(menu) = &mut self.desktop.layers.menu else {
+            return;
+        };
+        let at = |count: usize| (count > 0).then(|| if last { count - 1 } else { 0 });
+        match &mut menu.sub {
+            Some(sub) if sub.selected.is_some() => sub.selected = at(sub_count),
+            _ => {
+                menu.sub = None;
+                menu.selected = at(main_count);
+            }
+        }
+        cx.notify();
+    }
+
+    /// →: opens the highlighted entry's submenu.
+    pub fn menu_in(&mut self, cx: &mut Context<Self>) {
+        let Some(menu) = &self.desktop.layers.menu else {
+            return;
+        };
+        if menu.sub.as_ref().is_some_and(|s| s.selected.is_some()) {
+            return;
+        }
+        if let Some(i) = menu.selected
+            && self.opens_sub(i)
+        {
+            self.open_sub(i, true, cx);
+        }
+    }
+
+    /// Type-ahead: the next entry starting with `letter`.
+    pub fn menu_letter(&mut self, letter: char, cx: &mut Context<Self>) -> bool {
+        let Some(menu) = &self.desktop.layers.menu else {
+            return false;
+        };
+        let in_sub = menu.sub.as_ref().filter(|s| s.selected.is_some());
+        let found = match in_sub {
+            Some(sub) => {
+                let labels = sub_entries(self);
+                find_letter(
+                    labels.iter().map(|e| e.label.as_ref()),
+                    sub.selected,
+                    letter,
+                )
+                .map(|i| (true, i))
+            }
+            None => {
+                let labels = entries(self, &menu.subject);
+                find_letter(labels.iter().map(|e| e.label), menu.selected, letter)
+                    .map(|i| (false, i))
+            }
+        };
+        let Some((in_sub, i)) = found else {
+            return false;
+        };
+        if let Some(menu) = &mut self.desktop.layers.menu {
+            match (&mut menu.sub, in_sub) {
+                (Some(sub), true) => sub.selected = Some(i),
+                _ => {
+                    menu.sub = None;
+                    menu.selected = Some(i);
+                }
+            }
+        }
+        cx.notify();
+        true
+    }
+
+    fn main_count(&self) -> usize {
+        self.desktop
+            .layers
+            .menu
+            .as_ref()
+            .map_or(0, |m| entries(self, &m.subject).len())
+    }
+
+    fn sub_count(&self) -> usize {
+        if self
+            .desktop
+            .layers
+            .menu
+            .as_ref()
+            .is_some_and(|m| m.sub.is_some())
+        {
+            sub_entries(self).len()
+        } else {
+            0
+        }
+    }
+
+    /// The pointer is on entry `i`: it takes the highlight, and opens its
+    /// submenu or closes another's.
     pub fn hover_in_menu(&mut self, i: usize, cx: &mut Context<Self>) {
+        if self.opens_sub(i) {
+            self.open_sub(i, false, cx);
+            return;
+        }
         if let Some(menu) = &mut self.desktop.layers.menu
-            && menu.selected != Some(i)
+            && (menu.selected != Some(i) || menu.sub.is_some())
         {
             menu.selected = Some(i);
+            menu.sub = None;
             cx.notify();
         }
     }
 
-    /// Runs entry `i` (the highlighted one for `None`) and closes the menu.
+    /// Runs entry `i` (the highlighted one for `None`) and closes the
+    /// menu; an entry with a submenu opens it instead.
     pub fn choose_in_menu(
         &mut self,
         i: Option<usize>,
@@ -467,6 +585,11 @@ impl MusicApp {
         let Some(menu) = &self.desktop.layers.menu else {
             return;
         };
+        if i.is_none() && menu.sub.as_ref().is_some_and(|s| s.selected.is_some()) {
+            self.choose_in_sub(None, window, cx);
+            return;
+        }
+        let keyboard = i.is_none();
         let Some(i) = i.or(menu.selected) else {
             return;
         };
@@ -474,6 +597,10 @@ impl MusicApp {
         let Some(chosen) = entries(self, &subject).into_iter().nth(i) else {
             return;
         };
+        if chosen.opens_sub() {
+            self.open_sub(i, keyboard, cx);
+            return;
+        }
         self.close_menu(window, cx);
         log::info!("menu: {} for {}", chosen.label, describe(&subject));
         self.perform(&subject, chosen.does, window, cx);

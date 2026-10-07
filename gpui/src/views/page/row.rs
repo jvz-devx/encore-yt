@@ -7,6 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::model::{Item, ItemKind, Shelf};
 
+use super::item_keys::Anchor;
 use super::runs::runs_line;
 use super::{Ctx, on_activate};
 use crate::app::MusicApp;
@@ -126,6 +127,7 @@ pub fn row(
             )
         })
         .on_click(on_activate(ctx, shelf, i, cx))
+        .map(|el| super::item_keys::hook(el, &ctx.key, shelf, i, Anchor::Row, c, cx))
         .map(|el| crate::views::extras::audition::hook(el, item.track.as_ref(), radius::MD, cx))
         .into_any_element()
 }

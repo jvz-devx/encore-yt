@@ -386,26 +386,37 @@ impl MusicApp {
         } else if self.account.settings {
             self.settings_escape(window, cx);
         } else if self.account.menu {
-            self.close_account_menu(cx);
+            self.close_account_menu(window, cx);
         } else {
             return false;
         }
         true
     }
 
-    pub fn toggle_account_menu(&mut self, cx: &mut Context<Self>) {
+    /// The account chip: opens its menu, which takes the keyboard, or
+    /// closes it.
+    pub fn toggle_account_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.account.menu {
+            self.close_account_menu(window, cx);
+            return;
+        }
         let just_closed = self
             .account
             .menu_closed
             .is_some_and(|t| t.elapsed() < REOPEN_GUARD);
-        self.account.menu = !self.account.menu && !just_closed;
+        if !just_closed {
+            self.account.menu = true;
+            self.desktop.lists.account.open(window, cx);
+        }
         cx.notify();
     }
 
-    pub fn close_account_menu(&mut self, cx: &mut Context<Self>) {
+    /// Closes the account menu; the keyboard goes back to where it was.
+    pub fn close_account_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.account.menu {
             self.account.menu = false;
             self.account.menu_closed = Some(Instant::now());
+            self.desktop.lists.account.close(&self.focus, window, cx);
             cx.notify();
         }
     }

@@ -4,6 +4,7 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::model::Channel;
 
@@ -13,10 +14,12 @@ use crate::theme::{Colors, Type, radius, size, space};
 
 const PHOTO: Pixels = px(32.);
 
-/// One row per channel, or none when the account has only one.
+/// One row per channel, or none when the account has only one. In a menu
+/// (`menu`) the menu draws the highlight; elsewhere the pointer does.
 pub fn rows(
     app: &MusicApp,
     id: &'static str,
+    menu: bool,
     c: &Colors,
     cx: &mut Context<MusicApp>,
 ) -> Vec<Stateful<Div>> {
@@ -27,13 +30,14 @@ pub fn rows(
     channels
         .iter()
         .enumerate()
-        .map(|(i, channel)| row((id, i), channel, c, cx))
+        .map(|(i, channel)| row((id, i), channel, menu, c, cx))
         .collect()
 }
 
 fn row(
     id: impl Into<ElementId>,
     channel: &Channel,
+    menu: bool,
     c: &Colors,
     cx: &mut Context<MusicApp>,
 ) -> Stateful<Div> {
@@ -50,7 +54,7 @@ fn row(
         .gap(space::MD)
         .rounded(radius::MD)
         .cursor_pointer()
-        .hover(|s| s.bg(c.hover))
+        .when(!menu, |r| r.hover(|s| s.bg(c.hover)))
         .active(|s| s.bg(c.pressed))
         .child(super::avatar(
             channel.photo.as_deref(),
@@ -72,5 +76,8 @@ fn row(
                 })),
         )
         .child(mark)
-        .on_click(cx.listener(move |this, _, _, cx| this.use_channel(page_id.clone(), cx)))
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.close_account_menu(window, cx);
+            this.use_channel(page_id.clone(), cx)
+        }))
 }

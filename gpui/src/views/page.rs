@@ -11,6 +11,7 @@ mod chips;
 pub mod covers;
 mod entries;
 mod header;
+pub mod item_keys;
 mod row;
 mod runs;
 mod shelf;

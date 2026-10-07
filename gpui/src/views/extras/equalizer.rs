@@ -11,7 +11,7 @@ use gpui_kit::*;
 use ytfast::equalizer::{Equalizer, Preset};
 use ytfast::model::Mixes;
 
-use super::super::widgets;
+use super::super::{keyed, widgets};
 use super::sleep::{appear, floating};
 use crate::app::MusicApp;
 use crate::theme::{Colors, Type, radius, size, space};
@@ -92,31 +92,39 @@ fn presets(eq: &Equalizer, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoE
     if chosen == Some(Preset::Custom) {
         shown.push(Preset::Custom);
     }
+    let chips = shown.into_iter().enumerate().map(|(i, preset)| {
+        let on = chosen == Some(preset);
+        let (bg, fg, hover) = if on {
+            (c.primary, c.primary_foreground, c.primary_hover)
+        } else {
+            (c.raised, c.text, c.raised.blend(c.hover))
+        };
+        let name: SharedString = format!("eq-preset:{}", preset.label()).into();
+        let chip = h_flex()
+            .id(("eq-preset", i))
+            .debug_selector(move || name.to_string())
+            .h(px(32.))
+            .px(space::MD)
+            .rounded(radius::FULL)
+            .bg(bg)
+            .text_color(fg)
+            .type_label()
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover))
+            .child(preset.label());
+        // Tab reaches each, ←/→ choose the one beside (M29); the chips'
+        // fills are opaque, so the ring stands outside.
+        let chip = keyed::Chip::new(keyed::ring_outside(chip, c));
+        if preset == Preset::Custom {
+            chip
+        } else {
+            chip.on_click(cx.listener(move |this, _, _, cx| this.eq_preset(preset, cx)))
+        }
+    });
     h_flex()
         .flex_wrap()
         .gap(space::SM)
-        .children(shown.into_iter().enumerate().map(|(i, preset)| {
-            let on = chosen == Some(preset);
-            let (bg, fg, hover) = if on {
-                (c.primary, c.primary_foreground, c.primary_hover)
-            } else {
-                (c.raised, c.text, c.raised.blend(c.hover))
-            };
-            h_flex()
-                .id(("eq-preset", i))
-                .h(px(32.))
-                .px(space::MD)
-                .rounded(radius::FULL)
-                .bg(bg)
-                .text_color(fg)
-                .type_label()
-                .cursor_pointer()
-                .hover(move |s| s.bg(hover))
-                .child(preset.label())
-                .when(preset != Preset::Custom, |chip| {
-                    chip.on_click(cx.listener(move |this, _, _, cx| this.eq_preset(preset, cx)))
-                })
-        }))
+        .children(keyed::arrow_row(chips))
 }
 
 /// The headroom the equalizer takes so boosted bands don't clip.

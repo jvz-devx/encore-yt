@@ -61,6 +61,8 @@ pub struct Extras {
     /// The band being dragged, and the one under the pointer.
     pub eq_band: Option<usize>,
     pub eq_hover: Option<usize>,
+    /// The band the keyboard is on, while it moves the bands (M29).
+    pub eq_key: Option<usize>,
     /// The equalizer graph's bounds, as last painted.
     pub eq_bounds: Rc<Cell<Bounds<Pixels>>>,
     /// When a click outside closed a panel: the click that follows on its
@@ -135,6 +137,7 @@ impl Extras {
                 eq_edit: None,
                 eq_band: None,
                 eq_hover: None,
+                eq_key: None,
                 eq_bounds: Rc::default(),
                 panel_closed_at: None,
                 sleep_tick: None,
@@ -214,6 +217,7 @@ impl MusicApp {
         self.extras.equalizer_open = open;
         self.extras.sleep_open = false;
         self.extras.eq_band = None;
+        self.extras.eq_key = None;
         self.focus_panel(open, window, cx);
     }
 
@@ -224,7 +228,13 @@ impl MusicApp {
         }
         self.extras.sleep_open = open;
         self.extras.equalizer_open = false;
-        self.focus_panel(open, window, cx);
+        if open {
+            // The menu's list takes the keyboard (M29).
+            self.desktop.lists.sleep.open(window, cx);
+            cx.notify();
+        } else {
+            self.focus_panel(false, window, cx);
+        }
     }
 
     /// Closes the equalizer and the sleep menu.
@@ -246,10 +256,14 @@ impl MusicApp {
             .is_some_and(|at| at.elapsed() < Duration::from_millis(300))
     }
 
+    /// An opening panel takes the keyboard; a closing one gives it back
+    /// if it had it (the sleep timer to where it was opened from).
     fn focus_panel(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         if open {
             window.focus(&self.extras.panel_focus, cx);
-        } else {
+        } else if self.desktop.lists.sleep.focus.is_focused(window) {
+            self.desktop.lists.sleep.close(&self.focus, window, cx);
+        } else if self.extras.panel_focus.contains_focused(window, cx) {
             window.focus(&self.focus, cx);
         }
         cx.notify();
@@ -266,7 +280,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("p", JumpToPeak, Some(MUSIC)),
         KeyBinding::new("secondary-m", ToggleMini, Some("Music")),
         KeyBinding::new("escape", ClosePanel, Some("ExtrasPanel")),
-        KeyBinding::new("e", ClosePanel, Some("ExtrasPanel")),
+        // In the sleep timer's menu E is type-ahead (End of song).
+        KeyBinding::new("e", ClosePanel, Some("ExtrasPanel && !MusicMenu")),
         KeyBinding::new("f", ToggleStage, Some("Stage")),
         KeyBinding::new("escape", ToggleStage, Some("Stage")),
         KeyBinding::new("f11", StageFullscreen, Some("Stage")),

@@ -129,6 +129,7 @@ impl MusicApp {
     /// while none did, and follow its focus for notifications.
     fn window_opened(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        self.desktop.focus_lost = Some(super::keep_focus(window, cx));
         self.drain(Some(window), cx);
         self.updates_window_opened(window, cx);
         let flags = self.desktop.flags.clone();

@@ -1,9 +1,10 @@
 //! Play anything (Ctrl+K): one large field high on a dimmed window, the
-//! results under it, and a line of hints. The arrows move the highlight,
-//! Enter plays it, Shift+Enter opens its page, Esc closes.
+//! results under it, and a line of hints. The arrows (and Tab, as in the
+//! menus) move the highlight, wrapping, Enter plays it, Shift+Enter opens
+//! its page, Esc closes. Home and End stay with the field's caret.
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Escape, Input, MoveDown, MoveUp};
+use gpui_kit::component::input::{Escape, IndentInline, Input, MoveDown, MoveUp, OutdentInline};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -49,6 +50,14 @@ pub fn palette(
                 cx.stop_propagation();
             }))
             .capture_action(cx.listener(|this, _: &MoveDown, _, cx| {
+                this.move_in_palette(1, cx);
+                cx.stop_propagation();
+            }))
+            .capture_action(cx.listener(|this, _: &OutdentInline, _, cx| {
+                this.move_in_palette(-1, cx);
+                cx.stop_propagation();
+            }))
+            .capture_action(cx.listener(|this, _: &IndentInline, _, cx| {
                 this.move_in_palette(1, cx);
                 cx.stop_propagation();
             }))

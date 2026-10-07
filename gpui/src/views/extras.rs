@@ -17,6 +17,7 @@ use gpui_kit::*;
 use crate::app::MusicApp;
 
 pub use controls::{controls, mini_button, panel, time_left};
+pub use eq_graph::bind_keys as bind_eq_keys;
 pub use ridge::ridge;
 pub use sleep::CHOICES as SLEEP_CHOICES;
 

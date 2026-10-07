@@ -15,7 +15,7 @@ use crate::theme::{Colors, Type, radius, size, space};
 
 pub fn page(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
     let mut sections = vec![super::section("", c, [status(app, c, cx)])];
-    let channels = super::super::account::channel_rows(app, "settings-channel", c, cx);
+    let channels = super::super::account::channel_rows(app, "settings-channel", false, c, cx);
     if !channels.is_empty() {
         sections.push(super::section(
             "Use YouTube Music as",

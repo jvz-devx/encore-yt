@@ -214,6 +214,7 @@ pub fn switch(id: impl Into<ElementId>, on: bool, c: &Colors) -> Switch {
 
 /// A row in a menu or popover: 40 tall, an 18 px icon and a label. The
 /// menu's padding is `XS`, so its `LG` corners stay concentric with these.
+/// The menu draws its highlight (`views::menu::list_entry`).
 pub fn menu_item(
     id: impl Into<ElementId>,
     icon_name: IconName,
@@ -228,7 +229,6 @@ pub fn menu_item(
         .rounded(radius::MD)
         .type_label()
         .cursor_pointer()
-        .hover(|s| s.bg(c.hover))
         .active(|s| s.bg(c.pressed))
         .child(icon(icon_name, size::ICON, c.text_muted))
         .child(label.into())

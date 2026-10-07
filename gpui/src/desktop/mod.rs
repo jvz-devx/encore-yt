@@ -13,11 +13,14 @@
 mod cli;
 pub mod control;
 mod keys;
+pub mod lists;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod media;
 pub mod menu;
+pub mod menu_keys;
 pub mod palette;
 mod signals;
+pub mod submenu;
 mod window;
 
 use std::sync::Arc;
@@ -46,11 +49,15 @@ pub struct Desktop {
     bounds: Option<WindowBounds>,
     /// Follows the open window's focus.
     activation: Option<Subscription>,
+    /// Puts the keyboard back in the window when what had it goes away.
+    focus_lost: Option<Subscription>,
     /// The system media controls, while the window is open (Windows, macOS).
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     media: Option<media::Media>,
     /// The shortcuts sheet, Play anything, a context menu, a short note.
     pub layers: Layers,
+    /// The account menu's and the sleep timer's keyboard (M29).
+    pub lists: lists::Lists,
     _requests: Task<()>,
 }
 
@@ -58,7 +65,7 @@ impl Desktop {
     pub fn new(
         backend: &Link,
         paths: &Paths,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<MusicApp>,
     ) -> (Self, Vec<Subscription>) {
         let flags = Arc::new(Flags::default());
@@ -93,13 +100,28 @@ impl Desktop {
             window: None,
             bounds: None,
             activation: None,
+            focus_lost: Some(keep_focus(window, cx)),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             media: None,
             layers: Layers::default(),
+            lists: lists::Lists::new(cx),
             _requests: task,
         };
         (desktop, Vec::new())
     }
+}
+
+/// When the focused element goes away (a row scrolled off, a Settings tab
+/// changed under a control, a menu closed some other way), the keyboard
+/// goes to its nearest ancestor still drawn, else the window's root, so
+/// the keys keep working (M29).
+fn keep_focus(window: &mut Window, cx: &mut Context<MusicApp>) -> Subscription {
+    cx.on_focus_lost(window, |this, window, cx| {
+        let to = window
+            .focus_lost_restore_target(cx)
+            .unwrap_or_else(|| this.focus.clone());
+        window.focus(&to, cx);
+    })
 }
 
 /// The instance socket, the tray, MPRIS (with notifications) and signals.

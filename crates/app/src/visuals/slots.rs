@@ -32,6 +32,18 @@ pub enum Slot {
     StageBody,
     /// The scene's cover.
     StageCover,
+    /// Now Playing's song under the cover: title, artists, waveform and
+    /// format (the light look's scrim keeps text there clear).
+    SongText,
+    /// Now Playing's tab column (Up next, Lyrics, Related).
+    Tabs,
+    /// The song's title and artists in Stage or the full-window
+    /// visualiser.
+    Title,
+    /// Stage's lyrics.
+    Lyrics,
+    /// The buttons along the top of Stage or the full-window visualiser.
+    Corner,
 }
 
 /// The cover's image URLs at the sizes the app loads them.
@@ -56,6 +68,11 @@ pub(super) struct Slots {
     stage: Cell<Option<Bounds<Pixels>>>,
     stage_body: Cell<Option<Bounds<Pixels>>>,
     stage_cover: Cell<Option<Bounds<Pixels>>>,
+    song_text: Cell<Option<Bounds<Pixels>>>,
+    tabs: Cell<Option<Bounds<Pixels>>>,
+    title: Cell<Option<Bounds<Pixels>>>,
+    lyrics: Cell<Option<Bounds<Pixels>>>,
+    corner: Cell<Option<Bounds<Pixels>>>,
     covers: RefCell<Covers>,
     /// The effects layer paints the player bar's background and seek bar.
     bar_painted: Cell<bool>,
@@ -79,6 +96,11 @@ impl Slots {
             Slot::Stage => &self.stage,
             Slot::StageBody => &self.stage_body,
             Slot::StageCover => &self.stage_cover,
+            Slot::SongText => &self.song_text,
+            Slot::Tabs => &self.tabs,
+            Slot::Title => &self.title,
+            Slot::Lyrics => &self.lyrics,
+            Slot::Corner => &self.corner,
         }
     }
 
@@ -118,6 +140,14 @@ pub fn slot(which: Slot) -> impl IntoElement {
     )
     .absolute()
     .inset_0()
+}
+
+/// Forgets `which` while the view doesn't show it (a song without lyrics
+/// in Stage), so nothing is drawn for it where it was.
+pub fn clear_slot(which: Slot, cx: &App) {
+    if let Some(slots) = cx.try_global::<Slots>() {
+        slots.cell(which).set(None);
+    }
 }
 
 /// Whether the effects layer paints the player bar (its glow and seek bar):

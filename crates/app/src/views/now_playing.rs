@@ -9,6 +9,7 @@
 mod lyrics;
 mod related;
 
+use encore_core::model::Track;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -142,6 +143,24 @@ fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) ->
                 .mt(space::LG)
                 .child(visuals::slot(Slot::Spectrum)),
         )
+        .child(song_text(app, track, side, like, format, c, cx))
+}
+
+/// Title, artists, the waveform, the like control and the format: one
+/// block, which the light look's scrim keeps clear over a 3D scene.
+fn song_text(
+    app: &MusicApp,
+    track: Option<&Track>,
+    side: Pixels,
+    like: Option<AnyElement>,
+    format: Option<String>,
+    c: &Colors,
+    cx: &mut Context<MusicApp>,
+) -> impl IntoElement {
+    v_flex()
+        .relative()
+        .items_center()
+        .child(visuals::slot(Slot::SongText))
         .children(track.map(|track| {
             v_flex()
                 .w(side)
@@ -211,6 +230,8 @@ fn tabs_column(
     };
     // Smoked glass over the backdrop, so the lists keep their contrast.
     v_flex()
+        .relative()
+        .child(visuals::slot(Slot::Tabs))
         .w(TABS)
         .flex_none()
         .h_full()

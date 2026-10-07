@@ -49,6 +49,7 @@ mod dissolve;
 mod effects;
 mod flight;
 mod frames;
+mod scrim;
 mod slots;
 mod timing;
 mod visualizer;
@@ -62,7 +63,9 @@ use gpui_kit::*;
 use crate::app::MusicApp;
 use crate::theme;
 
-pub use slots::{Covers, Slot, paints_bar, paints_cover_shadow, set_bar_cover, set_covers, slot};
+pub use slots::{
+    Covers, Slot, clear_slot, paints_bar, paints_cover_shadow, set_bar_cover, set_covers, slot,
+};
 pub use waveform::waveform;
 
 /// The layers, made with the first window and kept for the next one.

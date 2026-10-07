@@ -75,6 +75,7 @@ fn main() -> anyhow::Result<()> {
             strength: 1.0,
             quality: 1.0,
             reaction: 0.5,
+            scrim: Default::default(),
         };
         let frame = scene.frame_now(&p)?;
         let path = out.join(format!("{f:04}.ppm"));

@@ -67,6 +67,7 @@ fn main() -> anyhow::Result<()> {
                         strength: 1.0,
                         quality: 1.0,
                         reaction: 0.5,
+                        scrim: Default::default(),
                     };
                     if let Some(frame) = scene.frame(&p)?
                         && keep

@@ -52,10 +52,11 @@ pub enum Knob {
     SceneDetail,
     SceneResolution,
     SceneReaction,
+    ScrimStrength,
 }
 
 impl Knob {
-    const ALL: [Knob; 35] = [
+    const ALL: [Knob; 36] = [
         Knob::Blur,
         Knob::Swirl,
         Knob::Bloom,
@@ -91,6 +92,7 @@ impl Knob {
         Knob::SceneDetail,
         Knob::SceneResolution,
         Knob::SceneReaction,
+        Knob::ScrimStrength,
     ];
 
     pub fn label(self) -> &'static str {
@@ -107,7 +109,7 @@ impl Knob {
             Knob::TwinkleSpeed => "Twinkle speed",
             Knob::Direction => "Direction",
             Knob::Reaction | Knob::SceneReaction => "Music reaction",
-            Knob::WaveStrength | Knob::SceneStrength => "Strength",
+            Knob::WaveStrength | Knob::SceneStrength | Knob::ScrimStrength => "Strength",
             Knob::SceneDetail => "Detail",
             Knob::SceneResolution => "Resolution",
             Knob::WaveHeight => "Height",
@@ -150,6 +152,7 @@ impl Knob {
             Knob::SceneStrength => (0.4, 1.5, 0.05, false),
             Knob::SceneDetail | Knob::SceneResolution => (0.5, 1.5, 0.05, false),
             Knob::SceneReaction => (0., 1., 0.05, false),
+            Knob::ScrimStrength => (0.5, 1.5, 0.05, false),
             _ => (0., 2., 0.05, false),
         }
     }
@@ -192,6 +195,7 @@ impl Knob {
             Knob::SceneDetail => c.scenes.detail,
             Knob::SceneResolution => c.scenes.resolution,
             Knob::SceneReaction => c.scenes.reaction,
+            Knob::ScrimStrength => c.scenes.scrim_strength,
         })
     }
 
@@ -239,6 +243,7 @@ impl Knob {
             Knob::SceneDetail => c.scenes.detail = x,
             Knob::SceneResolution => c.scenes.resolution = x,
             Knob::SceneReaction => c.scenes.reaction = x,
+            Knob::ScrimStrength => c.scenes.scrim_strength = x,
         }
     }
 

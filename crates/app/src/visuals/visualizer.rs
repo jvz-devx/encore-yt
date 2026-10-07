@@ -10,7 +10,9 @@
 //! space round the cover (Now Playing) or the whole scene. The 3D scenes
 //! (M30: XMB, Ridges, Aurora) fill Now Playing's panel or the whole scene,
 //! opaque, in place of the backdrop; behind text (Now Playing, Stage) they
-//! are toned like it, full strength only in the full-window visualiser.
+//! are toned like it, full strength only in the full-window visualiser;
+//! in the light look a scrim behind the text lets them keep their full
+//! tone (`super::scrim`).
 //! Frames come only with the paced frames while music plays; paused,
 //! hidden or under reduced motion it draws nothing.
 
@@ -273,6 +275,7 @@ impl Vis {
             strength: scenes.strength,
             quality: scenes.detail,
             reaction: scenes.reaction,
+            scrim: super::scrim::scene_scrim(place, region, tick.look, cx),
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {

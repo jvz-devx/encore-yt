@@ -27,6 +27,17 @@ struct Params {
     // on a loud hit), y: one that runs with its highs, z, w: those fast
     // envelopes 0..1 (quick rise, slow fall)
     motion: vec4<f32>,
+    // The light look's scrim behind text (scrim.rs): x: on (the scene
+    // keeps its full tone and only the text blocks get the light range),
+    // y: strength (1 keeps text_muted at 4.5:1), zw: the scene's size in
+    // points, the blocks' unit
+    scrim: vec4<f32>,
+    // Text blocks: left, top, right, bottom in points; empty ones unused
+    scrim_blocks: array<vec4<f32>, 6>,
+    // Each block's falloff in points, four to a vec4
+    scrim_feathers: array<vec4<f32>, 2>,
+    // The theme's surface colour, display space (strengths over 1)
+    scrim_surface: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -39,6 +50,16 @@ const DARK_SATURATION: f32 = 1.7;
 const LIGHT_FLOOR: f32 = 0.645;
 const LIGHT_TOP: f32 = 0.8;
 const LIGHT_CHROMA: f32 = 0.9;
+// Under the scrim: a little above the whole-scene range, so text_muted
+// keeps 4.5:1 with room for the dither (it needs 0.643).
+const SCRIM_FLOOR: f32 = 0.7;
+const SCRIM_TOP: f32 = 0.86;
+// The mask in points: solid this far round a text block, then a long
+// Gaussian fall over about the block's feather, so it reads as light round
+// the words rather than a panel.
+const SCRIM_PAD: f32 = 8.0;
+// The falloff up and down, of the one sideways.
+const SCRIM_TALL: f32 = 0.5;
 const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
 // The visualiser's chroma cap in OKLab: cover colours, no neon.
 const CHROMA_CAP: f32 = 0.14;
@@ -161,8 +182,13 @@ fn tone_dark(lin: vec3<f32>) -> vec3<f32> {
 // Light look (backdrop.wgsl): luminance lifted into LIGHT_FLOOR..LIGHT_TOP,
 // the colour's offset from grey scaled as far as the gamut allows.
 fn tone_light(lin: vec3<f32>) -> vec3<f32> {
+    return tone_light_range(lin, LIGHT_FLOOR, LIGHT_TOP);
+}
+
+// Luminance lifted into floor..top, hue kept: the light look's tone.
+fn tone_light_range(lin: vec3<f32>, floor: f32, top: f32) -> vec3<f32> {
     let y = max(dot(lin, LUMA), 1e-4);
-    let target_y = mix(LIGHT_FLOOR, LIGHT_TOP, smoothstep(0.05, 0.6, y));
+    let target_y = mix(floor, top, smoothstep(0.05, 0.6, y));
     let offset = lin - vec3<f32>(y);
     let up = max(max(offset.r, max(offset.g, offset.b)), 1e-4);
     let down = max(max(-offset.r, max(-offset.g, -offset.b)), 1e-4);
@@ -185,17 +211,70 @@ fn tone_visualiser(lin: vec3<f32>) -> vec3<f32> {
     return pow(mapped, vec3<f32>(1.0 / 2.2));
 }
 
+// The scrim replaces the whole-scene light tone (the light look, with the
+// setting on): the scene keeps the visualiser's tone round the text.
+fn scrim_on() -> bool {
+    return params.scrim.x > 0.5;
+}
+
+// The whole-scene light squeeze is in use (the light look behind text,
+// no scrim): scenes that dress for it check this.
+fn squeezed() -> bool {
+    return params.output.z > 0.5 && params.output.w < 0.5 && !scrim_on();
+}
+
+// How much of the scrim covers this pixel, 0..1: solid over the text
+// blocks and SCRIM_PAD round them, then a Gaussian of the distance in
+// feathers (flat where it leaves the block, so no edge shows), gone by
+// 1.6 feathers. It falls off twice as fast up and down as sideways, the
+// way a line of text is long: a lens of light, not a cloud.
+fn scrim_mask(frag: vec2<f32>) -> f32 {
+    if !scrim_on() {
+        return 0.0;
+    }
+    let p = frag / params.output.xy * params.scrim.zw;
+    var t = 1e6;
+    for (var i = 0; i < 6; i++) {
+        let b = params.scrim_blocks[i];
+        if b.z <= b.x {
+            continue;
+        }
+        let half = 0.5 * (b.zw - b.xy) + vec2<f32>(SCRIM_PAD);
+        let out = max(abs(p - 0.5 * (b.xy + b.zw)) - half, vec2<f32>(0.0));
+        let feather = params.scrim_feathers[i / 4][i % 4];
+        t = min(t, length(out / vec2<f32>(feather, feather * SCRIM_TALL)));
+    }
+    return exp(-2.5 * t * t) * (1.0 - smoothstep(1.2, 1.6, t));
+}
+
+// `out` (display space) with the scrim laid over it: under the text what
+// shows there pressed into SCRIM_FLOOR..SCRIM_TOP, hue and saturation
+// kept (from the shown colour, so the light matches the scene round it),
+// and past strength 1 the theme's surface colour over that.
+fn scrimmed(out: vec3<f32>, frag: vec2<f32>) -> vec3<f32> {
+    let m = scrim_mask(frag);
+    if m <= 0.0 {
+        return out;
+    }
+    let strength = params.scrim.y;
+    let shown = pow(max(out, vec3<f32>(0.0)), vec3<f32>(2.2));
+    let core = mix(tone_light_range(shown, SCRIM_FLOOR, SCRIM_TOP), params.scrim_surface.rgb,
+        clamp(strength - 1.0, 0.0, 0.5));
+    return mix(out, core, m * clamp(strength, 0.0, 1.0));
+}
+
 // Linear scene colour to the display value the page shows, per mode and
 // look, dithered so gradients don't band.
 fn finish(lin: vec3<f32>, frag: vec2<f32>) -> vec4<f32> {
     var out: vec3<f32>;
-    if params.output.w > 0.5 {
+    if params.output.w > 0.5 || scrim_on() {
         out = tone_visualiser(lin);
     } else if params.output.z > 0.5 {
         out = tone_light(lin);
     } else {
         out = tone_dark(lin);
     }
+    out = scrimmed(out, frag);
     let dither = (hash21(floor(frag)) - 0.5) / 255.0;
     return vec4<f32>(out + vec3<f32>(dither), 1.0);
 }

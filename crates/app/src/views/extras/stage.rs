@@ -91,10 +91,25 @@ pub fn stage(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>
                 .as_ref()
                 .map(|t| t.video_id.clone())
                 .unwrap_or_default();
-            el.child(super::stage_lyrics::lyrics(
-                app, &id, &lyrics, h, window, &c, cx,
-            ))
+            // Its own box for the scrim (the list inside scrolls).
+            el.child(
+                h_flex()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(visuals::slot(Slot::Lyrics))
+                    .child(super::stage_lyrics::lyrics(
+                        app, &id, &lyrics, h, window, &c, cx,
+                    )),
+            )
         });
+    if words.is_none() {
+        visuals::clear_slot(Slot::Lyrics, cx);
+    }
+    if track.is_none() {
+        visuals::clear_slot(Slot::Title, cx);
+    }
     let inner = v_flex()
         .key_context("Stage")
         .track_focus(&app.focus)
@@ -147,7 +162,9 @@ fn song_column(
         )))
         .children(track.map(|t| {
             v_flex()
-                .w(room * 1.2)
+                .relative()
+                .child(visuals::slot(Slot::Title))
+                .max_w(room * 1.2)
                 .mt(space::XL)
                 .items_center()
                 .gap(space::XS)
@@ -214,6 +231,7 @@ fn corner_buttons(window: &Window, c: &Colors, cx: &mut Context<MusicApp>) -> im
         .top(space::LG)
         .right(space::LG)
         .gap(space::XS)
+        .child(visuals::slot(Slot::Corner))
         .child(
             widgets::icon_button(
                 "stage-fullscreen",

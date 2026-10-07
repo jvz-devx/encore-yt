@@ -134,7 +134,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         // The visualiser shows the gradient as the PS3 does, untouched by
         // the filmic curve.
         let dither = (hash21(floor(in.position.xy)) - 0.5) / 255.0;
-        return vec4<f32>(pow(lin, vec3<f32>(1.0 / 2.2)) + vec3<f32>(dither), 1.0);
+        let out = scrimmed(pow(lin, vec3<f32>(1.0 / 2.2)), in.position.xy);
+        return vec4<f32>(out + vec3<f32>(dither), 1.0);
     }
     return finish(lin, in.position.xy);
 }
@@ -205,8 +206,15 @@ fn fs_wave(in: WaveOut) -> @location(0) vec4<f32> {
     let n = normalize(cross(dpdx(in.pos), -dpdy(in.pos)));
     let f = FRESNEL_SCALE * pow(max(1.0 + dot(vec3<f32>(0.0, 0.0, -1.0), n), 0.0), FRESNEL_POWER);
     let glow = 0.85 + 0.45 * params.motion.z * xmb_follow();
-    let alpha = clamp(f * OPACITY * BRIGHTNESS * glow, 0.0, 1.0) * xmb_light_scale();
+    let alpha = clamp(f * OPACITY * BRIGHTNESS * glow, 0.0, 1.0) * xmb_light_scale()
+        * xmb_under_text(in.position.xy);
     return vec4<f32>(xmb_ink(), alpha);
+}
+
+// The wave and sparkles fade to 40% under the light look's scrim, so the
+// text over them stays calm (white over the scrim only lightens it).
+fn xmb_under_text(frag: vec2<f32>) -> f32 {
+    return 1.0 - 0.6 * scrim_mask(frag);
 }
 
 // The light's colour: white, or a pale tint of the cover where white
@@ -267,6 +275,7 @@ fn fs_sparkle(in: SparkleOut) -> @location(0) vec4<f32> {
     }
     let sparkle = (1.0 - d) * (1.0 - d);
     let lift = 0.7 + 1.1 * params.motion.w * xmb_follow();
-    let a = in.alpha * SPARKLE_OPACITY * sparkle * lift * xmb_light_scale();
+    let a = in.alpha * SPARKLE_OPACITY * sparkle * lift * xmb_light_scale()
+        * xmb_under_text(in.position.xy);
     return vec4<f32>(xmb_ink() * a, 1.0);
 }

@@ -135,6 +135,13 @@ pub struct Scenes {
     /// How much a scene behind text (Now Playing, Stage) follows the
     /// music, 0..1; the full-window visualiser follows it all.
     pub reaction: f32,
+    /// The light look: a soft scrim behind text lets a scene keep its
+    /// full tone; off presses the whole scene into the backdrop's light
+    /// range as before.
+    pub scrim: bool,
+    /// The scrim's strength, 0.5..1.5: 1 keeps text at 4.5:1, less lets
+    /// more of the scene through, more lays the surface colour over it.
+    pub scrim_strength: f32,
 }
 
 impl Default for Scenes {
@@ -144,6 +151,8 @@ impl Default for Scenes {
             detail: 1.,
             resolution: 1.,
             reaction: 0.5,
+            scrim: true,
+            scrim_strength: 1.,
         }
     }
 }
@@ -839,6 +848,7 @@ impl VisualsConfig {
         within(&mut sc.detail, (0.5, 1.5), 1.);
         within(&mut sc.resolution, (0.5, 1.5), 1.);
         within(&mut sc.reaction, (0., 1.), 0.5);
+        within(&mut sc.scrim_strength, (0.5, 1.5), 1.);
         self
     }
 

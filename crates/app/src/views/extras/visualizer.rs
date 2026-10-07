@@ -39,6 +39,9 @@ pub fn visualizer(
         cx,
     );
     let painted = visuals::paints_full();
+    if track.is_none() {
+        visuals::clear_slot(Slot::Title, cx);
+    }
     let shadow = !visuals::paints_cover_shadow(cx);
     let inner = div()
         .key_context("Visualizer")
@@ -119,7 +122,9 @@ fn song(track: Option<&Track>, side: Pixels, shadow: bool, c: &Colors) -> impl I
         .child(cover)
         .children(track.map(|t| {
             v_flex()
-                .w(side * 1.6)
+                .relative()
+                .child(visuals::slot(Slot::Title))
+                .max_w(side * 1.6)
                 .mt(below)
                 .items_center()
                 .gap(space::XS)
@@ -182,6 +187,7 @@ fn top_bar(painted: bool, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoEl
         .left(space::LG)
         .right(space::LG)
         .justify_between()
+        .child(visuals::slot(Slot::Corner))
         .child(left)
         .child(
             widgets::icon_button(

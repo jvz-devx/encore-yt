@@ -194,6 +194,8 @@ fn drain_events(app: &Entity<MusicApp>, cx: &mut App) {
 
 impl Render for MusicApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        crate::views::root(self, window, cx)
+        // The app's views sit in a cached view between the effects layers
+        // (see `visuals`), so an effects frame doesn't re-render them.
+        crate::visuals::shell(self, window, cx)
     }
 }

@@ -1,19 +1,79 @@
-# M8 visuals spike
+# M8 visuals
 
-How to draw wgpu effects inside the GPUI window, and how to get at the audio
-that mpv plays. Measured on 2026-10-06: Fedora 43, KDE Plasma 6 Wayland,
+How the effects behind Now Playing are drawn: the shipped layers first, then
+the spike's findings (how to get wgpu output into the GPUI window, and the
+audio mpv plays), which the code still follows.
+
+## Shipped
+
+Code: the crate `gpui/crates/visuals` (`ytfast-visuals`, no GPUI) and the
+app side in `gpui/src/visuals/`.
+
+- **Crate**: `Renderer` (own wgpu device, `shaders/backdrop.wgsl`, offscreen
+  target and readback; `frame(params)` returns BGRA bytes), `Cover` (48x48
+  pre-blurred upload and a four-colour palette), `AudioTap` (PipeWire tap,
+  FFT, 32 bands plus bass, kick and level) and `waveform` (ffmpeg decode of
+  the URL mpv plays, 400 values, cached per video id in the cache
+  directory). `scripts/check.sh visuals` checks and tests it, `shaders`
+  validates the WGSL with naga.
+- **Layers** (`visuals::shell`, what `MusicApp` renders): `Effects` under
+  the app (backdrop over the page panel and the spectrum strip), `Content`
+  (the app's views, an `AnyView::cached` entity while Now Playing shows) and
+  `Flight` over it (the cover flying between the player bar and Now
+  Playing, `motion::SLOW`, ease-out). `Effects` notifies itself from a
+  30 fps timer; the notify marks `MusicApp` dirty too, but its render is
+  only the shell, the app's views come from the cache. Mouse and key input
+  drop the cache for one frame (a slider drag changes a model, not a view).
+- **Backdrop**: the cover blurred, domain-warped and turning slowly over a
+  gradient of its palette, a soft bloom of its brightest colours, motes
+  (particles) drifting up and flaring on the beat, a bass pulse, dither.
+  New covers cross-fade over 1.2 s. Tone-mapped per theme so text keeps
+  4.5:1: dark look capped at luminance 0.045 (measured 0.022-0.042 on a red
+  cover), light look pressed into 0.645-0.8 (measured 0.64).
+- **Spectrum**: 64 bars mirrored around the centre (lows in the middle)
+  above the title, painted with GPUI quads in `text` at 28-88% opacity.
+- **Waveform**: under the title, thin bars, the played part in the accent
+  colour; a click seeks. A faint line until the decode (1.1-1.3 s) is done.
+- **Stopping**: no frames and no tap when Now Playing is closed, the window
+  is hidden (minimised), playback is paused or motion is reduced (then one
+  still frame per cover, no spectrum, no particles, no flight). The renderer
+  (the second Vulkan device) is dropped 30 s after Now Playing closes.
+  Reduced motion is `theme::reduced_motion` (the desktop portal) or
+  `YTFAST_GPUI_REDUCED_MOTION=1`.
+- **Settings** (env): `YTFAST_GPUI_VISUALS=0` off, `YTFAST_GPUI_VISUALS_FPS`
+  (30), `YTFAST_GPUI_VISUALS_UNCACHED=1` (no cached app view, to measure
+  it), `YTFAST_GPUI_VISUALS_FLIGHT_MS` (slow the flight down to look at it).
+
+Measured 2026-10-07, release build, 1280x1000 window, backdrop rendered at
+528x448 (load 0.7-1.7; CPU in % of one core over 5-8 s, from
+`/proc/<pid>/stat`):
+
+| State | app CPU | RSS |
+|---|---|---|
+| Home, paused | 0% | 148 MB |
+| Now Playing, paused | 0% | 167 MB |
+| Now Playing, playing, 30 fps | 9-10% | 171-175 MB |
+| same, app view uncached (before) | 19% | 177 MB |
+| same, 60 fps | 18% | 150 MB |
+| Now Playing closed, playing | 3% | 175 MB |
+| minimised, playing | 2% | 150 MB |
+| reduced motion, playing | 2% | 177 MB |
+
+Frame cost at 30 fps: submit 0.27 ms, wait 0.01 ms, copy 0.15 ms. 60 fps
+doubles the CPU for little visible gain on a slow backdrop, so 30 stays the
+default. Not done: Stage has no backdrop yet (Stage belongs to M6; it can
+place `visuals::slot` boxes the same way), a window covered by another one
+wasn't tested, and the frame rate doesn't switch to 60 on its own.
+
+# The spike (2026-10-06)
+
+Measured on 2026-10-06: Fedora 43, KDE Plasma 6 Wayland,
 Intel UHD 630 (Vulkan), 1920x1080 at **120 Hz**, gpui-kit 0.7.1 / gpui-pre
 0.3.8 / wgpu 29.0.4, release build. The machine was shared with other agents'
 builds (load 3 to 8 for the numbers below, 20+ for the first runs), so CPU
-figures are ±3 points.
-
-The prototype is in `gpui/src/visuals/` and runs with
-`YTFAST_GPUI_VISUALS_SPIKE=1`: once a song plays, the page area shows the
-animated cover backdrop, 32 spectrum bars and the song's waveform, plus a
-line with the frame costs. `YTFAST_GPUI_VISUALS_RES=WxH` (default 640x360)
-and `YTFAST_GPUI_VISUALS_FPS=N` (default 60, 0 = every display frame) tune
-it. The only wiring outside the module is `mod visuals;` in `main.rs` and
-one `if let` in `views/mod.rs`.
+figures are ±3 points. The spike ran with `YTFAST_GPUI_VISUALS_SPIKE=1`
+(removed since) and drew everything into the page area; its file names
+below (`gpu.rs`, `spike.rs`) are now `renderer.rs` and `effects.rs`.
 
 ## 1. wgpu output inside the GPUI window
 
@@ -250,7 +310,9 @@ Rejected or not working:
 8. **Long term**: propose an external-texture primitive for gpui-pre's wgpu
    renderer upstream; it would remove the readback and the second device.
 
-Code pointers: `gpui/src/visuals/mod.rs` (wiring, env vars), `spike.rs`
-(view, pacing, atlas drop), `gpu.rs` (device, pipeline, readback ring),
-`backdrop.wgsl`, `pipewire.rs` (tap and linking), `spectrum.rs` (FFT and
-bands), `waveform.rs` (mpv IPC, ffmpeg, peaks).
+Code pointers: `gpui/crates/visuals/src/renderer.rs` (device, pipeline,
+readback ring, cross-fade), `shaders/backdrop.wgsl`, `cover.rs`,
+`pipewire.rs` (tap and linking), `spectrum.rs` (FFT and bands),
+`waveform.rs` (mpv IPC, ffmpeg, cache); app side `gpui/src/visuals/mod.rs`
+(shell, settings), `effects.rs`, `content.rs`, `flight.rs`, `slots.rs`,
+`waveform.rs`.

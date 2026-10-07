@@ -1,0 +1,21 @@
+[package]
+name = "ytfast-visuals"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "Now Playing effects for ytfast-gpui: an offscreen wgpu renderer, a PipeWire spectrum tap and song waveforms"
+license = "MIT"
+publish = false
+
+# No GPUI here: `cargo check -p ytfast-visuals` and its tests build without
+# the app. The app wraps this crate in GPUI views (gpui/src/visuals).
+[dependencies]
+# Our own offscreen device for the shader effects. Keep equal to the wgpu
+# that gpui-pre-wgpu uses, so the tree holds one wgpu.
+wgpu = "29.0.4"
+# Blocks on wgpu's adapter and device requests (already in the lock).
+pollster = "0.4"
+# Reads `pw-dump` (finding mpv's PipeWire node) and mpv's JSON IPC.
+serde_json = "1"
+anyhow = "1"
+log = "0.4"

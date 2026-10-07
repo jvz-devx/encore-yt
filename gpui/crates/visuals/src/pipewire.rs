@@ -12,12 +12,11 @@
 //! microphone) and pipewire-pulse doesn't list it as a recording, so KDE
 //! shows no "microphone in use" indicator (checked: m8-tray-both.png).
 //!
-//! While mpv is paused nothing flows, the reader sleeps on the pipe and the
-//! linker wakes once a second.
+//! While mpv is paused nothing flows and the reader sleeps on the pipe. The
+//! app keeps a tap only while Now Playing shows and a song plays.
 
 use std::collections::HashSet;
 use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -25,66 +24,40 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use serde_json::Value;
 
-/// A running tap: read samples from `stdout`.
-pub struct Tap {
-    child: Child,
-    pub stdout: ChildStdout,
-    stop: Arc<AtomicBool>,
-    /// mpv nodes linked so far.
-    pub linked: Arc<AtomicUsize>,
+/// Starts `pw-record` on a new, unlinked analyzer node; samples arrive on
+/// the returned stdout until the child is killed.
+pub fn record() -> Result<(Child, ChildStdout)> {
+    let mut child = Command::new("pw-record")
+        .args([
+            "--raw",
+            "--format",
+            "f32",
+            "--rate",
+            "48000",
+            "--channels",
+            "2",
+        ])
+        .args(["--latency", "10ms", "--target", "0"])
+        .arg("-P")
+        .arg(format!(
+            "{{ node.name = {} media.class = Stream/Input/Audio/Analyzer \
+             node.dont-reconnect = true }}",
+            node_name()
+        ))
+        .arg("-")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("starting pw-record")?;
+    let stdout = child.stdout.take().context("pw-record stdout")?;
+    Ok((child, stdout))
 }
 
-impl Tap {
-    pub fn start() -> Result<Self> {
-        let mut child = Command::new("pw-record")
-            .args([
-                "--raw",
-                "--format",
-                "f32",
-                "--rate",
-                "48000",
-                "--channels",
-                "2",
-            ])
-            .args(["--latency", "10ms", "--target", "0"])
-            .arg("-P")
-            .arg(format!(
-                "{{ node.name = {} media.class = Stream/Input/Audio/Analyzer \
-                 node.dont-reconnect = true }}",
-                node_name()
-            ))
-            .arg("-")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("starting pw-record")?;
-        let stdout = child.stdout.take().context("pw-record stdout")?;
-        let stop = Arc::new(AtomicBool::new(false));
-        let linked = Arc::new(AtomicUsize::new(0));
-        let (stop2, linked2) = (stop.clone(), linked.clone());
-        thread::Builder::new()
-            .name("visuals-linker".into())
-            .spawn(move || link_loop(&stop2, &linked2))?;
-        Ok(Self {
-            child,
-            stdout,
-            stop,
-            linked,
-        })
-    }
-}
-
-impl Drop for Tap {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-/// Links new mpv nodes to our capture node, once a second.
-fn link_loop(stop: &AtomicBool, linked: &AtomicUsize) {
+/// Links new mpv nodes to our capture node until `stop`: every second
+/// until one is linked, then every three (a new mpv process, or a second
+/// deck for Smooth mixes, still gets linked).
+pub fn link_loop(stop: &AtomicBool, linked: &AtomicUsize) {
     let mut done: HashSet<u64> = HashSet::new();
     while !stop.load(Ordering::Relaxed) {
         if let Some(graph) = Graph::read()
@@ -99,7 +72,13 @@ fn link_loop(stop: &AtomicBool, linked: &AtomicUsize) {
             done.retain(|id| graph.has_node(*id));
             linked.store(done.len(), Ordering::Relaxed);
         }
-        thread::sleep(Duration::from_secs(1));
+        let wait = if done.is_empty() { 10 } else { 30 };
+        for _ in 0..wait {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 }
 

@@ -1,6 +1,10 @@
 //! Now Playing: the large cover with the song beside YouTube Music's three
 //! tabs, Up next, Lyrics and Related. It fills the page panel; navigating
 //! to a page closes it.
+//!
+//! The panel is see-through here: `crate::visuals` paints the animated cover
+//! backdrop behind it and the spectrum into the strip under the cover (both
+//! placed with `visuals::slot`), and flies the cover in from the player bar.
 
 mod lyrics;
 mod related;
@@ -9,17 +13,23 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::page::covers;
 use super::player::links;
 use super::queue::{self, Place};
 use super::widgets;
 use crate::app::MusicApp;
 use crate::playback::Tab;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
+use crate::visuals::{self, Slot};
 
 /// The tab column's width.
 const TABS: Pixels = px(420.);
-/// Room under the cover for the title, artists and format.
-const BELOW_COVER: Pixels = px(150.);
+/// The spectrum strip under the cover, and the waveform under the song.
+const SPECTRUM: Pixels = px(32.);
+const WAVEFORM: Pixels = px(36.);
+/// Room under the cover for the spectrum, title, artists, waveform and
+/// format.
+const BELOW_COVER: Pixels = px(250.);
 const COVER_MIN: Pixels = px(160.);
 const COVER_MAX: Pixels = px(560.);
 
@@ -37,10 +47,12 @@ pub fn now_playing(
     let c = theme::colors(cx);
     let side = cover_side(app, window);
     h_flex()
+        .relative()
         .flex_1()
         .w_full()
         .min_h_0()
         .items_start()
+        .child(visuals::slot(Slot::Page))
         .px(size::GUTTER)
         .pb(space::XL)
         .gap(space::XXL)
@@ -70,11 +82,23 @@ fn cover_side(app: &MusicApp, window: &Window) -> Pixels {
     high.min(wide).clamp(COVER_MIN, COVER_MAX)
 }
 
-/// The cover, title, artists and album, the like control and the format.
+/// The cover, the spectrum, title, artists and album, the waveform, the
+/// like control and the format.
 fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let track = app.player.current();
     let like = track.and_then(|t| super::account::like_button(app, t, cx));
     let format = app.player.playback.format.clone();
+    let url = track.and_then(|t| t.thumbnail.clone());
+    visuals::set_covers(
+        visuals::Covers {
+            small: url
+                .as_deref()
+                .map(|u| covers::sized(u, size::PLAYER_COVER).into()),
+            large: url.as_deref().map(|u| covers::sized(u, side).into()),
+        },
+        cx,
+    );
+    let hidden = visuals::cover_in_flight(cx);
     v_flex()
         .flex_1()
         .min_w_0()
@@ -82,18 +106,26 @@ fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) ->
         .items_center()
         .justify_center()
         .child(
-            widgets::cover(
-                track.and_then(|t| t.thumbnail.clone()).map(Into::into),
-                side,
-                false,
-                c,
-            )
-            .shadow(elevation::high(c)),
+            div()
+                .relative()
+                .when(hidden, |d| d.opacity(0.))
+                .child(
+                    widgets::cover(url.map(Into::into), side, false, c).shadow(elevation::high(c)),
+                )
+                .child(visuals::slot(Slot::Cover)),
+        )
+        .child(
+            div()
+                .relative()
+                .w(side)
+                .h(SPECTRUM)
+                .mt(space::LG)
+                .child(visuals::slot(Slot::Spectrum)),
         )
         .children(track.map(|track| {
             v_flex()
                 .w(side)
-                .mt(space::XL)
+                .mt(space::MD)
                 .items_center()
                 .gap(space::XS)
                 .child(
@@ -113,16 +145,22 @@ fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) ->
                 )
         }))
         .child(
+            div()
+                .mt(space::LG)
+                .child(visuals::waveform(app, side, WAVEFORM, c, cx)),
+        )
+        .child(
             h_flex()
                 .mt(space::MD)
                 .gap(space::MD)
                 .children(like)
                 .children(format.map(|full| {
+                    // Muted rather than faint: it sits on the backdrop.
                     div()
                         .id("now-playing-format")
                         .type_caption()
                         .tabular()
-                        .text_color(c.text_faint)
+                        .text_color(c.text_muted)
                         .child(crate::playback::short_format(&full))
                         .tooltip(widgets::tooltip(full))
                 })),
@@ -150,10 +188,14 @@ fn tabs_column(
         Tab::Lyrics => lyrics::lyrics(app, window, c, cx).into_any_element(),
         Tab::Related => related::related(app, c, cx).into_any_element(),
     };
+    // Smoked glass over the backdrop, so the lists keep their contrast.
     v_flex()
         .w(TABS)
         .flex_none()
         .h_full()
+        .p(space::XS)
+        .rounded(radius::LG)
+        .bg(c.base.opacity(0.5))
         .gap(space::LG)
         .child(tab_bar(app, c, cx))
         .child(body)

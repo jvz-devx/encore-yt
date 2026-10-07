@@ -1,194 +1,141 @@
-//! A whole-song waveform (peaks for the seek bar), computed beside playback.
+//! The song's waveform under Now Playing: its loudness outline as thin
+//! bars, the part already played in `signal`. A click seeks there.
 //!
-//! mpv already holds the song: its demuxer cache (64 MiB) takes a whole
-//! YouTube audio stream within seconds. Once mpv reports `eof-cached`, the
-//! `dump-cache` command writes the cached bytes to a file and ffmpeg decodes
-//! that to 8 kHz mono, so nothing is downloaded twice. Before that point (or
-//! if the dump fails) ffmpeg reads the stream URL itself (mpv's `path`).
-//!
-//! The spike asks mpv over its IPC socket; in the app this belongs in the
-//! backend, which owns the mpv handle and the resolved URL.
+//! The outline comes from `ytfast_visuals::waveform` on a background task
+//! (ffmpeg, cached per video id) once the song plays; until then a faint
+//! line holds its place.
 
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::cell::Cell;
+use std::rc::Rc;
 
-use anyhow::{Context as _, Result, anyhow, bail};
-use serde_json::{Value, json};
+use gpui_kit::*;
 
-/// Peaks per song.
-pub const BUCKETS: usize = 400;
-const DECODE_RATE: u32 = 8000;
+use crate::app::MusicApp;
+use crate::theme::Colors;
 
-#[derive(Clone, Default)]
-pub struct Waveform {
-    pub video_id: String,
-    /// 0..1, `BUCKETS` long once done.
-    pub peaks: Vec<f32>,
-    /// How it was made and how long it took, for the overlay and the log.
-    pub how: String,
+/// The newest outline, and the song being decoded.
+#[derive(Default)]
+struct Waveforms {
+    shown: Option<(String, Vec<f32>)>,
+    loading: Option<String>,
 }
 
-/// Starts making the waveform of what mpv plays now; `out` gets it.
-pub fn start(socket: PathBuf, video_id: String, out: Arc<Mutex<Option<Waveform>>>) {
-    let spawned = thread::Builder::new()
-        .name("visuals-waveform".into())
-        .spawn(move || match make(&socket, &video_id) {
-            Ok(waveform) => {
-                log::info!("visuals: waveform of {video_id}: {}", waveform.how);
-                *out.lock().expect("waveform") = Some(waveform);
+impl Global for Waveforms {}
+
+/// The waveform of the playing song, `width` wide and `height` tall.
+pub fn waveform(
+    app: &MusicApp,
+    width: Pixels,
+    height: Pixels,
+    c: &Colors,
+    cx: &mut Context<MusicApp>,
+) -> impl IntoElement {
+    let id = app.player.current().map(|t| t.video_id.clone());
+    let playback = &app.player.playback;
+    if let Some(id) = &id
+        && playback.playing
+        && !playback.loading
+    {
+        request(app, id, cx);
+    }
+    let values = cx
+        .try_global::<Waveforms>()
+        .and_then(|w| w.shown.as_ref())
+        .filter(|(shown, _)| Some(shown) == id.as_ref())
+        .map(|(_, values)| values.clone());
+    let duration = playback.duration;
+    let progress = if duration > 0. {
+        (app.player.position() / duration) as f32
+    } else {
+        0.
+    };
+    let (played, rest) = (c.signal, c.text.opacity(0.24));
+    let bounds = Rc::new(Cell::new(None::<Bounds<Pixels>>));
+    let seen = bounds.clone();
+    div()
+        .id("waveform")
+        .w(width)
+        .h(height)
+        .flex_none()
+        .cursor_pointer()
+        .child(
+            canvas(
+                move |b, _, _| seen.set(Some(b)),
+                move |b, (), window, _| paint(b, values.as_deref(), progress, played, rest, window),
+            )
+            .size_full(),
+        )
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                let Some(b) = bounds.get() else { return };
+                let at = ((e.position.x - b.left()) / b.size.width).clamp(0., 1.);
+                this.seek_to(f64::from(at) * duration, cx);
+            }),
+        )
+}
+
+/// Starts decoding `id` unless it is shown or on its way.
+fn request(app: &MusicApp, id: &str, cx: &mut Context<MusicApp>) {
+    let state = cx.default_global::<Waveforms>();
+    let shown = state.shown.as_ref().is_some_and(|(s, _)| s == id);
+    if shown || state.loading.as_deref() == Some(id) {
+        return;
+    }
+    state.loading = Some(id.to_owned());
+    let socket = app.paths.runtime.join("mpv.sock");
+    let cache = app.paths.cache.clone();
+    let id = id.to_owned();
+    cx.spawn(async move |this, cx| {
+        let job = id.clone();
+        let result = cx
+            .background_spawn(async move { ytfast_visuals::waveform::load(&socket, &cache, &job) })
+            .await;
+        let _ = this.update(cx, |_, cx| {
+            let state = cx.default_global::<Waveforms>();
+            if state.loading.as_deref() == Some(id.as_str()) {
+                state.loading = None;
             }
-            Err(e) => log::warn!("visuals: waveform of {video_id}: {e:#}"),
+            match result {
+                Ok(values) => state.shown = Some((id, values)),
+                Err(e) => log::warn!("visuals: no waveform for {id}: {e:#}"),
+            }
+            cx.notify();
         });
-    if let Err(e) = spawned {
-        log::warn!("visuals: no waveform thread: {e}");
-    }
-}
-
-fn make(socket: &Path, video_id: &str) -> Result<Waveform> {
-    let started = Instant::now();
-    let mut ipc = Ipc::connect(socket)?;
-    // mpv may still be opening the song.
-    let mut url = None;
-    for _ in 0..20 {
-        if let Ok(Value::String(path)) = ipc.get("path") {
-            url = Some(path);
-            break;
-        }
-        thread::sleep(Duration::from_millis(500));
-    }
-    let url = url.context("mpv has no song open")?;
-    // Wait up to 20 s for the whole song to be cached, then dump it.
-    let mut source = None;
-    for _ in 0..40 {
-        // Unavailable until the demuxer runs.
-        let state = ipc.get("demuxer-cache-state").unwrap_or_default();
-        if state["eof-cached"] == true && state["bof-cached"] == true {
-            // Beside mpv's socket: the runtime directory is private (0700).
-            let file = socket.with_file_name(format!("waveform-{video_id}"));
-            let dumped = Instant::now();
-            ipc.command(json!(["dump-cache", 0, "no", file.to_string_lossy()]))?;
-            let size = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
-            log::info!(
-                "visuals: dump-cache wrote {size} bytes in {:.0} ms",
-                dumped.elapsed().as_secs_f64() * 1000.0
-            );
-            source = Some((file.to_string_lossy().into_owned(), true));
-            break;
-        }
-        thread::sleep(Duration::from_millis(500));
-    }
-    let (input, from_cache) = source.unwrap_or((url, false));
-    let decoding = Instant::now();
-    let samples = decode(&input);
-    if from_cache {
-        let _ = std::fs::remove_file(&input);
-    }
-    let samples = samples?;
-    let decode_ms = decoding.elapsed().as_secs_f64() * 1000.0;
-    let how = format!(
-        "{} s of audio from {} decoded in {decode_ms:.0} ms ({:.0} ms after the song started loading here)",
-        samples.len() / DECODE_RATE as usize,
-        if from_cache {
-            "mpv's cache"
-        } else {
-            "the stream URL"
-        },
-        started.elapsed().as_secs_f64() * 1000.0,
-    );
-    Ok(Waveform {
-        video_id: video_id.to_owned(),
-        peaks: peaks(&samples),
-        how,
     })
+    .detach();
 }
 
-/// ffmpeg decodes to 8 kHz mono f32 on stdout.
-fn decode(input: &str) -> Result<Vec<f32>> {
-    let mut child = Command::new("ffmpeg")
-        .args(["-nostdin", "-loglevel", "error", "-i", input])
-        .args(["-vn", "-ac", "1", "-ar", &DECODE_RATE.to_string()])
-        .args(["-f", "f32le", "-"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("starting ffmpeg")?;
-    let mut bytes = Vec::new();
-    child
-        .stdout
-        .take()
-        .context("ffmpeg stdout")?
-        .read_to_end(&mut bytes)?;
-    let status = child.wait()?;
-    if !status.success() {
-        bail!("ffmpeg exited with {status}");
-    }
-    Ok(bytes
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect())
-}
-
-/// Peak per bucket, scaled so the loudest is 1.
-fn peaks(samples: &[f32]) -> Vec<f32> {
-    let per = samples.len().div_ceil(BUCKETS).max(1);
-    let raw: Vec<f32> = samples
-        .chunks(per)
-        .map(|c| c.iter().fold(0.0f32, |m, s| m.max(s.abs())))
-        .collect();
-    let loudest = raw.iter().copied().fold(1e-6f32, f32::max);
-    raw.iter().map(|p| p / loudest).collect()
-}
-
-/// A second client on mpv's JSON IPC socket (mpv takes many).
-struct Ipc {
-    reader: BufReader<UnixStream>,
-    writer: UnixStream,
-    next: u64,
-}
-
-impl Ipc {
-    fn connect(socket: &Path) -> Result<Self> {
-        let stream = UnixStream::connect(socket)
-            .with_context(|| format!("connecting to {}", socket.display()))?;
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        Ok(Self {
-            reader: BufReader::new(stream.try_clone()?),
-            writer: stream,
-            next: 1,
-        })
-    }
-
-    fn get(&mut self, property: &str) -> Result<Value> {
-        self.command(json!(["get_property", property]))
-    }
-
-    fn command(&mut self, command: Value) -> Result<Value> {
-        let id = self.next;
-        self.next += 1;
-        let line = json!({ "command": command, "request_id": id }).to_string();
-        self.writer.write_all(format!("{line}\n").as_bytes())?;
-        let mut reply = String::new();
-        loop {
-            reply.clear();
-            if self.reader.read_line(&mut reply)? == 0 {
-                bail!("mpv closed the socket");
-            }
-            let message: Value = serde_json::from_str(&reply)?;
-            if message["request_id"] != id {
-                continue;
-            }
-            if message["error"] != "success" {
-                return Err(anyhow!("mpv: {}", message["error"]));
-            }
-            return Ok(message["data"].clone());
-        }
+fn paint(
+    bounds: Bounds<Pixels>,
+    values: Option<&[f32]>,
+    progress: f32,
+    played: Hsla,
+    rest: Hsla,
+    window: &mut Window,
+) {
+    let centre = bounds.center().y;
+    let Some(values) = values else {
+        // Not decoded yet: a faint line where it will be.
+        let line = Bounds::new(
+            point(bounds.left(), centre - px(1.)),
+            size(bounds.size.width, px(2.)),
+        );
+        window.paint_quad(fill(line, rest).corner_radii(Corners::all(px(1.))));
+        return;
+    };
+    let n = values.len().max(1) as f32;
+    let step = bounds.size.width / n;
+    let width = (step * 0.6).max(px(1.));
+    for (i, value) in values.iter().enumerate() {
+        let height = (bounds.size.height * *value).max(width);
+        let x = bounds.left() + step * i as f32 + (step - width) / 2.;
+        let bar = Bounds::new(point(x, centre - height / 2.), size(width, height));
+        let color = if (i as f32 + 0.5) / n <= progress {
+            played
+        } else {
+            rest
+        };
+        window.paint_quad(fill(bar, color).corner_radii(Corners::all(width / 2.)));
     }
 }

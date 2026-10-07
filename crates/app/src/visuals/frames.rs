@@ -6,8 +6,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui_kit::*;
 use encore_visuals::FrameCost;
+use gpui_kit::*;
 
 #[derive(Default)]
 pub struct Frames {

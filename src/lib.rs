@@ -19,6 +19,7 @@ pub mod heat;
 #[cfg(feature = "egui")]
 pub mod icons;
 pub mod innertube;
+pub mod jsc;
 pub mod links;
 pub mod lyrics;
 pub mod model;
@@ -34,6 +35,7 @@ pub mod resolver;
 pub mod searches;
 pub mod settings;
 pub mod single_instance;
+pub mod streams;
 #[cfg(feature = "egui")]
 pub mod theme;
 pub mod tray;

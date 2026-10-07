@@ -61,6 +61,19 @@ pub struct Client {
     /// The channel (brand account) to act as: its page id, sent as
     /// `X-Goog-PageId`. `None` is the Google account's own channel.
     page_id: RwLock<Option<String>>,
+    /// The visitor id YouTube gave the last response (`responseContext`).
+    visitor: RwLock<Option<String>>,
+}
+
+/// An InnerTube client to ask for a song's streams as (see `crate::streams`).
+pub struct PlayerClient {
+    pub name: &'static str,
+    pub version: &'static str,
+    /// The `X-YouTube-Client-Name` number.
+    pub number: u32,
+    pub user_agent: Option<&'static str>,
+    /// More `context.client` fields (device and OS).
+    pub extra: &'static [(&'static str, &'static str)],
 }
 
 impl Default for Client {
@@ -82,6 +95,7 @@ impl Client {
             http,
             session: RwLock::new(None),
             page_id: RwLock::new(None),
+            visitor: RwLock::new(None),
         }
     }
 
@@ -103,7 +117,33 @@ impl Client {
         self.session.read().expect("session lock").is_some()
     }
 
+    /// The visitor id from the last response, which stream requests need
+    /// to pass YouTube's bot check.
+    pub fn visitor_data(&self) -> Option<String> {
+        self.visitor.read().expect("visitor lock").clone()
+    }
+
+    fn remember_visitor(&self, value: &Value) {
+        if let Some(visitor) = crate::parse::at(value, &["responseContext", "visitorData"])
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+        {
+            let mut current = self.visitor.write().expect("visitor lock");
+            if current.as_deref() != Some(visitor) {
+                *current = Some(visitor.to_owned());
+            }
+        }
+    }
+
     fn auth_headers(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        self.auth_headers_for(request, ORIGIN)
+    }
+
+    fn auth_headers_for(
+        &self,
+        request: reqwest::RequestBuilder,
+        origin: &str,
+    ) -> reqwest::RequestBuilder {
         let session = self.session.read().expect("session lock");
         let Some(session) = session.as_ref() else {
             return request;
@@ -119,7 +159,7 @@ impl Client {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let hash = sha1::Sha1::digest(format!("{now} {sapisid} {ORIGIN}").as_bytes());
+            let hash = sha1::Sha1::digest(format!("{now} {sapisid} {origin}").as_bytes());
             let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
             request = request.header("Authorization", format!("SAPISIDHASH {now}_{hex}"));
         }
@@ -150,10 +190,79 @@ impl Client {
             .json()
             .await
             .map_err(|e| ApiError::Invalid(e.to_string()))?;
+        self.remember_visitor(&value);
         if self.signed_in() && crate::parse::logged_in(&value) == Some(false) {
             return Err(ApiError::Auth);
         }
         Ok(value)
+    }
+
+    /// A `player` request on www.youtube.com as another client, for its
+    /// stream URLs: `sts` is the player script's signature timestamp for
+    /// clients whose URLs need its challenges solved, `authed` sends the
+    /// session's cookies.
+    pub async fn player_as(
+        &self,
+        client: &PlayerClient,
+        video_id: &str,
+        sts: Option<u32>,
+        authed: bool,
+    ) -> Result<Value> {
+        const WWW: &str = "https://www.youtube.com";
+        let visitor = self.visitor_data();
+        let mut context = json!({
+            "clientName": client.name,
+            "clientVersion": client.version,
+            "hl": "en",
+            "gl": "US",
+        });
+        for (key, value) in client.extra {
+            context[*key] = json!(value);
+        }
+        if let Some(agent) = client.user_agent {
+            context["userAgent"] = json!(agent);
+        }
+        if let Some(visitor) = &visitor {
+            context["visitorData"] = json!(visitor);
+        }
+        let mut playback = json!({"html5Preference": "HTML5_PREF_WANTS"});
+        if let Some(sts) = sts {
+            playback["signatureTimestamp"] = json!(sts);
+        }
+        let body = json!({
+            "context": {"client": context},
+            "videoId": video_id,
+            "playbackContext": {"contentPlaybackContext": playback},
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+        });
+        let mut request = self
+            .http
+            .post(format!("{WWW}/youtubei/v1/player?prettyPrint=false"))
+            .header("Content-Type", "application/json")
+            .header("Origin", WWW)
+            .header("X-YouTube-Client-Name", client.number.to_string())
+            .header("X-YouTube-Client-Version", client.version)
+            .header("User-Agent", client.user_agent.unwrap_or(USER_AGENT))
+            .json(&body);
+        if let Some(visitor) = &visitor {
+            request = request.header("X-Goog-Visitor-Id", visitor);
+        }
+        if authed && self.signed_in() {
+            request = self
+                .auth_headers_for(request, WWW)
+                .header("X-Origin", WWW)
+                .header("X-Youtube-Bootstrap-Logged-In", "true");
+        }
+        let response = request.send().await.map_err(offline)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ApiError::Http(status.as_u16()));
+        }
+        response
+            .json()
+            .await
+            .map_err(|e| ApiError::Invalid(e.to_string()))
     }
 
     pub async fn browse(&self, id: &str, params: Option<&str>) -> Result<Value> {

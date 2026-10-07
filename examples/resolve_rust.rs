@@ -1,0 +1,147 @@
+//! Live check of the Rust stream resolver (`ytfast::streams`): resolves the
+//! given songs and fetches the first KB of each URL. Each song costs one
+//! `player` request and one range fetch; signed out, one search-suggestions
+//! call first gives the visitor id; the player script is fetched only when
+//! `<cache>/player` has no current one. Mind YouTube's rate limits.
+//!
+//! `cargo run --example resolve_rust --no-default-features -- [--signed-in]
+//! [--client visionos|tv|creator] [--cache DIR] VIDEO_ID...` (`--client`
+//! asks only that client, so a failure costs no second request; `--no-fetch`
+//! skips the range fetch; `--dump DIR` saves the player responses).
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+
+use anyhow::{Context, Result};
+use ytfast::innertube::Client;
+use ytfast::paths::Paths;
+use ytfast::streams::{self, Native};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut args = std::env::args().skip(1).peekable();
+    let mut signed_in = false;
+    let mut cache = None;
+    let mut only = None;
+    let mut fetch = true;
+    let mut dump = None;
+    let mut ids = Vec::new();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--signed-in" => signed_in = true,
+            "--cache" => cache = args.next().map(PathBuf::from),
+            "--no-fetch" => fetch = false,
+            "--dump" => dump = args.next().map(PathBuf::from),
+            "--client" => {
+                only = Some(match args.next().as_deref() {
+                    Some("visionos") => &streams::VISIONOS,
+                    Some("tv") => &streams::TV_DOWNGRADED,
+                    Some("creator") => &streams::WEB_CREATOR,
+                    other => anyhow::bail!("unknown client {other:?}"),
+                })
+            }
+            _ => ids.push(arg),
+        }
+    }
+    let paths = Paths::new()?;
+    let client = Arc::new(Client::new());
+    let mut requests = 0;
+    if signed_in {
+        let preferred = ytfast::settings::Settings::load(&paths).browser_profile;
+        let session =
+            ytfast::auth::load(&paths.runtime, preferred.as_deref()).context("signing in")?;
+        println!("signed in from {}", session.source);
+        client.set_session(Some(session));
+    }
+    {
+        let started = Instant::now();
+        client
+            .suggestions("a")
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        requests += 1;
+        println!(
+            "visitor id: {} ({:.2}s)",
+            client.visitor_data().is_some(),
+            started.elapsed().as_secs_f64()
+        );
+    }
+    let mut native = Native::new(client.clone(), &cache.unwrap_or(paths.cache));
+    if let Some(dir) = &dump {
+        native.dump_responses(dir.clone());
+    }
+    let started = Instant::now();
+    let player = native.prepare().await?;
+    println!(
+        "player {player} ready in {:.2}s",
+        started.elapsed().as_secs_f64()
+    );
+    for id in ids {
+        let started = Instant::now();
+        let stream = match only {
+            Some(client) => native.resolve_as(client, &id, signed_in).await,
+            None => native.resolve(&id, signed_in).await,
+        };
+        requests += 1;
+        let elapsed = started.elapsed().as_secs_f64();
+        let stream = match stream {
+            Ok(stream) => stream,
+            Err(error) => {
+                println!("{id}: failed after {elapsed:.2}s: {error:#}");
+                continue;
+            }
+        };
+        println!(
+            "{id}: itag {} from {} in {elapsed:.2}s, expires in {} min",
+            stream.itag,
+            only.map_or(native.last_client(), |c| c.name),
+            stream.expires.saturating_sub(ytfast::resolver::now()) / 60
+        );
+        if let (Some(dir), Some(client)) = (&dump, only) {
+            let saved = std::fs::read_to_string(dir.join(format!("{}-{id}.json", client.name)))?;
+            let format = streams::best_audio(&serde_json::from_str(&saved)?)?;
+            let names = |url: &str| -> Vec<String> {
+                reqwest::Url::parse(url)
+                    .map(|u| u.query_pairs().map(|(k, _)| k.into_owned()).collect())
+                    .unwrap_or_default()
+            };
+            println!(
+                "{id}: response had cipher {}, n in URL {}; resolved URL has {:?}",
+                format.cipher.is_some(),
+                format
+                    .url
+                    .as_deref()
+                    .or(format.cipher.as_deref())
+                    .is_some_and(|u| u.contains("n=")),
+                names(&stream.url)
+            );
+        }
+        if !fetch {
+            continue;
+        }
+        let started = Instant::now();
+        let mut request = client
+            .http()
+            .get(&stream.url)
+            .header("Range", "bytes=0-1023");
+        if let Some(agent) = &stream.user_agent {
+            request = request.header("User-Agent", agent);
+        }
+        let response = request.send().await;
+        requests += 1;
+        match response {
+            Ok(response) => {
+                let status = response.status();
+                let bytes = response.bytes().await.map(|b| b.len()).unwrap_or(0);
+                println!(
+                    "{id}: range 0-1023 -> {status}, {bytes} bytes in {:.2}s",
+                    started.elapsed().as_secs_f64()
+                );
+            }
+            Err(error) => println!("{id}: range fetch failed: {error}"),
+        }
+    }
+    println!("YouTube requests: {requests} (plus the player script if it was downloaded)");
+    Ok(())
+}

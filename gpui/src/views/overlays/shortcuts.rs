@@ -125,11 +125,14 @@ fn line(keys: &[&[&'static str]], what: &'static str, c: &Colors) -> Div {
         }
         caps = caps.child(combo(keys, c));
     }
+    // A long description wraps rather than being cut off beside wide
+    // keycaps (two-column layouts are narrow).
     h_flex()
-        .h(LINE)
+        .min_h(LINE)
+        .py(space::XS)
         .gap(space::LG)
         .border_b_1()
         .border_color(c.hairline)
-        .child(div().flex_1().min_w_0().truncate().type_body().child(what))
+        .child(div().flex_1().min_w_0().type_body().child(what))
         .child(caps)
 }

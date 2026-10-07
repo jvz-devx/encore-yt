@@ -961,13 +961,15 @@ fn panel_track(v: &Value) -> Option<(Track, bool)> {
     }
     let byline = runs(r.get("longBylineText"));
     let duration = parse_duration(&text(r.get("lengthText")));
-    let track = track_from(
+    let mut track = track_from(
         id,
         &text(r.get("title")),
         &byline,
         thumbnail(r.get("thumbnail")),
         duration,
     );
+    // Signed in, Up next's rows carry the same like button as list rows.
+    track.like = row_like(r);
     Some((
         track,
         r.get("selected").and_then(Value::as_bool).unwrap_or(false),
@@ -1098,7 +1100,8 @@ fn like_status(v: Option<&Value>) -> Option<LikeStatus> {
     }
 }
 
-/// A row's rating, from the like button in its menu.
+/// A row's rating, from the like button in its menu (list rows and Up
+/// next's rows; `None` where the response has none).
 fn row_like(r: &Value) -> Option<LikeStatus> {
     array(at(r, &["menu", "menuRenderer", "topLevelButtons"]))
         .iter()

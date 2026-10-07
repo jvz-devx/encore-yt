@@ -113,7 +113,7 @@ Weekly on Mondays at 06:23 UTC, and by hand (optionally for a given release, or 
 ### What the first runs found (2026-10-07)
 
 - Player `f2999a12` (served to some runners next to `1b3be681`) made the solver recurse without end in `Array.prototype.join`, and the process aborted with a stack overflow. rquickjs treats a stack limit above 16 MB as no limit, so the 48 MB set before disabled QuickJS's check. With 16 MB QuickJS throws a RangeError instead, the solve completes, and its answers for `f2999a12` match deno's. Without the fix, the first signed-in song on that player would have crashed the app.
-- From a runner's IP, VISIONOS answered "Sign in to confirm you're not a bot" for one of the two songs in both runs. A song that meets the bot check doesn't count as a failure; if every song does, the live part warns that it was inconclusive and the run passes on the solver check alone.
+- From runners' IPs, VISIONOS answered "Sign in to confirm you're not a bot" for every public song tried except `dQw4w9WgXcQ` (9 others, in 5 runs, in any order; `BaW_jenozKc` is unavailable), although `wU26xVT_vBU`, one of them, resolved from a home connection the same day. A song that meets the bot check doesn't count as a failure; if every song does, the live part warns that it was inconclusive and the run passes on the solver check alone. The canary keeps a second song so it notices if that changes.
 
 ### At runtime
 

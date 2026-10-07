@@ -1,9 +1,9 @@
 cask "ytfast-gpui" do
   arch arm: "arm64", intel: "x86_64"
 
-  version "0.1.0-alpha.1"
-  sha256 arm:   "d607d7b5cf92ae805f12b74094a4d900ee5986a1f9a55c8f01821756c8b7940f",
-         intel: "c02744fb0a422d7a1eea7d411e9c188303a5ae49a603018ced0114555f318c2b"
+  version "0.1.0-alpha.2"
+  sha256 arm:   "7bdd217fa310773494fe481aa0dce12afb99f4ae38a44787e3cbb64de56ff92b",
+         intel: "d1c2c61369bdaadf11cdcff875bb618c58ece6c3d45e303c9eaefe31d9c20e01"
 
   # The bundled mpv needs macOS 14 on Apple silicon and 15 on Intel.
   on_arm do

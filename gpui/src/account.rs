@@ -48,6 +48,7 @@ impl MusicApp {
             // Home, Library and the rest change with the account.
             self.ensure_page(self.pages.view.target(), true);
         }
+        self.sidebar_account(was != self.account.signed_in());
     }
 
     pub(crate) fn on_profiles(&mut self, list: Vec<Profile>, current: Option<String>) {

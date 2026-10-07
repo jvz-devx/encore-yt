@@ -162,6 +162,7 @@ impl MusicApp {
             .collect();
         if !tracks.is_empty() {
             self.send(Command::PlayTracks { tracks, start: 0 });
+            self.sidebar_played_page(key);
         }
     }
 

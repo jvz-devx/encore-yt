@@ -346,6 +346,14 @@ impl Client {
             .map(drop)
     }
 
+    /// Sends menu feedback tokens, e.g. a song's "Add to library" or
+    /// "Remove from library" (`feedbackEndpoint.feedbackToken`).
+    pub async fn feedback(&self, tokens: &[String]) -> Result<()> {
+        self.call("feedback", json!({ "feedbackTokens": tokens }))
+            .await
+            .map(drop)
+    }
+
     pub async fn subscribe(&self, channel_id: &str, subscribe: bool) -> Result<()> {
         let endpoint = if subscribe {
             "subscription/subscribe"

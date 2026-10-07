@@ -1,6 +1,7 @@
-//! Settings → Loudness levelling and Notifications.
+//! Settings → Loudness levelling, Audio player and Notifications.
 
 use gpui_kit::*;
+use ytfast::player::Kind;
 
 use super::super::widgets;
 use crate::app::MusicApp;
@@ -24,6 +25,39 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
             control,
             c,
         )],
+    )
+}
+
+/// Which engine plays: the built-in one (mpv for what it can't play) or mpv.
+pub fn player(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let playback = &app.player.playback;
+    let chosen = playback.player;
+    let detail = match (chosen, playback.engine) {
+        (Kind::Rust, Some(Kind::Mpv)) => "This song plays on mpv",
+        (Kind::Rust, _) => "Plays songs itself, and uses mpv for any it can't play",
+        (Kind::Mpv, _) => "Plays songs with mpv",
+    };
+    let chip = |kind: Kind, label: &'static str| {
+        super::choice(
+            SharedString::from(format!("player-{}", kind.label())),
+            label,
+            chosen == kind,
+            c,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.set_player(kind, cx)))
+    };
+    super::section(
+        "Audio player",
+        c,
+        [
+            super::row(
+                "Player",
+                Some(format!("{detail}. Changes from the next song").into()),
+                div().into_any_element(),
+                c,
+            ),
+            super::choices([chip(Kind::Rust, "Built-in"), chip(Kind::Mpv, "mpv")]),
+        ],
     )
 }
 

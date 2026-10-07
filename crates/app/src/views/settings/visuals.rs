@@ -51,7 +51,7 @@ impl Tab {
             Tab::Particles => &[Card::Particles, Card::Wave],
             Tab::PlayerBar => &[Card::Glow, Card::Halos, Card::Seek],
             Tab::Visualiser => &[Card::Visualizer],
-            Tab::Scenes => &[Card::Scenes],
+            Tab::Scenes => &[Card::Scenes, Card::Scrim],
             Tab::Transitions => &[Card::Dissolve, Card::Flight],
         }
     }

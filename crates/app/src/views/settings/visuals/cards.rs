@@ -24,6 +24,7 @@ pub enum Card {
     Seek,
     Visualizer,
     Scenes,
+    Scrim,
     Dissolve,
     Flight,
 }
@@ -83,6 +84,7 @@ fn title(k: Card) -> &'static str {
         Card::Seek => "Seek bar",
         Card::Visualizer => "Visualiser",
         Card::Scenes => "3D scenes",
+        Card::Scrim => "Scrim in the light look",
         Card::Dissolve => "Cover dissolve",
         Card::Flight => "Cover flight",
     }
@@ -109,6 +111,7 @@ fn switched(k: Card, s: &VisualsConfig) -> Option<bool> {
         Card::Dissolve => Some(s.dissolve.on),
         Card::Flight => Some(s.flight.on),
         Card::Scenes => Some(s.visualizer.style.scene().is_some()),
+        Card::Scrim => Some(s.scenes.scrim),
         Card::Stage | Card::Seek | Card::Visualizer => None,
     }
 }
@@ -122,6 +125,7 @@ fn set_switch(k: Card, s: &mut VisualsConfig, on: bool) {
         Card::Halos => s.halos.on = on,
         Card::Dissolve => s.dissolve.on = on,
         Card::Flight => s.flight.on = on,
+        Card::Scrim => s.scenes.scrim = on,
         // A scene is the visualiser's style: on picks the XMB, off goes
         // back to the bars.
         Card::Scenes => {
@@ -178,6 +182,12 @@ fn summary(k: Card, s: &VisualsConfig) -> String {
         },
         Card::Visualizer => visualizer_summary(s),
         Card::Scenes => off(s.visualizer.style.scene().is_some(), visualizer_summary(s)),
+        Card::Scrim => if s.scenes.scrim {
+            "Scenes keep their contrast, with soft light behind text"
+        } else {
+            "The whole scene is toned light, so text reads on it"
+        }
+        .into(),
         Card::Dissolve => off(
             s.dissolve.on,
             format!(
@@ -269,6 +279,7 @@ fn body(
             rows
         }
         Card::Glow => sliders(&[Knob::Glow], cx),
+        Card::Scrim => sliders(&[Knob::ScrimStrength], cx),
         Card::Halos => sliders(&[Knob::Halos], cx),
         Card::Dissolve => sliders(&[Knob::Dissolve], cx),
         Card::Flight => sliders(&[Knob::Flight], cx),

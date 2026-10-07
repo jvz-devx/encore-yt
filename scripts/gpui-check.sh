@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The full gate for the GPUI fork (docs/gpui/PLAN.md): verify-workspace
+# The full gate (docs/gpui/PLAN.md): verify-workspace
 # (fmt, clippy and tests across both Cargo workspaces, shaders) plus a
 # release build of the GPUI app. Run it once before finishing, not while
 # iterating.

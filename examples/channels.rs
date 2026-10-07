@@ -4,7 +4,7 @@
 //! channel. Prints counts, never a cookie; channel names only with
 //! `--names`.
 //!
-//! `cargo run --example channels --no-default-features [-- [--names] [<profile id>]]`
+//! `cargo run --example channels [-- [--names] [<profile id>]]`
 
 fn main() -> anyhow::Result<()> {
     let names = std::env::args().any(|a| a == "--names");

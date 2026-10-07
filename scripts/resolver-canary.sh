@@ -49,7 +49,7 @@ echo "player $id ($(($(wc -c < "$dir/resolver/$id.js") / 1024)) KB)"
 if "$root/scripts/ejs-expected.sh" "$dir/resolver/$id.js" > "$dir/resolver/$id.expected.json"; then
   echo "deno: $(jq '.n | length' "$dir/resolver/$id.expected.json") n answers, $(jq '.sig | length' "$dir/resolver/$id.expected.json") signature lengths"
   if ! (cd "$root" && YTFAST_RESOLVER_CAPTURES="$dir/resolver" \
-        cargo test --no-default-features --test resolver_offline -- --nocapture); then
+        cargo test --test resolver_offline -- --nocapture); then
     failed+=("QuickJS solves player $id differently from yt-dlp's EJS (or not at all)")
   fi
 else
@@ -63,7 +63,7 @@ if [[ $live == 1 ]]; then
   # The example reuses the player fetched above instead of asking again.
   cp "$dir/resolver/$id.js" "$dir/home/cache/ytfast/player/$id.js"
   printf '%s' "$id" > "$dir/home/cache/ytfast/player/current"
-  (cd "$root" && cargo build --no-default-features --example resolve_rust)
+  (cd "$root" && cargo build --example resolve_rust)
   # Only the resolver gets the fresh home (cargo and sccache keep theirs).
   status=0
   env -u YTFAST_FAKE_STREAM XDG_CONFIG_HOME="$dir/home/config" \

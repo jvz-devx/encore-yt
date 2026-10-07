@@ -2,23 +2,18 @@
 # GPUI app, run bacon in gpui/ instead (gpui/bacon.toml). Run it in your own
 # terminal, not from an agent task.
 #
-#   c  check the backend (default)   e  check the egui app   t  backend tests
+#   c  check the backend (default)   t  backend tests
 
 default_job = "check"
 
 [jobs.check]
-command = ["cargo", "check", "--lib", "--no-default-features"]
-need_stdout = false
-
-[jobs.check-egui]
-command = ["cargo", "check"]
+command = ["cargo", "check", "--lib", "--features", "rust-audio"]
 need_stdout = false
 
 [jobs.test]
-command = ["cargo", "test", "--lib", "--tests", "--no-default-features"]
+command = ["cargo", "test", "--lib", "--tests", "--features", "rust-audio"]
 need_stdout = true
 
 [keybindings]
 c = "job:check"
-e = "job:check-egui"
 t = "job:test"

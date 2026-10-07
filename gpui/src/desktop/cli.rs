@@ -15,7 +15,8 @@ Without a command, opens Music (or brings back the running one).
   next | previous
   like               like or unlike the playing song
   open <link>        open a YouTube Music or YouTube link (starts Music if needed)
-  quit               quit Music, stopping playback";
+  quit               quit Music, stopping playback
+  --version          print the version";
 
 /// What this process starts with, once no other instance took the message.
 pub struct Launch {
@@ -25,14 +26,19 @@ pub struct Launch {
 
 /// Reads the arguments. `None` when the process is done: the message went
 /// to the running instance, or help was printed. Bad arguments exit.
-pub fn command_line(paths: &Paths) -> Option<Launch> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+/// `args` are the arguments after the program's name.
+pub fn command_line(paths: &Paths, args: Vec<String>) -> Option<Launch> {
     let Some(word) = args.first().map(String::as_str) else {
         if single_instance::notify(&paths.runtime, &Message::Show) {
             return None;
         }
         return Some(Launch { link: None });
     };
+    // The update helper asks a downloaded version this (M16).
+    if word == "--version" {
+        println!("ytfast-gpui {}", crate::update::VERSION);
+        return None;
+    }
     if matches!(word, "-h" | "--help" | "help") {
         println!("{USAGE}");
         return None;

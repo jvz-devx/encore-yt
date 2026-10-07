@@ -17,6 +17,7 @@ mod pages;
 mod playback;
 mod sidebar;
 mod theme;
+mod update;
 mod views;
 mod visuals;
 
@@ -28,14 +29,17 @@ use std::sync::Arc;
 use anyhow::anyhow;
 
 fn main() -> anyhow::Result<()> {
+    // The update helper runs here and exits; a start after an update keeps
+    // its receipt (M16).
+    let args = update::intercept();
     // Bundled mpv, yt-dlp and deno win over the system's.
     desktop::tools::add_bundled_to_path();
     let paths = ytfast::paths::Paths::new()?;
     // A running instance takes the message; this process is then done.
-    let Some(launch) = desktop::command_line(&paths) else {
+    let Some(launch) = desktop::command_line(&paths, args) else {
         return Ok(());
     };
-    fastframe_log::Logging::new("ytfast-gpui", env!("CARGO_PKG_VERSION"))
+    fastframe_log::Logging::new("ytfast-gpui", update::VERSION)
         .filter("ytfast=info,ytfast_gpui=info,warn")
         .file(paths.cache.join("ytfast-gpui.log"))
         .panic_log(paths.cache.join("panics-gpui.log"))

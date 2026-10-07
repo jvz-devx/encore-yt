@@ -47,6 +47,8 @@ pub struct MusicApp {
     pub desktop: Desktop,
     pub extras: Extras,
     pub sidebar: Sidebar,
+    /// Updates from GitHub Releases (M16).
+    pub updates: crate::update::Updates,
     /// The newest error, shown in the strip under the top bar.
     pub error: Option<String>,
     /// The root's focus, so shortcuts in the "Music" key context reach the
@@ -123,6 +125,7 @@ impl MusicApp {
         subscriptions.extend(subs);
 
         let sidebar = Sidebar::new(&paths.cache);
+        let updates = crate::update::Updates::new(&paths);
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut app = Self {
@@ -134,6 +137,7 @@ impl MusicApp {
             desktop,
             extras,
             sidebar,
+            updates,
             // A missing mpv, yt-dlp or deno, from the start.
             error: crate::desktop::tools::missing_notice(),
             focus,
@@ -143,6 +147,7 @@ impl MusicApp {
             _clock: clock,
         };
         app.ensure_page(app.pages.view.target(), false);
+        app.start_update_checks(cx);
         app
     }
 

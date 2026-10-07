@@ -75,7 +75,7 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
                 .flex_1()
                 .min_h_0()
                 .items_start()
-                .child(sidebar::sidebar(app, cx))
+                .child(sidebar::sidebar(app, window, cx))
                 .child(panel)
                 .children(queue::panel(app, window, cx)),
         )

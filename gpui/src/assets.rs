@@ -53,7 +53,10 @@ gpui_kit::assets::icon_assets!(
         ListEnd,
         Link,
         Command,
-        Check
+        Check,
+        Sparkles,
+        TrendingUp,
+        Shapes
     ]
 );
 

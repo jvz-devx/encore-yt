@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Music</string>
+  <string>ytfast</string>
   <key>CFBundleDisplayName</key>
-  <string>Music (ytfast)</string>
+  <string>ytfast</string>
   <key>CFBundleIdentifier</key>
   <string>io.github.jvz-devx.ytfast-gpui</string>
   <key>CFBundleExecutable</key>

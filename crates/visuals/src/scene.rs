@@ -14,12 +14,13 @@ use anyhow::Result;
 
 use crate::gpu::{Gpu, bytes};
 use crate::renderer::{Look, colour_kept};
+use crate::scrim::Scrim;
 use crate::spectrum::BANDS;
 use crate::target::{Frame, Target};
 
-/// 19 vec4s: audio, output, tune, env, seed, clock, 4 palette colours,
-/// 8 of bands and the motion clocks.
-const PARAMS_SIZE: u64 = 19 * 16;
+/// 27 vec4s: audio, output, tune, env, seed, clock, 4 palette colours,
+/// 8 of bands, the motion clocks and the scrim's 8 ([`Scrim`]).
+const PARAMS_SIZE: u64 = 27 * 16;
 /// The XMB wave's grid: 100 x 100 vertices, two triangles a cell.
 const XMB_WAVE_VERTICES: u32 = 99 * 99 * 6;
 const XMB_SPARKLES: u32 = 2000;
@@ -122,6 +123,8 @@ pub struct SceneParams<'a> {
     /// How much a scene behind text follows the music, 0..1 (0.5 as
     /// designed); the visualiser follows all of it.
     pub reaction: f32,
+    /// The light look's scrim behind text (off: the old whole-scene tone).
+    pub scrim: Scrim,
 }
 
 pub struct Scene {
@@ -207,6 +210,7 @@ impl Scene {
         }
         floats.extend(p.levels);
         floats.extend([pace.flow, pace.sparkle, pace.drive[0], pace.drive[1]]);
+        floats.extend(p.scrim.floats());
         bytes(&floats)
     }
 }
@@ -327,6 +331,7 @@ mod tests {
                     strength: 1.0,
                     quality: 1.0,
                     reaction: 0.5,
+                    scrim: Scrim::default(),
                 };
                 let frame = scene.frame_now(&p).expect("frame");
                 let px = frame.bgra.chunks(4);

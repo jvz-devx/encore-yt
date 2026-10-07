@@ -14,7 +14,8 @@
 //!   [`Bars`] made of the spectrum, and an oscilloscope from [`Scope`]'s
 //!   traces of the samples.
 //! - [`Scene`]: the 3D scenes (M30: the PS3's XMB wave, ridges made of
-//!   the spectrum, an aurora), opaque, moved by the music through [`Pace`].
+//!   the spectrum, an aurora), opaque, moved by the music through [`Pace`],
+//!   with the light look's [`Scrim`] behind text.
 //! - [`AudioTap`]: what the audio engine plays (`encore_audio::Tap`, in
 //!   process), analysed into spectrum bands plus bass and beat levels.
 //! - [`waveform`]: a whole song's loudness outline, decoded with the audio
@@ -30,6 +31,7 @@ mod pipelines;
 mod renderer;
 mod scene;
 mod scope;
+mod scrim;
 mod spectrum;
 mod strip;
 mod target;
@@ -42,6 +44,7 @@ pub use gpu::Gpu;
 pub use renderer::{CoverShadow, FrameParams, Look, Renderer, Tune};
 pub use scene::{Pace, Scene, SceneKind, SceneParams, seed};
 pub use scope::{Channels, SPAN, Scope};
+pub use scrim::{SCRIM_BLOCKS, Scrim};
 pub use spectrum::{AudioTap, BANDS, Bands, RECENT, band_at};
 pub use strip::{Seek, Strip, StripColors, StripParams};
 pub use target::{Frame, FrameCost};

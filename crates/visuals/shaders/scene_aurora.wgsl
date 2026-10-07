@@ -366,7 +366,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     col = mix(flat_col, col, clamp(params.tune.x, 0.0, 1.5));
     // The light look stretches whatever hue it is given to its gamut, so
     // give it a grey sky to press: the curtains then read as pastels.
-    if params.output.z > 0.5 && backdrop {
+    if squeezed() {
         col = col * 0.8 + vec3<f32>(0.22);
     }
     let v = in.uv - 0.5;

@@ -146,6 +146,22 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
 - **Sidebar item** (`sidebar::item`): 40 tall, `px MD`, `gap MD`, `radius MD`,
   icon + `type_label`. Rest `text_muted`; hover `hover` fill and `text`;
   active `selected` fill and `text`. No accent bar.
+- **Sidebar library** (`views/sidebar/`): under the nav, `XL` below it and
+  scrolling on its own (kit scrollbar). Signed in: a full-width New playlist
+  pill (`raised`, hover `overlay`, 18 px plus), then Liked music and the
+  account's playlists, then "Recently played" (`type_caption` `text_muted`
+  heading, `XL` above). Rows are `size::LIBRARY_ROW` 48 tall, `px SM`,
+  `gap MD`, a 32 cover (`LIBRARY_THUMB`), title `type_label` and subtitle
+  `type_small` `text_muted`, both one line; radius `XS + SM` (concentric
+  with the cover). The open page's row has the `selected` fill; the
+  collection playing now gets a 16 px `AudioLines` in `signal`. Signed out:
+  Explore's shortcuts as sidebar items and a `type_small` `text_faint`
+  "Sign in to see your library". Nothing is shown while the account is
+  being checked.
+- **Rail**: below `size::RAIL_BELOW` (1000 px window width) the sidebar is
+  `SIDEBAR_RAIL` (72) wide: the brand tile, icons and covers centred, the
+  New playlist pill a 36 round button, labels as tooltips, section headings
+  a 24 px `hairline`.
 - **Brand**: 28 px `signal` tile, `radius MD`, white play glyph; "Music" in
   `type_heading`.
 - **Search field**: kit `Input` as a 40 px pill on `raised` with no visible

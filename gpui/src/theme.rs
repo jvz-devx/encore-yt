@@ -227,6 +227,13 @@ pub mod radius {
 pub mod size {
     use gpui_kit::{Pixels, px};
     pub const SIDEBAR: Pixels = px(232.);
+    /// The sidebar as a rail of icons and covers, in narrow windows.
+    pub const SIDEBAR_RAIL: Pixels = px(72.);
+    /// Windows narrower than this get the rail.
+    pub const RAIL_BELOW: Pixels = px(1000.);
+    /// A playlist or recently played row in the sidebar, and its cover.
+    pub const LIBRARY_ROW: Pixels = px(48.);
+    pub const LIBRARY_THUMB: Pixels = px(32.);
     pub const TOP_BAR: Pixels = px(64.);
     pub const PLAYER_BAR: Pixels = px(88.);
     /// The page's side gutter.

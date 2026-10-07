@@ -26,6 +26,7 @@ use crate::desktop::Desktop;
 use crate::extras::Extras;
 use crate::pages::Pages;
 use crate::playback::Player;
+use crate::sidebar::Sidebar;
 
 /// How often the player bar's position moves while a song plays.
 const POSITION_TICK: Duration = Duration::from_millis(500);
@@ -42,6 +43,7 @@ pub struct MusicApp {
     pub account: AccountUi,
     pub desktop: Desktop,
     pub extras: Extras,
+    pub sidebar: Sidebar,
     /// The newest error, shown in the strip under the top bar.
     pub error: Option<String>,
     /// The root's focus, so shortcuts in the "Music" key context reach the
@@ -105,6 +107,7 @@ impl MusicApp {
         let (extras, subs) = Extras::new(window, cx);
         subscriptions.extend(subs);
 
+        let sidebar = Sidebar::new(&paths.cache);
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut app = Self {
@@ -115,6 +118,7 @@ impl MusicApp {
             account,
             desktop,
             extras,
+            sidebar,
             error: None,
             focus,
             pending_playback: None,
@@ -127,6 +131,7 @@ impl MusicApp {
     }
 
     pub fn send(&mut self, command: Command) {
+        self.sidebar_sent(&command);
         self.backend.send(command);
     }
 

@@ -9163,6 +9163,7 @@ dependencies = [
  "gpui-pre-reqwest-client",
  "image",
  "log",
+ "serde_json",
  "smol",
  "tokio",
  "ytfast",

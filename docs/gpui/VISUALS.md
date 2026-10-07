@@ -242,9 +242,10 @@ Now:
   drivers' files for the same GPU are removed. Without the feature (the GL
   fallback) there is no cache; the device is still made in the background.
 - **Per OS.** wgpu has pipeline caches only on Vulkan. Linux (Mesa) gets
-  it. Windows uses the same Vulkan-or-GL device (DX12 is not asked for), so
-  a Vulkan driver gets the cache, in the local app data cache directory
-  under `gpu`. On macOS the device needs Vulkan (MoltenVK) or GL, so the
+  it. On Windows the device is DX12 or Vulkan (wgpu's pick of the
+  low-power adapter; DX12 compiles with FXC unless a `dxcompiler.dll` sits
+  next to the app, see "DX12's shader compiler"), and only a Vulkan driver
+  gets the cache, in the local app data cache directory under `gpu`. On macOS the device needs Vulkan (MoltenVK) or GL, so the
   cache would only apply through MoltenVK; Metal isn't used. Windows and
   macOS are untested on hardware; `cargo xwin check --target
   x86_64-pc-windows-msvc` passes.
@@ -551,6 +552,85 @@ Playing, Stage, full window), `sc3-*` (dark, X/Y, dual-mono audio),
 `sc4-*` (X/Y with a synthetic stereo file), `sc5-*` (three traces a
 second apart), `sd-*` and `sl-*` (dark muted and light vivid, mono, all
 three places), `sc9-tab` (Settings), `m5*` (the measured states).
+
+## Every GPU (M32, 2026-10-07)
+
+### Clocks
+
+Every animation clock is an f64 kept on the CPU (`encore_visuals::clock`).
+An f32 clock that only grows moves in steps of 8 ms at 1e5 seconds (28
+hours of animation, a quarter of a 30 Hz frame), and shaders that put it
+into `sin` or noise lose precision sooner. A shader gets the f64 less a
+base, as f32, and the base moves only where the picture can't jump: by a
+whole period of what the shader does with the clock (`wrap`), or at a
+moment the picture changes anyway (`Rebase::hidden`, once the clock is
+4096 s past its base, so it happens about once an hour at most and the
+value stays under 1e4 with songs shorter than an hour).
+
+| Clock | Shader use | Kept small by |
+| --- | --- | --- |
+| The effects' animation time (`Tick::seconds`) | each effect, below | f64; each effect takes its own f32 of it |
+| Backdrop `seconds` | only `fract(t)` for the dither | wrapped every 1000 s (any whole second is a period) |
+| Backdrop flow | the warp's noise, the cover's slow turn (0.025 rad/s) | rebased when a new cover starts its cross-fade, by whole turns (80π s), so the cover's angle doesn't move; only the warp's noise moves, under the fade |
+| Backdrop wave clock (also the sparkles' gathering) | `sin` only, at multiples of 0.005 rad/s | wrapped every 400π s: the wave repeats exactly, nothing moves |
+| Player bar glow (`Tick::seconds`) | four `sin`s at multiples of 0.005 rad/s, one gentle noise warp | rebased when a palette cross-fade begins, by whole 400π s, so the blobs stay put; the warp (±4.5% of the bar's width) moves under the fade |
+| Visualiser `seconds` (particles' sway) | `sin` at 0.7 and 0.5 rad/s | wrapped every 20π s: exact |
+| Visualiser `travel` (particles rising) | which hashed cell a particle is in | rebased while the visualiser is hidden or paused (nothing shows), or at a new song |
+| Scene clock, flow, sparkle (`Pace`) | everything that moves in XMB, Ridges, Aurora | restarted at 0 for every song: the song's seed changes the whole scene in that frame |
+| Sparkles' drift and twinkle (`ambient.rs`) | none: GPUI quads placed on the CPU | f64 throughout: the grid's whole cells and the rest under a cell are split before f32, and the `sin`s take f64 |
+
+Ridges' camera flew along z = -0.22 t - 30, so after hours its z (and
+every point the march samples) was a large number, and the ridge-top
+lines (a fraction of a row, 0.01 wide) and the normals (differences over
+0.012) lost their precision. `Pace::gpu_clocks` now passes the camera's
+travel as whole ridge rows (`clock.y`) and its z within them
+(`clock.z`); the shader works in coordinates whose origin is that row,
+so line widths and normals use small numbers. The row lines repeat every
+row; the slow variations (row height, shift, blur, the land's noise)
+take the row counted from the start of the flight, which only feeds
+smooth functions. `the_clocks_stay_precise_for_days` (scene.rs) runs 48
+hours of four-minute songs at 30 frames a second: every value the
+scenes send stays under 1e4, each frame's step matches the f64 clock's
+within 0.2 ms, and the camera stays within a row of its origin.
+
+### DX12's shader compiler
+
+wgpu 29 compiles HLSL for DX12 with FXC unless DXC is linked in
+(`static-dxc`) or a `dxcompiler.dll` is found. Linking DXC in adds 22.5 MB
+to a Windows release build (measured: a release exe linking
+`mach-dxcompiler-rs` 0.1.6 through lld-link with `/OPT:REF,ICF`, 22.7 MB
+against 0.13 MB without; its static library is 115 MB), and it needs ATL
+(`atls.lib`) at link time, which `cargo xwin` doesn't install by default,
+and its build script downloads the library from GitHub and asks the
+GitHub API whether the release is immutable on every clean build. So
+`gpu.rs` names the compiler itself (`dx12_compiler`): DXC from a
+`dxcompiler.dll` next to `encore-yt.exe` when there is one, else FXC; the
+log says which (`visuals: DX12 shaders through ...`).
+`WGPU_DX12_COMPILER=fxc` or `dxc` overrides it for comparing. The
+installer doesn't ship `dxcompiler.dll` yet, so DX12 still compiles with
+FXC until it does.
+
+### Modest GPUs
+
+On an Adreno (Snapdragon laptops) or the GL fallback, `Gpu::modest`:
+the scenes' Detail setting is relative to 0.7 of the usual step counts
+(`Gpu::scene_detail`; the setting still reads 1 at its default), and
+Aurora's lake mirrors only the two nearer curtains (the third, farthest
+and faintest one stays in the sky). Ridges' step count is clamped to
+8..48 like Aurora's.
+
+### GL's colour order
+
+The effects render into `Bgra8Unorm` and read frames back as BGRA bytes.
+wgpu's GL backend stores that format as RGBA8 and converts on the way in
+(`glTexSubImage2D` with `GL_BGRA`) and out (`glReadPixels` with
+`GL_BGRA`); the `//TODO?` beside it in wgpu-hal's `gles/conv.rs` is about
+that mapping, and it holds. Checked with
+`colours_keep_their_order_on_every_backend` (dissolve.rs): a red and a
+blue cover uploaded as BGRA come back red and blue from the dissolve's
+frames on Vulkan and on Mesa's GL (Intel UHD 630) alike, so the GL path
+needs no swizzle. `WGPU_BACKEND=gl` (or `vulkan`, `dx12`, `metal`) now
+picks the effects' backend, for checks like this one in the app.
 
 # The spike (2026-10-06)
 

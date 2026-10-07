@@ -268,9 +268,10 @@ fn aur_hills(rd: vec3<f32>) -> f32 {
 }
 
 // Everything above the ground seen along a ray from `ro`: night, stars,
-// hills and the curtains. `quiet` dims the curtains (the left third).
+// hills and the curtains (`all`: the third, farthest one too). `quiet`
+// dims the curtains (the left third).
 fn aur_sky(ro: vec3<f32>, rd: vec3<f32>, c0: AurCurtain, c1: AurCurtain, c2: AurCurtain,
-    t: f32, steps: i32, quiet: f32, glow: vec3<f32>) -> vec3<f32> {
+    t: f32, steps: i32, all: bool, quiet: f32, glow: vec3<f32>) -> vec3<f32> {
     var col = aur_night(rd, glow);
     let ridge = aur_hills(rd);
     if rd.y < ridge {
@@ -279,7 +280,9 @@ fn aur_sky(ro: vec3<f32>, rd: vec3<f32>, c0: AurCurtain, c1: AurCurtain, c2: Aur
     }
     var aur = aur_curtain(ro, rd, c0, t, steps);
     aur += aur_curtain(ro, rd, c1, t, max(steps * 3 / 4, 6));
-    aur += aur_curtain(ro, rd, c2, t, max(steps / 2, 6));
+    if all {
+        aur += aur_curtain(ro, rd, c2, t, max(steps / 2, 6));
+    }
     aur *= quiet;
     let light = select(1.0, 0.25, params.output.z > 0.5);
     let stars = aur_stars(rd, t) * 0.5 * light / (1.0 + dot(aur, LUMA) * 6.0);
@@ -326,7 +329,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     var col: vec3<f32>;
     if rd.y >= 0.0 {
-        col = aur_sky(ro, rd, c0, c1, c2, t, steps, quiet, glow);
+        col = aur_sky(ro, rd, c0, c1, c2, t, steps, true, quiet, glow);
     } else {
         let tg = -ro.y / rd.y;
         let p = ro + rd * tg;
@@ -342,8 +345,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             var r = reflect(rd, n);
             r.y = max(r.y, 0.001);
             let fres = 0.04 + 0.96 * pow(1.0 - max(dot(-rd, n), 0.0), 5.0);
+            // A modest GPU (Adreno, GL) mirrors the two nearer curtains.
             let mirror = aur_sky(vec3<f32>(p.x, 0.0, p.z), r, c0, c1, c2, t,
-                max(steps * 2 / 3, 6), quiet, glow);
+                max(steps * 2 / 3, 6), params.clock.w < 0.5, quiet, glow);
             let deep = pal(3) * 0.01;
             col = mix(deep, mirror, mix(0.35, 0.95, fres));
         } else {

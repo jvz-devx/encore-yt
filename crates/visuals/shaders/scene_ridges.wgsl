@@ -136,10 +136,16 @@ fn ridge_warp(x: f32) -> f32 {
 // The land at `p`: x height, y the row coordinate (ridge tops at whole
 // numbers), z the bands' value there, w the position across 0 (spine)
 // to 1 (the highs' edge) and beyond.
+// Coordinates are the camera's: z from a ridge row `params.clock.y` rows
+// down the flight (the app passes whole rows and the camera's z within
+// them), so the lines and normals work on small numbers however far the
+// camera has flown. The row lines repeat every row; the slow variations
+// take the row from the start of the flight.
 // `fine` adds a finer octave of land: off in the march, on for shading.
 fn ridge_sample(p: vec2<f32>, cam_z: f32, r: RidgeLook, fine: bool) -> vec4<f32> {
     // One octave of land noise plus, for shading, a finer, weaker one.
-    let q = p * 0.33 + r.noise_offset;
+    let flown = params.clock.y;
+    let q = vec2<f32>(p.x, p.y - flown * r.spacing) * 0.33 + r.noise_offset;
     let n = ridge_vnoise(q);
     var n2 = 0.5;
     if fine {
@@ -153,7 +159,7 @@ fn ridge_sample(p: vec2<f32>, cam_z: f32, r: RidgeLook, fine: bool) -> vec4<f32>
     let row = p.y / r.spacing + ridge_warp(p.x);
     // Each row is a slow variation of the current bands: lower, shifted
     // and blurrier the further off it is, and from row to row.
-    let zr = p.y / r.spacing;
+    let zr = p.y / r.spacing - flown;
     let row_amp = 0.55 + 0.45 * ridge_wave(zr * 0.9, params.seed.y * 6.3);
     let shift = (ridge_wave(zr * 0.55, params.seed.x * 6.3 + 2.0) - 0.5) * 0.16;
     let dist = abs(p.y - cam_z);
@@ -257,10 +263,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let vis = params.output.w;
     let quality = params.tune.z;
 
-    // Camera: forward along -z at a calm pace, a slow sway sideways. The
-    // backdrop flies left of the spine so the range sits centre-right.
+    // Camera: forward along -z at a calm pace (0.22 a second from z = -30,
+    // `Pace::gpu_clocks`), a slow sway sideways. The backdrop flies left
+    // of the spine so the range sits centre-right. Its z is within a row
+    // of the coordinates' origin (see `ridge_sample`).
     let ft = params.clock.x;
-    let cam_z = -ft * 0.22 - 30.0;
+    let cam_z = params.clock.z;
     let cam_x = select(0.0, -1.7, backdrop) + 0.35 * sin(ft * 0.043 + params.seed.y * 6.0);
     let cam_y = mix(1.05, 1.9, vis) + 0.08 * sin(ft * 0.061);
     let ro = vec3<f32>(cam_x, cam_y, cam_z);
@@ -291,7 +299,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // valley, so the first top the ray passes under brackets the hit, and
     // no thin crest is ever stepped over. Far off (in the haze) the hops
     // skip rows.
-    let steps = i32(f32(28) * quality);
+    let steps = clamp(i32(28.0 * quality), 8, 48);
     let hop = mix(0.12, 0.08, vis);
     var hit = false;
     let p0 = ro + rd * t;

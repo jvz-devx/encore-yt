@@ -21,11 +21,12 @@ use gpui_kit::*;
 use super::config::{self, ParticleColour};
 
 /// The sparkles' clocks: drift and twinkle, each at its own speed, so a
-/// speed changes without a jump.
+/// speed changes without a jump. f64, and only used on the CPU (in f64
+/// where they meet `sin` or the grid), so they stay precise for good.
 #[derive(Default)]
 pub struct Clocks {
-    drift: f32,
-    twinkle: f32,
+    drift: f64,
+    twinkle: f64,
     last: Option<Instant>,
 }
 
@@ -36,10 +37,10 @@ impl Clocks {
         let now = Instant::now();
         if moving {
             if let Some(last) = self.last {
-                let dt = (now - last).as_secs_f32().min(0.1);
+                let dt = (now - last).as_secs_f64().min(0.1);
                 let p = &config::get().particles;
-                self.drift += dt * p.speed;
-                self.twinkle += dt * p.twinkle_speed;
+                self.drift += dt * f64::from(p.speed);
+                self.twinkle += dt * f64::from(p.twinkle_speed);
             }
             self.last = Some(now);
         } else {
@@ -51,8 +52,8 @@ impl Clocks {
 /// What a frame's sparkles need, captured for painting.
 #[derive(Clone)]
 pub struct Field {
-    drift: f32,
-    twinkle: f32,
+    drift: f64,
+    twinkle: f64,
     wave_clock: f32,
     /// The music's smoothed level, 0..1.
     level: f32,
@@ -119,11 +120,19 @@ impl Field {
         // GPUI lays out on the CPU in every frame (about 2 µs).
         let cell = 44. + 28. * near;
         let speed = 3. + 7. * near;
-        let angle = p.direction.to_radians();
-        let offset = (
-            angle.cos() * self.drift * speed,
-            -angle.sin() * self.drift * speed,
-        );
+        let angle = f64::from(p.direction.to_radians());
+        let drifted = |d: f64| d * self.drift * f64::from(speed);
+        // Whole cells the grid has drifted (they pick the cells' hashes),
+        // and the rest, under a cell: what places the cells.
+        let (whole, offset) = {
+            let cell = f64::from(cell);
+            let (x, y) = (drifted(angle.cos()), drifted(-angle.sin()));
+            let (wx, wy) = ((x / cell).floor(), (y / cell).floor());
+            (
+                (wx as i64, wy as i64),
+                ((x - wx * cell) as f32, (y - wy * cell) as f32),
+            )
+        };
         let (w, h) = (f32::from(area.size.width), f32::from(area.size.height));
         let threshold = 1. - 0.4 * p.amount;
         let lift = 1. + 0.5 * p.reaction * self.level;
@@ -133,22 +142,27 @@ impl Field {
             let rows =
                 ((-offset.1 / cell).floor() as i32)..=(((h - offset.1) / cell).floor() as i32);
             for cy in rows {
-                let r = hash4(cx, cy, layer);
+                let r = hash4(
+                    (i64::from(cx) - whole.0) as i32,
+                    (i64::from(cy) - whole.1) as i32,
+                    layer,
+                );
                 if r[3] < threshold {
                     continue;
                 }
                 let t = self.twinkle;
+                let turn = |speed: f64, at: f32| t * speed + f64::from(at * TAU);
                 let sway = (
-                    (t * 0.21 + r[2] * TAU).sin() * 0.07,
-                    (t * 0.17 + r[0] * TAU).cos() * 0.07,
+                    turn(0.21, r[2]).sin() as f32 * 0.07,
+                    turn(0.17, r[0]).cos() as f32 * 0.07,
                 );
                 let x = (cx as f32 + 0.25 + 0.5 * r[0] + sway.0) * cell + offset.0;
                 let y = (cy as f32 + 0.25 + 0.5 * r[1] + sway.1) * cell + offset.1;
                 // One in fifteen a little larger.
                 let big = if r[2] > 0.93 { 1.5 } else { 1. };
                 let radius_px = (p.size_min + (p.size_max - p.size_min) * near) * big;
-                let phase = t * (0.5 + 0.6 * r[1]) + r[3] * 40.;
-                let twinkle = 1. + (0.2 + 0.8 * smooth(phase.sin()) - 1.) * p.twinkle;
+                let phase = t * f64::from(0.5 + 0.6 * r[1]) + f64::from(r[3] * 40.);
+                let twinkle = 1. + (0.2 + 0.8 * smooth(phase.sin() as f32) - 1.) * p.twinkle;
                 let gather = if wave.on && wave.strength > 0. {
                     0.3 + 0.7 * near_wave(x / w, y / h, self.wave_clock, wave)
                 } else {

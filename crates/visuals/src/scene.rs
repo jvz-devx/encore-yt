@@ -46,11 +46,11 @@ pub struct Pace {
     /// floor, quick to rise (0.08 s) and slow to fall (0.7 s).
     pub drive: [f32; 2],
     /// The scene's clock: a little faster while the music is loud.
-    pub clock: f32,
+    pub clock: f64,
     /// The XMB wave's clock: 0.6x when quiet to about 2.8x on a loud hit.
-    pub flow: f32,
+    pub flow: f64,
     /// The XMB sparkles' clock, which runs with the highs.
-    pub sparkle: f32,
+    pub sparkle: f64,
 }
 
 impl Pace {
@@ -75,11 +75,46 @@ impl Pace {
             let tau = if target > *drive { 0.08 } else { 0.7 };
             *drive += (target - *drive) * (1.0 - (-dt / tau).exp());
         }
-        self.clock += dt * (0.85 + 0.3 * self.env[3]);
-        self.flow += dt * (0.6 + 2.2 * self.drive[0]);
-        self.sparkle += dt * (0.6 + 2.4 * self.drive[1]);
+        let dt = f64::from(dt);
+        self.clock += dt * f64::from(0.85 + 0.3 * self.env[3]);
+        self.flow += dt * f64::from(0.6 + 2.2 * self.drive[0]);
+        self.sparkle += dt * f64::from(0.6 + 2.4 * self.drive[1]);
+    }
+
+    /// Starts the clocks again from 0, keeping the envelopes: for a new
+    /// song, whose seed changes the whole scene at once anyway (so the
+    /// jump doesn't show), and which keeps what the shaders get small.
+    pub fn restart_clocks(&mut self) {
+        self.clock = 0.0;
+        self.flow = 0.0;
+        self.sparkle = 0.0;
+    }
+
+    /// The clocks as the shaders get them: `[clock, ridges' rows, ridges'
+    /// camera z, flow, sparkle]`. Ridges' camera flies `RIDGES_SPEED` a
+    /// second of the clock from `RIDGES_START`; it goes over as whole ridge
+    /// rows (`spacing`, from the seed as `ridge_look` has it) and the
+    /// camera's z within them, so the shader's line widths and normals
+    /// work on small numbers however far it has flown.
+    pub fn gpu_clocks(&self, seed: &[f32; 4]) -> [f32; 5] {
+        let spacing = f64::from(0.7 + 0.25 * seed[0]);
+        let travelled = self.clock * RIDGES_SPEED + RIDGES_START;
+        let rows = (travelled / spacing).floor();
+        let z = -(travelled - rows * spacing);
+        [
+            self.clock as f32,
+            rows as f32,
+            z as f32,
+            self.flow as f32,
+            self.sparkle as f32,
+        ]
     }
 }
+
+/// Ridges' camera speed along -z, per second of the scene's clock, and
+/// where it starts (`scene_ridges.wgsl`).
+const RIDGES_SPEED: f64 = 0.22;
+const RIDGES_START: f64 = 30.0;
 
 /// Four values 0..1 from a video id, the same for the same id (FNV-1a,
 /// then PCG steps; the spike's `seed` in cover.js gives the same numbers).
@@ -118,7 +153,8 @@ pub struct SceneParams<'a> {
     pub pace: &'a Pace,
     /// How far the scene stands out from its own haze, 1 for the default.
     pub strength: f32,
-    /// The raymarched scenes' step count, 1 for the default.
+    /// The raymarched scenes' step count, 1 for this GPU's default (lower
+    /// on Adreno and GL, [`Gpu::scene_detail`]).
     pub quality: f32,
     /// How much a scene behind text follows the music, 0..1 (0.5 as
     /// designed); the visualiser follows all of it.
@@ -200,16 +236,19 @@ impl Scene {
         // Behind text the envelopes scale with the reaction (as designed
         // at 0.5); the XMB reads the reaction itself for its clocks.
         let follow = if p.visualiser { 1.0 } else { p.reaction };
-        floats.extend([p.strength, colour_kept(&p.palette), p.quality, follow]);
+        // The detail setting is relative to what this GPU draws by default.
+        let quality = p.quality * self.gpu.scene_detail();
+        floats.extend([p.strength, colour_kept(&p.palette), quality, follow]);
         let scale = if p.visualiser { 1.0 } else { 2.0 * p.reaction };
         floats.extend(pace.env.map(|e| (e * scale).min(1.0)));
         floats.extend(p.seed);
-        floats.extend([pace.clock, 0.0, 0.0, 0.0]);
+        let [clock, rows, z, flow, sparkle] = pace.gpu_clocks(&p.seed);
+        floats.extend([clock, rows, z, flag(self.gpu.modest())]);
         for colour in &p.palette {
             floats.extend([colour[0], colour[1], colour[2], 1.0]);
         }
         floats.extend(p.levels);
-        floats.extend([pace.flow, pace.sparkle, pace.drive[0], pace.drive[1]]);
+        floats.extend([flow, sparkle, pace.drive[0], pace.drive[1]]);
         floats.extend(p.scrim.floats());
         bytes(&floats)
     }
@@ -243,6 +282,44 @@ fn draw(gpu: &Gpu, group: &wgpu::BindGroup, kind: SceneKind, pass: &mut wgpu::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 48 hours of songs four minutes long at 30 frames a second: what the
+    /// shaders get stays small, its frame steps stay those of the f64
+    /// clocks, and Ridges' camera stays within a row of its origin.
+    #[test]
+    fn the_clocks_stay_precise_for_days() {
+        let mut pace = Pace::default();
+        let seed = seed("dQw4w9WgXcQ");
+        let spacing = 0.7 + 0.25 * seed[0];
+        let dt = 1.0 / 30.0;
+        let frames_a_song = 4 * 60 * 30;
+        let mut largest = 0.0f32;
+        for frame in 0..48 * 3600 * 30 {
+            if frame % frames_a_song == 0 {
+                pace.restart_clocks();
+            }
+            // Loud on every other song, so the clocks run at their fastest.
+            let loud = if (frame / frames_a_song) % 2 == 0 {
+                0.9
+            } else {
+                0.1
+            };
+            let before = [pace.clock, pace.flow, pace.sparkle];
+            let sent = pace.gpu_clocks(&seed);
+            pace.update(dt, &[loud; BANDS], loud, loud);
+            let now = pace.gpu_clocks(&seed);
+            let after = [pace.clock, pace.flow, pace.sparkle];
+            for (k, i) in [0, 3, 4].into_iter().enumerate() {
+                let step = f64::from(now[i] - sent[i]);
+                let exact = after[k] - before[k];
+                assert!((step - exact).abs() < 2e-4, "clock {i}: {step} for {exact}");
+            }
+            assert!(now[2] <= 0.0 && now[2] > -spacing - 1e-4, "z {}", now[2]);
+            assert_eq!(now[1], now[1].round());
+            largest = largest.max(now[0]).max(now[1]).max(now[3]).max(now[4]);
+        }
+        assert!(largest < 1e4, "{largest}");
+    }
 
     /// Loud music moves the envelopes up and runs the clocks faster than
     /// silence does; no clock ever goes back.

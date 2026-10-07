@@ -18,6 +18,7 @@ pub mod links;
 pub mod lyrics;
 pub mod migrate;
 pub mod model;
+pub mod metered;
 pub mod mpris;
 pub mod notify;
 pub mod parse;

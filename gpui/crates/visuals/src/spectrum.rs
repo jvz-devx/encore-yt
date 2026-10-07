@@ -131,6 +131,9 @@ fn run(shared: &Arc<Shared>) {
 struct Analyser {
     edges: Vec<(usize, usize)>,
     window: Vec<f32>,
+    /// The FFT's twiddle factors ([`twiddles`]): worked out once rather
+    /// than in every butterfly of every hop.
+    twiddles: Vec<(f32, f32)>,
     history: Vec<f32>,
     peak: f32,
     levels: [f32; BANDS],
@@ -146,6 +149,7 @@ impl Analyser {
             window: (0..FFT)
                 .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FFT as f32).cos())
                 .collect(),
+            twiddles: twiddles(FFT),
             history: vec![0.0; FFT],
             peak: 1e-3,
             levels: [0.0; BANDS],
@@ -182,7 +186,7 @@ impl Analyser {
         self.history.extend(samples);
         self.history.resize(FFT, 0.0);
         self.hops += 1;
-        let power = spectrum(&self.history, &self.window);
+        let power = spectrum(&self.history, &self.window, &self.twiddles);
         let raw = fold(&power, &self.edges);
         // Automatic gain: mpv's volume is applied before PipeWire sees the
         // samples, so levels are relative to the recent loudest band.
@@ -241,10 +245,10 @@ fn fold(power: &[f32], edges: &[(usize, usize)]) -> [f32; BANDS] {
 }
 
 /// Power spectrum (|X|², first half) of the windowed samples.
-fn spectrum(samples: &[f32], window: &[f32]) -> Vec<f32> {
+fn spectrum(samples: &[f32], window: &[f32], twiddles: &[(f32, f32)]) -> Vec<f32> {
     let mut re: Vec<f32> = samples.iter().zip(window).map(|(s, w)| s * w).collect();
     let mut im = vec![0.0f32; FFT];
-    fft(&mut re, &mut im);
+    fft(&mut re, &mut im, twiddles);
     re.iter()
         .zip(&im)
         .take(FFT / 2 + 1)
@@ -252,8 +256,23 @@ fn spectrum(samples: &[f32], window: &[f32]) -> Vec<f32> {
         .collect()
 }
 
-/// In-place iterative radix-2 FFT.
-fn fft(re: &mut [f32], im: &mut [f32]) {
+/// The twiddle factors for an `n`-point FFT: for each stage (`len` 2, 4,
+/// … `n`), the (sin, cos) of -2πk/len for k < len/2, one stage after the
+/// other (so a stage's start at `len/2 - 1`).
+fn twiddles(n: usize) -> Vec<(f32, f32)> {
+    let mut out = Vec::with_capacity(n);
+    let mut len = 2;
+    while len <= n {
+        let angle = -std::f32::consts::TAU / len as f32;
+        out.extend((0..len / 2).map(|k| (angle * k as f32).sin_cos()));
+        len <<= 1;
+    }
+    out
+}
+
+/// In-place iterative radix-2 FFT; `twiddles` from [`twiddles`] for
+/// `re.len()`.
+fn fft(re: &mut [f32], im: &mut [f32], twiddles: &[(f32, f32)]) {
     let n = re.len();
     let mut j = 0;
     for i in 1..n {
@@ -270,17 +289,19 @@ fn fft(re: &mut [f32], im: &mut [f32]) {
     }
     let mut len = 2;
     while len <= n {
-        let angle = -std::f32::consts::TAU / len as f32;
-        for start in (0..n).step_by(len) {
-            for k in 0..len / 2 {
-                let (s, c) = (angle * k as f32).sin_cos();
-                let (a, b) = (start + k, start + k + len / 2);
-                let tr = re[b] * c - im[b] * s;
-                let ti = re[b] * s + im[b] * c;
-                re[b] = re[a] - tr;
-                im[b] = im[a] - ti;
-                re[a] += tr;
-                im[a] += ti;
+        let half = len / 2;
+        let stage = &twiddles[half - 1..len - 1];
+        for (re, im) in re.chunks_exact_mut(len).zip(im.chunks_exact_mut(len)) {
+            let (re_a, re_b) = re.split_at_mut(half);
+            let (im_a, im_b) = im.split_at_mut(half);
+            let pairs = re_a.iter_mut().zip(im_a).zip(re_b.iter_mut().zip(im_b));
+            for (((ra, ia), (rb, ib)), &(s, c)) in pairs.zip(stage) {
+                let tr = *rb * c - *ib * s;
+                let ti = *rb * s + *ib * c;
+                *rb = *ra - tr;
+                *ib = *ia - ti;
+                *ra += tr;
+                *ia += ti;
             }
         }
         len <<= 1;

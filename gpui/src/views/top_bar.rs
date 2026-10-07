@@ -40,6 +40,7 @@ pub fn top_bar(
         )
         .child(field::search_box(app, window, cx))
         .child(div().flex_1())
+        .children(super::settings::updates::pill(app, &c, cx))
         .child(super::account::chip(app, window, cx))
 }
 

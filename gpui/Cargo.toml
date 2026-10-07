@@ -32,7 +32,7 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 # Wakes the foreground task that drains backend events.
 smol = "2"
 # SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
-tokio = { version = "1", features = ["signal", "sync"] }
+tokio = { version = "1", features = ["rt", "signal", "sync"] }
 anyhow = "1"
 log = "0.4"
 # Recently played in the sidebar (already in the tree).
@@ -42,6 +42,14 @@ fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
 # M8 effects behind Now Playing (wgpu backdrop, PipeWire spectrum, ffmpeg
 # waveform), without GPUI; gpui/src/visuals wraps it in views.
 ytfast-visuals = { path = "crates/visuals" }
+# M16 auto-update (src/update): the release feed and downloads (the
+# backend's reqwest, on its runtime, with a client of our own so no YouTube
+# state goes to GitHub), checksums, versions and the job file. All already
+# in the tree at these versions.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
+sha2 = "0.10"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
 # Builds the BGRA frames GPUI paints (`RenderImage` holds `image::Frame`s).
 # Already in the lock through gpui-pre, at the same version.
 image = { version = "0.25", default-features = false }

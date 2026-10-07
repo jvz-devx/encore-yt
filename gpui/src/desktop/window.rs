@@ -129,6 +129,7 @@ impl MusicApp {
     fn window_opened(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         self.drain(Some(window), cx);
+        self.updates_window_opened(window, cx);
         let flags = self.desktop.flags.clone();
         flags.window_open.send_replace(true);
         self.desktop.activation =

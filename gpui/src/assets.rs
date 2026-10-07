@@ -73,7 +73,8 @@ gpui_kit::assets::icon_assets!(
         Lock,
         Globe,
         FileUp,
-        ClipboardPaste
+        ClipboardPaste,
+        CircleArrowUp
     ]
 );
 

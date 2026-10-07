@@ -18,8 +18,10 @@ pub const FONT: &str = "Inter";
 /// Inter's display cut, for page and shelf titles (22 px and up).
 pub const FONT_DISPLAY: &str = "Inter Display";
 
-/// Which palette the window uses. `YTFAST_GPUI_THEME=light` picks the light
-/// one at startup; M5 will follow the desktop instead.
+mod portal;
+
+/// Which palette the window uses. It follows the desktop's light or dark
+/// preference live (see [`portal`]); `YTFAST_GPUI_THEME=light|dark` pins one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Dark,
@@ -27,10 +29,12 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn from_env() -> Self {
+    /// The look pinned by `YTFAST_GPUI_THEME`, if any.
+    pub fn from_env() -> Option<Self> {
         match std::env::var("YTFAST_GPUI_THEME").as_deref() {
-            Ok("light") => Mode::Light,
-            _ => Mode::Dark,
+            Ok("light") => Some(Mode::Light),
+            Ok("dark") => Some(Mode::Dark),
+            _ => None,
         }
     }
 }
@@ -165,12 +169,10 @@ impl Colors {
 
 /// The active look, kept as a global next to gpui-component's `Theme`.
 struct Look {
-    #[allow(
-        dead_code,
-        reason = "read through `mode()` once M5 follows the desktop"
-    )]
     mode: Mode,
     colors: Colors,
+    /// `YTFAST_GPUI_THEME`: wins over the desktop.
+    pinned: Option<Mode>,
 }
 
 impl Global for Look {}
@@ -184,6 +186,13 @@ pub fn colors(cx: &App) -> Colors {
 #[allow(dead_code, reason = "a design-system token for views still to come")]
 pub fn mode(cx: &App) -> Mode {
     cx.global::<Look>().mode
+}
+
+/// Whether the desktop asks for less motion. GPUI's animations
+/// (`with_animation`, gpui-component's spinners) already settle at once
+/// then; motion driven by hand (timers, M8 effects) checks this.
+pub fn reduced_motion(cx: &App) -> bool {
+    cx.reduce_motion()
 }
 
 /// Spacing scale (4 px grid). Use these, not one-off values.
@@ -348,10 +357,64 @@ pub trait Type: Styled + Sized {
 
 impl<T: Styled + Sized> Type for T {}
 
-/// Loads the bundled fonts, picks the mode and applies it.
+/// Loads the bundled fonts, applies the desktop's look (or the pinned one)
+/// and keeps following the desktop while the app runs.
 pub fn init(cx: &mut App) {
     load_fonts(cx);
-    apply(Mode::from_env(), cx);
+    let pinned = Mode::from_env();
+    let portal = portal::Portal::connect();
+    let desktop = portal.as_ref().map(|p| p.desktop).unwrap_or_default();
+    let mode = pinned.or(desktop.scheme).unwrap_or(Mode::Dark);
+    cx.set_global(Look {
+        mode,
+        colors: Colors::for_mode(mode),
+        pinned,
+    });
+    apply(mode, cx);
+    follow(desktop, cx);
+    if let Some(portal) = portal {
+        watch(portal, cx);
+    }
+}
+
+/// Listens to the portal on a background task and applies each change on
+/// the foreground.
+fn watch(portal: portal::Portal, cx: &mut App) {
+    let (tx, rx) = smol::channel::unbounded();
+    cx.background_spawn(async move {
+        if let Err(e) = portal.watch(tx).await {
+            log::warn!("stopped following the desktop's appearance: {e:#}");
+        }
+    })
+    .detach();
+    cx.spawn(async move |cx| {
+        while let Ok(desktop) = rx.recv().await {
+            cx.update(|cx| follow(desktop, cx));
+        }
+    })
+    .detach();
+}
+
+/// Takes the desktop's light or dark (unless pinned) and its motion
+/// preference, and redraws every window.
+fn follow(desktop: portal::Desktop, cx: &mut App) {
+    let look = cx.global::<Look>();
+    let mode = look.pinned.or(desktop.scheme).unwrap_or(look.mode);
+    log::info!(
+        "desktop appearance: {:?} ({}), reduced motion {}",
+        mode,
+        match (look.pinned, desktop.scheme) {
+            (Some(_), _) => "pinned by YTFAST_GPUI_THEME",
+            (None, Some(_)) => "from the desktop",
+            (None, None) => "no desktop preference",
+        },
+        desktop.reduced_motion()
+    );
+    if mode != look.mode {
+        apply(mode, cx);
+    }
+    cx.set_reduce_motion(desktop.reduced_motion());
+    cx.refresh_windows();
 }
 
 fn load_fonts(cx: &mut App) {
@@ -368,7 +431,9 @@ fn load_fonts(cx: &mut App) {
 /// its components (buttons, inputs, sliders, scrollbars) match.
 pub fn apply(mode: Mode, cx: &mut App) {
     let colors = Colors::for_mode(mode);
-    cx.set_global(Look { mode, colors });
+    let look = cx.global_mut::<Look>();
+    look.mode = mode;
+    look.colors = colors;
     let theme_mode = match mode {
         Mode::Dark => ThemeMode::Dark,
         Mode::Light => ThemeMode::Light,

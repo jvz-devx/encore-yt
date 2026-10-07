@@ -1,5 +1,8 @@
 //! The player bar: the song, transport controls, position and volume.
 
+pub(super) mod links;
+mod side;
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::slider::Slider;
 use gpui_kit::component::spinner::Spinner;
@@ -9,15 +12,18 @@ use gpui_kit::*;
 use ytfast::backend::Command;
 use ytfast::model::Repeat;
 
+use super::clock;
 use super::widgets;
-use super::{clock, runs_text};
 use crate::app::MusicApp;
 use crate::assets::Glyph;
+use crate::playback::SEEK_SCALE;
 use crate::theme::{self, Colors, Type, radius, size, space};
 
 /// The song and the volume take the same width, so the transport is centred
 /// on the window.
 const SIDE: Pixels = px(300.);
+/// The seek bar's widest.
+const SEEK_MAX: Pixels = px(600.);
 
 pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let c = theme::colors(cx);
@@ -27,8 +33,7 @@ pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElemen
         .px(space::LG)
         .gap(space::XL)
         .bg(c.base)
-        .child(song(app, &c))
-        .children(app.player.current().cloned().and_then(|t| super::account::like_button(app, &t, cx)))
+        .child(song(app, &c, cx))
         .child(
             v_flex()
                 .flex_1()
@@ -36,46 +41,76 @@ pub fn player_bar(app: &MusicApp, cx: &mut Context<MusicApp>) -> impl IntoElemen
                 .gap(space::XXS)
                 .items_center()
                 .child(transport(app, &c, cx))
-                .child(position(app, &c)),
+                .child(position(app, &c, cx)),
         )
-        .child(volume(app, &c))
+        .child(side::side(app, SIDE, &c, cx))
 }
 
-fn song(app: &MusicApp, c: &Colors) -> impl IntoElement {
+/// The cover and the song's title and artists. A click on it (outside the
+/// links) opens Now Playing, and closes it again.
+fn song(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let track = app.player.current();
-    let title = track.map(|t| t.title.clone()).unwrap_or_default();
-    let artists = track.map(|t| runs_text(&t.artists)).unwrap_or_default();
+    let open = app.player.now_playing;
+    let text = match track {
+        None => v_flex().min_w_0().flex_1().child(
+            div()
+                .type_small()
+                .text_color(c.text_faint)
+                .child("Nothing playing"),
+        ),
+        Some(track) => v_flex()
+            .min_w_0()
+            .flex_1()
+            .child(div().truncate().type_label().child(track.title.clone()))
+            .child(
+                links::track_links("bar", track, app, c, cx)
+                    .type_small()
+                    .text_color(c.text_muted),
+            ),
+    };
+    let like = track.and_then(|t| super::account::like_button(app, t, cx));
     h_flex()
         .w(SIDE)
         .flex_none()
         .gap(space::MD)
-        .child(widgets::cover(
-            track.and_then(|t| t.thumbnail.clone()).map(Into::into),
-            size::PLAYER_COVER,
-            false,
-            c,
-        ))
         .child(
-            v_flex()
-                .min_w_0()
+            h_flex()
+                .id("song")
                 .flex_1()
-                .when(track.is_none(), |s| {
-                    s.child(
-                        div()
-                            .type_small()
-                            .text_color(c.text_faint)
-                            .child("Nothing playing"),
+                .min_w_0()
+                .gap(space::MD)
+                .rounded(radius::SM)
+                .when(track.is_some(), |s| s.cursor_pointer())
+                .child(
+                    widgets::cover(
+                        track.and_then(|t| t.thumbnail.clone()).map(Into::into),
+                        size::PLAYER_COVER,
+                        false,
+                        c,
                     )
-                })
-                .when(track.is_some(), |s| {
-                    s.child(div().truncate().type_label().child(title))
-                        .child(widgets::muted_line(artists, c))
-                }),
+                    .when(open, |cover| cover.child(collapse_badge(c))),
+                )
+                .child(text)
+                .on_click(cx.listener(move |this, _, _, cx| this.show_now_playing(!open, cx))),
         )
+        .children(like)
+}
+
+/// While Now Playing is open, the bar's cover shows how to close it.
+fn collapse_badge(c: &Colors) -> impl IntoElement {
+    h_flex()
+        .absolute()
+        .inset_0()
+        .justify_center()
+        .rounded(radius::SM)
+        .bg(c.scrim)
+        .child(widgets::icon(IconName::ChevronDown, size::ICON, c.on_media))
 }
 
 fn transport(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let playback = &app.player.playback;
+    // Tooltips are built when they appear, so they name the control rather
+    // than a state that may change under them.
     let repeat_icon = if playback.repeat == Repeat::One {
         IconName::Repeat1
     } else {
@@ -93,6 +128,7 @@ fn transport(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Int
                 ),
                 c,
             )
+            .tooltip(widgets::tooltip("Shuffle"))
             .on_click(cx.listener(|this, _, _, _| this.send(Command::ToggleShuffle))),
         )
         .child(
@@ -101,10 +137,12 @@ fn transport(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Int
                 widgets::glyph(Glyph::SkipBack, px(20.), c.text),
                 c,
             )
+            .tooltip(widgets::tooltip("Previous"))
             .on_click(cx.listener(|this, _, _, _| this.send(Command::Previous))),
         )
         .child(
             play_pause(playback.playing, playback.loading, c)
+                .tooltip(widgets::tooltip("Play or pause"))
                 .on_click(cx.listener(|this, _, _, _| this.send(Command::TogglePause))),
         )
         .child(
@@ -113,6 +151,7 @@ fn transport(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Int
                 widgets::glyph(Glyph::SkipForward, px(20.), c.text),
                 c,
             )
+            .tooltip(widgets::tooltip("Next"))
             .on_click(cx.listener(|this, _, _, _| this.send(Command::Next))),
         )
         .child(
@@ -125,6 +164,7 @@ fn transport(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl Int
                 ),
                 c,
             )
+            .tooltip(widgets::tooltip("Repeat"))
             .on_click(cx.listener(|this, _, _, _| this.send(Command::CycleRepeat))),
         )
 }
@@ -154,7 +194,16 @@ fn play_pause(playing: bool, loading: bool, c: &Colors) -> Stateful<Div> {
         .child(content)
 }
 
-fn position(app: &MusicApp, c: &Colors) -> impl IntoElement {
+/// Elapsed, the seek bar and the length. While the handle is held, the
+/// elapsed time follows the handle.
+fn position(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
+    let player = &app.player;
+    let duration = player.playback.duration;
+    let elapsed = if player.seeking {
+        f64::from(player.seek.read(cx).value().start() / SEEK_SCALE) * duration
+    } else {
+        player.position()
+    };
     let time = |t: String| {
         div()
             .w(px(40.))
@@ -164,41 +213,30 @@ fn position(app: &MusicApp, c: &Colors) -> impl IntoElement {
             .text_color(c.text_faint)
             .child(t)
     };
+    let known = duration > 0.0;
     h_flex()
         .w_full()
-        .max_w(px(600.))
+        .max_w(SEEK_MAX)
         .gap(space::SM)
-        .child(time(clock(app.player.position())).text_right())
+        .child(
+            time(if known || elapsed > 0.0 {
+                clock(elapsed)
+            } else {
+                String::new()
+            })
+            .text_right(),
+        )
         .child(
             div().flex_1().child(
-                Slider::new(&app.player.seek)
+                Slider::new(&player.seek)
+                    .disabled(!known)
                     .bg(c.signal)
                     .text_color(c.text),
             ),
         )
-        .child(time(clock(app.player.playback.duration)))
-}
-
-fn volume(app: &MusicApp, c: &Colors) -> impl IntoElement {
-    let level = app.player.playback.volume;
-    let icon = if level <= 0.0 {
-        IconName::VolumeX
-    } else if level < 50.0 {
-        IconName::Volume1
-    } else {
-        IconName::Volume2
-    };
-    h_flex()
-        .w(SIDE)
-        .flex_none()
-        .justify_end()
-        .gap(space::SM)
-        .child(widgets::icon(icon, size::ICON, c.text_muted))
-        .child(
-            div().w(px(112.)).child(
-                Slider::new(&app.player.volume)
-                    .bg(c.text_muted)
-                    .text_color(c.text),
-            ),
-        )
+        .child(time(if known {
+            clock(duration)
+        } else {
+            String::new()
+        }))
 }

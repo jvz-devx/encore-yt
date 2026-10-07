@@ -4,7 +4,7 @@
 //! - player bar, Up next, Now Playing, error strip (M2: `player`, `queue`,
 //!   `now_playing`)
 //! - account chip, dialogs and Settings (M3: `account`, `settings`)
-//! - overlays: Play anything, shortcuts, menus (M4: `overlays`)
+//! - overlays: Play anything, shortcuts, menus (M4: `overlays`, `menu`)
 //! - Stage, equalizer, sleep timer (M6: `extras`)
 //!
 //! Shared recipes (icons, buttons, covers, skeletons) live in `widgets`;
@@ -12,6 +12,7 @@
 
 mod account;
 mod extras;
+mod menu;
 mod now_playing;
 mod overlays;
 mod page;
@@ -37,7 +38,9 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         return stage;
     }
     let c = theme::colors(cx);
-    let main = if app.player.now_playing {
+    let main = if let Some(spike) = crate::visuals::page(app, cx) {
+        spike
+    } else if app.player.now_playing {
         now_playing::now_playing(app, window, cx)
     } else {
         page::page(app, window, cx)
@@ -65,8 +68,8 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         .bg(c.base)
         .text_color(c.text)
         .type_body()
-        // Decoded covers stay across frames while they're on screen.
-        .image_cache(retain_all("covers"))
+        // Decoded covers, held to a memory budget; those on screen stay.
+        .image_cache(page::covers::root_cache(cx))
         .child(
             h_flex()
                 .flex_1()
@@ -88,10 +91,22 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
     root.into_any_element()
 }
 
-/// The newest error, under the top bar: what happened, and Dismiss.
+/// The newest error, under the top bar: what happened in plain words, the
+/// technical detail behind Copy details, and Dismiss.
 fn error_strip(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<impl IntoElement> {
     let error = app.error.clone()?;
+    let (plain, detail) = crate::playback::split_error(&error);
     let c = theme::colors(cx);
+    let small = |id: &'static str, label: &'static str, icon: Option<IconName>| {
+        widgets::pill_button(
+            id,
+            label,
+            icon.map(|i| widgets::icon(i, size::ICON_SM, c.text)),
+            Pill::Secondary,
+            &c,
+        )
+        .h(px(28.))
+    };
     Some(
         h_flex()
             .mx(size::GUTTER)
@@ -108,14 +123,19 @@ fn error_strip(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<impl IntoEl
                 size::ICON_SM,
                 c.danger,
             ))
-            .child(div().flex_1().min_w_0().child(error))
+            .child(div().flex_1().min_w_0().line_clamp(2).child(plain))
+            .children(detail.map(|_| {
+                small("copy-error", "Copy details", Some(IconName::Copy))
+                    .tooltip(widgets::tooltip("Copy the full error"))
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(error.clone()));
+                    })
+            }))
             .child(
-                widgets::pill_button("dismiss-error", "Dismiss", None, Pill::Secondary, &c)
-                    .h(px(28.))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.error = None;
-                        cx.notify();
-                    })),
+                small("dismiss-error", "Dismiss", None).on_click(cx.listener(|this, _, _, cx| {
+                    this.error = None;
+                    cx.notify();
+                })),
             ),
     )
 }

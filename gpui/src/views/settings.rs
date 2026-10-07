@@ -36,18 +36,13 @@ pub fn settings(
     ];
     let panel = widgets::floating(&c)
         .id("settings")
+        .key_context(crate::account::DIALOG_CONTEXT)
         .track_focus(&app.account.focus)
         .w(WIDTH)
         .max_h(max_h)
         .flex()
         .flex_col()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-            if event.keystroke.key == "escape" {
-                this.open_settings(false, window, cx);
-                cx.stop_propagation();
-            }
-        }))
         .child(
             h_flex()
                 .flex_none()

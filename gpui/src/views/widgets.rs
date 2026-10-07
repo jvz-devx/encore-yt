@@ -6,7 +6,6 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 
 use crate::assets::Glyph;
@@ -153,7 +152,8 @@ pub fn cover(url: Option<SharedString>, side: Pixels, round: bool, c: &Colors) -
             c.text_faint,
         ))
         .children(url.map(|url| {
-            img(url)
+            // Asks for the size drawn, not the large copy the parser names.
+            img(SharedString::from(super::page::covers::sized(&url, side)))
                 .absolute()
                 .top_0()
                 .left_0()
@@ -203,12 +203,6 @@ pub fn muted_line(text: impl Into<SharedString>, c: &Colors) -> Div {
 /// An on/off switch; on is `signal` (DESIGN.md: a toggle that is on is live).
 pub fn switch(id: impl Into<ElementId>, on: bool, c: &Colors) -> Switch {
     Switch::new(id).checked(on).color(c.signal)
-}
-
-/// A tooltip with plain text, for `.tooltip(...)`.
-pub fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    let text: SharedString = text.into();
-    move |window, cx| Tooltip::new(text.clone()).build(window, cx)
 }
 
 /// A row in a menu or popover: 40 tall, an 18 px icon and a label. The
@@ -267,4 +261,44 @@ pub fn settle_in<E: Styled + IntoElement + 'static>(
         Animation::new(motion::BASE).with_easing(motion::ease_out),
         |el, t| el.opacity(t).mt(px(8.) * (1. - t)),
     )
+}
+
+/// A tooltip builder for `.tooltip(..)`: a short label in the kit's
+/// popover style.
+pub fn tooltip(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text: SharedString = text.into();
+    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+}
+
+/// An empty or failed state: a 48 px raised disc with a muted icon, a
+/// heading saying what happened and a muted detail line.
+pub fn empty_state(
+    icon_name: IconName,
+    title: impl Into<SharedString>,
+    detail: impl Into<SharedString>,
+    c: &Colors,
+) -> Div {
+    gpui_kit::component::v_flex()
+        .items_center()
+        .gap(space::MD)
+        .px(space::XL)
+        .child(
+            h_flex()
+                .size(px(48.))
+                .justify_center()
+                .rounded(radius::FULL)
+                .bg(c.raised)
+                .child(icon(icon_name, px(22.), c.text_muted)),
+        )
+        .child(div().text_center().type_heading().child(title.into()))
+        .child(
+            div()
+                .max_w(px(320.))
+                .text_center()
+                .type_small()
+                .text_color(c.text_muted)
+                .child(detail.into()),
+        )
 }

@@ -21,6 +21,10 @@ use ytfast::model::{Account, LikeStatus, Page, Target, Track};
 use crate::app::MusicApp;
 use crate::nav::{LibraryTab, PageState, View};
 
+/// The key context of an account dialog and of Settings: single-key
+/// shortcuts stay out of them.
+pub const DIALOG_CONTEXT: &str = "MusicDialog";
+
 /// A click on the chip right after the menu closed by that same press
 /// doesn't open it again.
 const REOPEN_GUARD: Duration = Duration::from_millis(150);
@@ -101,6 +105,16 @@ impl AccountUi {
 impl MusicApp {
     pub(crate) fn on_account(&mut self, account: Account, _cx: &mut Context<Self>) {
         let was = self.account.signed_in();
+        // The state only, never the name: scripts/gpui-smoke.sh checks it.
+        log::info!(
+            "account: {}",
+            match &account {
+                Account::Checking => "checking",
+                Account::SignedIn { .. } => "signed in",
+                Account::SignedOut { .. } => "signed out",
+                Account::Unverified { .. } => "unverified",
+            }
+        );
         self.account.account = account;
         if self.account.signed_in() && !was {
             // Pages fetched before the session was confirmed may be public
@@ -146,7 +160,6 @@ impl MusicApp {
 
     /// More rows of a page are in the cache: M1's `on_more` calls this after
     /// merging them.
-    #[allow(dead_code, reason = "called by M1's on_more once continuations land")]
     pub(crate) fn account_more_arrived(&mut self, key: &str) {
         self.with_account(|state, host| state.more_arrived(host, key));
     }
@@ -219,6 +232,7 @@ impl MusicApp {
     /// Likes the playing song, or removes its like (command line, keys).
     pub fn toggle_like_current(&mut self, cx: &mut Context<Self>) {
         let Some(track) = self.player.current().cloned() else {
+            self.notice("Nothing is playing", cx);
             return;
         };
         let status = match self.account.state.marks.like(&track) {
@@ -345,6 +359,21 @@ impl MusicApp {
         }
     }
 
+    /// Escape: closes the account's dialog, else Settings, else the account
+    /// menu. False when none is open.
+    pub fn close_account_layer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.account.state.dialog.is_some() {
+            self.close_account_dialog(window, cx);
+        } else if self.account.settings {
+            self.open_settings(false, window, cx);
+        } else if self.account.menu {
+            self.close_account_menu(cx);
+        } else {
+            return false;
+        }
+        true
+    }
+
     pub fn toggle_account_menu(&mut self, cx: &mut Context<Self>) {
         let just_closed = self
             .account
@@ -460,6 +489,50 @@ fn fields_for(dialog: &Dialog, window: &mut Window, cx: &mut Context<MusicApp>) 
         }
         Dialog::DeletePlaylist { .. } => None,
     }
+}
+
+impl MusicApp {
+    /// Up next's Save: New playlist holding the queue, each song once.
+    pub fn save_queue(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut seen = std::collections::HashSet::new();
+        let tracks: Vec<Track> = self
+            .player
+            .queue
+            .iter()
+            .filter(|t| seen.insert(t.video_id.clone()))
+            .cloned()
+            .collect();
+        if tracks.is_empty() {
+            return;
+        }
+        let dialog = Dialog::NewPlaylist {
+            title: format!("Queue · {}", today()),
+            description: String::new(),
+            tracks,
+        };
+        self.open_account_dialog(dialog, window, cx);
+    }
+}
+
+/// Today's date as "7 Oct 2026", for a saved queue's name.
+fn today() -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() / 86_400) as i64;
+    // Howard Hinnant's days-to-civil.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{day} {} {year}", MONTHS[(month - 1) as usize])
 }
 
 /// Opens Add to playlist for `tracks` (the player bar, rows, and later

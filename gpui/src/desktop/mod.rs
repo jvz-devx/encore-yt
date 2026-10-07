@@ -1,6 +1,7 @@
 //! M4: the desktop around the window: MPRIS, tray, single instance and the
-//! command line, notifications, signals, the window's lifetime, and keyboard
-//! shortcuts.
+//! command line, notifications, signals, the window's lifetime, keyboard
+//! shortcuts (`keys`), context menus (`menu`), Play anything (`palette`) and
+//! what they ask of the app (`control`).
 //!
 //! MPRIS, the tray and the command line drive the app through a
 //! [`Remote`]: transport goes straight to the backend (it works with no
@@ -8,6 +9,10 @@
 //! [`Request`]s, carried out on the foreground.
 
 mod cli;
+pub mod control;
+mod keys;
+pub mod menu;
+pub mod palette;
 mod signals;
 mod window;
 
@@ -22,9 +27,9 @@ use ytfast::paths::Paths;
 use crate::app::MusicApp;
 
 pub use cli::command_line;
+pub use control::Layers;
+pub use keys::{Group, SHORTCUTS, bind_keys, on_actions};
 pub use window::start;
-
-actions!(music, [Quit]);
 
 pub struct Desktop {
     /// Read by MPRIS, the tray and notifications.
@@ -37,6 +42,8 @@ pub struct Desktop {
     bounds: Option<WindowBounds>,
     /// Follows the open window's focus.
     activation: Option<Subscription>,
+    /// The shortcuts sheet, Play anything, a context menu, a short note.
+    pub layers: Layers,
     _requests: Task<()>,
 }
 
@@ -76,6 +83,7 @@ impl Desktop {
             window: None,
             bounds: None,
             activation: None,
+            layers: Layers::default(),
             _requests: task,
         };
         (desktop, Vec::new())
@@ -127,21 +135,9 @@ fn handle_requests(app: &Entity<MusicApp>, cx: &mut App) {
 }
 
 impl MusicApp {
-    /// `ytfast-gpui like`: likes the playing song or removes its like (M3).
-    fn like_playing(&mut self, cx: &mut Context<Self>) {
+    /// `ytfast-gpui like` and L: likes the playing song or removes its like
+    /// (M3).
+    pub(crate) fn like_playing(&mut self, cx: &mut Context<Self>) {
         self.toggle_like_current(cx);
     }
-}
-
-/// Shortcuts for this area, in the "Music" key context.
-pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("ctrl-q", Quit, Some("Music"))]);
-}
-
-/// Handlers for this area's actions, on the window's root element.
-pub fn on_actions(root: Div, _cx: &mut Context<MusicApp>) -> Div {
-    root.on_action(|_: &Quit, _, cx| {
-        log::info!("quitting");
-        cx.quit();
-    })
 }

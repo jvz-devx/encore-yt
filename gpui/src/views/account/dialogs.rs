@@ -40,13 +40,13 @@ pub fn dialog(
 fn layer(app: &MusicApp, body: AnyElement, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     let panel = widgets::floating(c)
         .id("account-dialog")
+        .key_context(crate::account::DIALOG_CONTEXT)
         .track_focus(&app.account.focus)
         .w(WIDTH)
         .p(space::XL)
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
             match event.keystroke.key.as_str() {
-                "escape" => this.close_account_dialog(window, cx),
                 "enter" => this.confirm_account_dialog(window, cx),
                 "down" => this.move_playlist_selection(true, cx),
                 "up" => this.move_playlist_selection(false, cx),

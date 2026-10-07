@@ -1,10 +1,10 @@
 //! M3: the account chip and its menu, the like buttons, a page header's
-//! account actions, song row controls, and the playlist dialogs.
+//! account actions, Up next's Save, and the playlist dialogs.
 //!
 //! Other areas place these slots: the player bar and Now Playing
-//! [`like_button`] (M2), the page header [`header_actions`], song rows
-//! [`row_actions`] and Library's [`library_actions`] (M1). Context menus
-//! open the playlist picker with [`add_to_playlist_menu`].
+//! [`like_button`] (M2), the page header [`header_actions`], Library's
+//! [`library_actions`] (M1) and Up next's [`save_queue_button`]. Context
+//! menus open the playlist picker with `crate::account::add_to_playlist`.
 
 mod chip;
 mod controls;
@@ -16,21 +16,7 @@ use gpui_kit::*;
 use crate::app::MusicApp;
 
 pub use chip::chip;
-#[allow(unused_imports, reason = "placed by M1 and M2 (see the module doc)")]
-pub use controls::{
-    header_actions, library_actions, like_button, remove_from_playlist, row_actions,
-};
-
-/// Opens Add to playlist ("Save to playlist") for `tracks`.
-#[allow(dead_code, reason = "called by M4's context menus")]
-pub fn add_to_playlist_menu(
-    app: &mut MusicApp,
-    tracks: Vec<ytfast::model::Track>,
-    window: &mut Window,
-    cx: &mut Context<MusicApp>,
-) {
-    crate::account::add_to_playlist(app, tracks, window, cx);
-}
+pub use controls::{header_actions, library_actions, like_button, save_queue_button};
 
 /// The layer over the window: an open playlist dialog, else Settings.
 pub fn layer(

@@ -29,10 +29,25 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 smol = "2"
 # SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
 tokio = { version = "1", features = ["signal"] }
+# Light/dark and reduced motion from the XDG desktop portal's Settings
+# (src/theme/portal.rs). Already in the tree through gpui-pre-linux and
+# gpui-base with these features, on zbus's `async-io` reactor.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 anyhow = "1"
 log = "0.4"
 # Same log file and panic log setup as the egui app.
 fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
+# M8 visuals (gpui/src/visuals, see gpui/NOTES-visuals.md). Each is already
+# in the lock through gpui-pre, at the same version, so nothing new compiles.
+# Our own offscreen device for shader effects. GPUI doesn't share its device,
+# so frames are read back and painted as images. Keep equal to the wgpu that
+# gpui-pre-wgpu uses.
+wgpu = "29.0.4"
+# Builds the BGRA frames GPUI paints (`RenderImage` holds `image::Frame`s)
+# and downsizes the cover for the backdrop.
+image = { version = "0.25", default-features = false }
+# Reads `pw-dump` (finding mpv's PipeWire node) and mpv's JSON IPC.
+serde_json = "1"
 
 [profile.dev.package."*"]
 opt-level = 2

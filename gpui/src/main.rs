@@ -13,6 +13,7 @@ mod pages;
 mod playback;
 mod theme;
 mod views;
+mod visuals;
 
 use std::sync::Arc;
 

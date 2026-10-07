@@ -9,18 +9,35 @@ use std::time::Instant;
 
 use ytfast::model::{Page, Target};
 
-// The Library tab chips arrive with M3 (docs/gpui/PLAN.md).
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LibraryTab {
     Playlists,
     Songs,
     Albums,
     Artists,
+    /// What the account played, by day.
     History,
 }
 
 impl LibraryTab {
+    pub const ALL: [LibraryTab; 5] = [
+        LibraryTab::Playlists,
+        LibraryTab::Songs,
+        LibraryTab::Albums,
+        LibraryTab::Artists,
+        LibraryTab::History,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LibraryTab::Playlists => "Playlists",
+            LibraryTab::Songs => "Songs",
+            LibraryTab::Albums => "Albums",
+            LibraryTab::Artists => "Artists",
+            LibraryTab::History => "History",
+        }
+    }
+
     pub fn target(self) -> Target {
         Target::browse(match self {
             LibraryTab::Playlists => "FEmusic_liked_playlists",
@@ -75,4 +92,6 @@ pub struct PageState {
     pub fetched: Option<Instant>,
     /// The newest request for this page; older answers are ignored.
     pub seq: u64,
+    /// A chip's in-place reload in flight: its continuation and chip index.
+    pub reload: Option<(String, usize)>,
 }

@@ -9157,12 +9157,16 @@ name = "ytfast-gpui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ashpd",
  "fastframe-log",
  "gpui-kit",
  "gpui-pre-reqwest-client",
+ "image",
  "log",
+ "serde_json",
  "smol",
  "tokio",
+ "wgpu",
  "ytfast",
 ]
 

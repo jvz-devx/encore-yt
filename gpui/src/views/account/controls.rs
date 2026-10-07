@@ -1,6 +1,6 @@
 //! The account's controls placed by other areas: like and dislike, Save to
 //! playlist, Save to library, Subscribe, the own playlist's Edit and
-//! Delete, New playlist, and a song row's Like, Save and Remove. Each sends
+//! Delete, New playlist, and Up next's Save. Each sends
 //! an [`AccountAction`]; `crate::account` shows it at once and rolls it
 //! back if YouTube Music refuses.
 
@@ -9,7 +9,7 @@ use gpui_kit::component::h_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::account::{AccountAction, Dialog};
-use ytfast::model::{Header, Item, LikeStatus, Page, Track};
+use ytfast::model::{Header, LikeStatus, Track};
 
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;
@@ -18,7 +18,6 @@ use crate::theme::{self, Colors, size, space};
 
 /// Dislike, Like and Save to playlist for `track` (the player bar and Now
 /// Playing). `None` while signed out.
-#[allow(dead_code, reason = "placed by M2's player bar and Now Playing")]
 pub fn like_button(
     app: &MusicApp,
     track: &Track,
@@ -118,7 +117,6 @@ fn dislike_icon(disliked: bool, c: &Colors) -> AnyElement {
 /// A page header's account actions: Save to library (albums, other
 /// people's playlists), Subscribe (artists), Edit and Delete (the
 /// account's own playlists). `None` while signed out or when there are none.
-#[allow(dead_code, reason = "placed by M1's page header")]
 pub fn header_actions(
     app: &MusicApp,
     header: &Header,
@@ -232,7 +230,6 @@ fn own_playlist_actions(
 }
 
 /// Library → Playlists: New playlist. `None` while signed out.
-#[allow(dead_code, reason = "placed by M1's Library view")]
 pub fn library_actions(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<AnyElement> {
     if !app.account.signed_in() {
         return None;
@@ -258,101 +255,25 @@ pub fn library_actions(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<Any
     )
 }
 
-/// A song row's controls, for M1's rows (a `group("row")`): Like (shown
-/// while the row is hovered, or when liked), Save to playlist, and on the
-/// account's own playlist, Remove. `None` for rows that aren't songs or
-/// while signed out.
-#[allow(dead_code, reason = "placed by M1's song rows")]
-pub fn row_actions(
+/// Up next's Save: the queue as a new playlist. `None` while signed out or
+/// with nothing queued.
+pub fn save_queue_button(
     app: &MusicApp,
-    page: &Page,
-    item: &Item,
+    c: &Colors,
     cx: &mut Context<MusicApp>,
-) -> Option<AnyElement> {
-    let track = item.track.as_ref()?;
-    if !app.account.signed_in() {
+) -> Option<Stateful<Div>> {
+    if !app.account.signed_in() || app.player.queue.is_empty() {
         return None;
     }
-    let c = theme::colors(cx);
-    let liked = app.account.state.marks.like(track) == LikeStatus::Like;
-    let entry = track.set_video_id.clone();
-    let own = page
-        .header
-        .as_ref()
-        .and_then(|h| h.editable.clone())
-        .zip(entry.clone());
-    let id = |what: &str| {
-        SharedString::from(format!(
-            "row-{what}:{}:{}",
-            track.video_id,
-            entry.as_deref().unwrap_or("")
-        ))
-    };
-    let hidden = |el: Stateful<Div>| el.opacity(0.).group_hover("row", |s| s.opacity(1.));
-    let like = {
-        let track = track.clone();
-        widgets::icon_button(id("like"), like_icon(liked, size::ICON, &c), &c)
-            .when(!liked, hidden)
-            .tooltip(widgets::tooltip(if liked { "Remove like" } else { "Like" }))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                let status = if liked {
-                    LikeStatus::Indifferent
-                } else {
-                    LikeStatus::Like
-                };
-                let track = track.clone();
-                this.account_act(AccountAction::Rate { track, status }, cx);
-            }))
-    };
-    let save = {
-        let track = track.clone();
-        hidden(widgets::icon_button(
-            id("save"),
-            widgets::icon(IconName::ListPlus, size::ICON, c.text_muted),
-            &c,
-        ))
-        .tooltip(widgets::tooltip("Save to playlist"))
-        .on_click(cx.listener(move |this, _, window, cx| {
-            cx.stop_propagation();
-            crate::account::add_to_playlist(this, vec![track.clone()], window, cx);
-        }))
-    };
-    let remove = own.map(|(playlist_id, entry)| {
-        hidden(widgets::icon_button(
-            id("remove"),
-            widgets::icon(IconName::Trash, size::ICON, c.text_muted),
-            &c,
-        ))
-        .tooltip(widgets::tooltip("Remove from playlist"))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            cx.stop_propagation();
-            remove_from_playlist(this, playlist_id.clone(), entry.clone(), cx);
-        }))
-    });
     Some(
-        h_flex()
-            .flex_none()
-            .children(remove)
-            .child(save)
-            .child(like)
-            .into_any_element(),
+        widgets::pill_button(
+            "save-queue",
+            "Save",
+            Some(widgets::icon(IconName::ListPlus, size::ICON_SM, c.text)),
+            Pill::Secondary,
+            c,
+        )
+        .tooltip(widgets::tooltip("Save the queue as a playlist"))
+        .on_click(cx.listener(|this, _, window, cx| this.save_queue(window, cx))),
     )
-}
-
-/// Removes the entry `set_video_id` from the account's playlist.
-#[allow(dead_code, reason = "called by M1's rows and M4's context menus")]
-pub fn remove_from_playlist(
-    app: &mut MusicApp,
-    playlist_id: String,
-    set_video_id: String,
-    cx: &mut Context<MusicApp>,
-) {
-    app.account_act(
-        AccountAction::Remove {
-            playlist_id,
-            set_video_id,
-        },
-        cx,
-    );
 }

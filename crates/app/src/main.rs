@@ -1,5 +1,5 @@
 //! Encore: a native YouTube Music client in GPUI, on the backend in
-//! crates/core. See docs/gpui/PLAN.md.
+//! crates/core.
 
 // No console window behind the app in a Windows release build.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]

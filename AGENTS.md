@@ -5,9 +5,9 @@ Encore (encore-yt) is a native YouTube Music client for Linux, Windows and macOS
 ## The project
 
 - One Cargo workspace (one `Cargo.lock`, one `target/`): `crates/core` (`encore-core`, a library) is the backend: InnerTube, sign-in, playback, the queue and the desktop services (MPRIS, tray, notifications). `crates/app` is the app (`encore-yt`), `crates/visuals` its wgpu effects and `crates/audio` the Rust playback engine. Installer files are in `packaging/`.
-- [docs/gpui/PLAN.md](docs/gpui/PLAN.md) holds the milestones, how each is verified, and the log. Read it first.
+- The milestones, how each is verified and the log live in `notes/PLAN.md`, the maintainer's private plan (gitignored, not in the repository). Agents get its path or the relevant milestone from the maintainer.
 - Main platform: Fedora, KDE Plasma on Wayland. Colours, radii, spacing and type come from the app's theme module (`crates/app/src/theme.rs`), never hard-coded in views.
-- Verify UI work visually: run the app on the Wayland session and capture it (see PLAN.md). Don't claim a view works without looking at a capture.
+- Verify UI work visually: run the app on the Wayland session and capture it (scripts/gpui-input.sh). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`.
 - After each release, the release workflow commits the updated Homebrew cask (`Casks/encore-yt.rb`) to `main`, so pull before pushing once a release is out.
 - Build speed numbers and the reasoning behind these rules: docs/gpui/BUILD-SPEED.md.
@@ -30,7 +30,7 @@ Crates: `app` (the GPUI app), `core` (the backend library), `visuals` (wgpu effe
 
 ## Start here
 
-1. [docs/gpui/PLAN.md](docs/gpui/PLAN.md): milestones, decisions and the log.
+1. `notes/PLAN.md` (private, see above): milestones, decisions and the log.
 2. [docs/integration.md](docs/integration.md): verified cookie, InnerTube and stream facts and the chosen design. Read it before touching sign-in, playback or the build.
 3. [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) for the look, and [docs/gpui/GPUI.md](docs/gpui/GPUI.md) for GPUI API notes, pitfalls and the UI tests.
 4. If a `notes/` directory exists, it's the maintainer's private notes (gitignored). Read `notes/AGENTS.md` first and follow it as well.

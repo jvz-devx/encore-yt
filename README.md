@@ -114,7 +114,7 @@ bacon                    # background checks while you edit
 
 `scripts/gpui-smoke.sh` builds the release app, runs it signed out and drives it on the desktop (pages, playback across track changes, a seek, Now Playing, Up next), capturing each state. `scripts/gpui-input.sh` drives KDE Wayland for visual checks. `ENCORE_FAKE_STREAM=<audio file>` plays a local file instead of YouTube streams, for checks that don't need real streams.
 
-Further reading: [docs/gpui/PLAN.md](docs/gpui/PLAN.md) (milestones and their evidence), [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) (the design system), [docs/gpui/VISUALS.md](docs/gpui/VISUALS.md) (effects and their costs), [docs/gpui/BUILD-SPEED.md](docs/gpui/BUILD-SPEED.md), [AGENTS.md](AGENTS.md) (rules for coding agents, and people).
+Further reading: [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) (the design system), [docs/gpui/VISUALS.md](docs/gpui/VISUALS.md) (effects and their costs), [docs/gpui/BUILD-SPEED.md](docs/gpui/BUILD-SPEED.md), [AGENTS.md](AGENTS.md) (rules for coding agents, and people).
 
 ## Credits
 

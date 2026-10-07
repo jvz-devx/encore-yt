@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test of the GPUI app (docs/gpui/PLAN.md M7): builds the release
+# Smoke test of the GPUI app (milestone M7): builds the release
 # binary, runs it signed out with a fresh state, visits each page, plays
 # three songs across track changes and a seek, and captures each state to
 # artifacts/gpui/smoke-*.png. Exits non-zero when any check fails.

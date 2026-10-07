@@ -11,7 +11,7 @@
 //! colours, sizes and type in `crate::theme`. See `gpui/DESIGN.md`.
 
 mod account;
-mod extras;
+pub(crate) mod extras;
 mod menu;
 mod now_playing;
 mod overlays;

@@ -60,9 +60,15 @@ pub fn side(
                     .tooltip(widgets::tooltip("Up next"))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_up_next(cx))),
                 )
-                .child(volume(app, c, cx)),
+                .child(volume(app, c, cx))
+                .child(super::super::extras::mini_button(c, cx)),
         )
-        .children(format(app, c))
+        .child(
+            h_flex()
+                .gap(space::XS)
+                .children(format(app, c))
+                .child(super::super::extras::controls(app, c, cx)),
+        )
 }
 
 fn volume(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {

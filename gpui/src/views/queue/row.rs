@@ -137,6 +137,7 @@ pub fn row(
                 }
                 cx.notify();
             }))
+            .map(|el| super::super::extras::audition::hook(el, Some(track), radius::MD, cx))
             .into_any_element(),
     )
 }

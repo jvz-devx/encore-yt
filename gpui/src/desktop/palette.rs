@@ -56,6 +56,10 @@ pub enum Cmd {
     Play,
     Shuffle,
     Repeat,
+    /// M6: `sleep <minutes|end>`, `eq <preset>`, `mini`.
+    Sleep(String),
+    Eq(String),
+    Mini,
     /// Answered by another area that isn't here yet: the note to show.
     Elsewhere(&'static str),
 }
@@ -405,12 +409,12 @@ impl MusicApp {
             },
             Go::Artist(target) => self.open_link(target, cx),
             Go::Search(query) => self.run_search(query, window, cx),
-            Go::Command(cmd) => self.run_command(cmd),
+            Go::Command(cmd) => self.run_command(cmd, cx),
             Go::Complete(_) => {}
         }
     }
 
-    fn run_command(&mut self, cmd: Cmd) {
+    fn run_command(&mut self, cmd: Cmd, cx: &mut Context<Self>) {
         let playing = self.player.playback.playing;
         match cmd {
             Cmd::Radio(track) => self.send(Command::PlayTarget(control::song_radio(&track))),
@@ -422,6 +426,13 @@ impl MusicApp {
             Cmd::Pause | Cmd::Play => {}
             Cmd::Shuffle => self.send(Command::ToggleShuffle),
             Cmd::Repeat => self.send(Command::CycleRepeat),
+            Cmd::Sleep(words) => {
+                self.sleep_command(&words, cx);
+            }
+            Cmd::Eq(words) => {
+                self.eq_command(&words, cx);
+            }
+            Cmd::Mini => self.toggle_mini(cx),
             Cmd::Elsewhere(_) => {}
         }
     }
@@ -543,32 +554,55 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
             order,
         });
     };
-    // TODO(M6): sleep, eq and mini call M6's sleep timer, equalizer and
-    // mini player once they are on main.
     let elsewhere = |what| Go::Command(Cmd::Elsewhere(what));
     match word.as_str() {
         "sleep" if !rest.is_empty() => {
-            let title = match rest.parse::<u32>() {
-                Ok(m) if m > 0 => format!("Sleep in {m} minute{}", if m == 1 { "" } else { "s" }),
-                _ if "end".starts_with(&rest.to_lowercase()) => {
-                    "Sleep at the end of the song".to_string()
+            let (title, words) = match rest.parse::<u32>() {
+                Ok(m) if m > 0 => (
+                    format!("Sleep in {m} minute{}", if m == 1 { "" } else { "s" }),
+                    Some(m.to_string()),
+                ),
+                _ if "end".starts_with(&rest.to_lowercase()) => (
+                    "Sleep at the end of the song".to_string(),
+                    Some("end".into()),
+                ),
+                _ if "off".starts_with(&rest.to_lowercase()) => {
+                    ("Turn off the sleep timer".to_string(), Some("off".into()))
                 }
-                _ => "Sleep timer: sleep <minutes> or sleep end".to_string(),
+                _ => (
+                    "Sleep timer: sleep <minutes> or sleep end".to_string(),
+                    None,
+                ),
             };
-            let go = elsewhere("The sleep timer isn't available yet.");
-            push(command_hit("sleep", title, LATER, go), Source::Command, 0);
+            let (detail, go) = match words {
+                Some(words) => ("Fades out, then pauses", Go::Command(Cmd::Sleep(words))),
+                None => ("Type minutes, end or off", Go::Complete("sleep ".into())),
+            };
+            push(command_hit("sleep", title, detail, go), Source::Command, 0);
             return;
         }
         "eq" if !rest.is_empty() => {
             let preset = ytfast::equalizer::Preset::ALL
                 .into_iter()
                 .find(|p| p.label().to_lowercase().starts_with(&rest.to_lowercase()));
-            let title = match preset {
-                Some(p) => format!("Equalizer: {}", p.label()),
-                None => format!("Equalizer: {rest}"),
+            let words = match preset {
+                Some(p) => Some(p.label().to_lowercase()),
+                None if ["on", "off"].contains(&rest.to_lowercase().as_str()) => {
+                    Some(rest.to_lowercase())
+                }
+                None => None,
             };
-            let go = elsewhere("The equalizer isn't available yet.");
-            push(command_hit("eq", title, LATER, go), Source::Command, 0);
+            let title = match (preset, words.as_deref()) {
+                (Some(p), _) => format!("Equalizer: {}", p.label()),
+                (None, Some("off")) => "Turn off the equalizer".to_string(),
+                (None, Some(_)) => "Turn on the equalizer".to_string(),
+                (None, None) => format!("Equalizer: {rest}"),
+            };
+            let (detail, go) = match words {
+                Some(words) => ("Equalizer preset", Go::Command(Cmd::Eq(words))),
+                None => ("No preset by that name", Go::Complete("eq ".into())),
+            };
+            push(command_hit("eq", title, detail, go), Source::Command, 0);
             return;
         }
         _ => {}
@@ -614,8 +648,8 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
         (
             "mini",
             "Mini player",
-            LATER,
-            elsewhere("The mini player isn't available yet."),
+            "Open or close the mini player",
+            Go::Command(Cmd::Mini),
         ),
     ];
     let single = rest.is_empty();

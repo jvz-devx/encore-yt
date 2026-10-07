@@ -172,7 +172,7 @@ impl MusicApp {
         if b.size.width <= px(0.) {
             return None;
         }
-        let x = f32::from((at.x - b.left()) / b.size.width);
+        let x = (at.x - b.left()) / b.size.width;
         let band = ((x * BANDS.len() as f32).floor() as isize).clamp(0, BANDS.len() as isize - 1);
         let y = f32::from(at.y - b.top());
         let gain = gain_at(y, f32::from(b.size.height)).clamp(-RANGE, RANGE);

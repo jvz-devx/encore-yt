@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D spike</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Theme values from gpui/src/theme.rs (INK hue 285). */
+  :root {
+    --base: oklch(0.145 0.006 285);
+    --text: oklch(0.965 0.004 285);
+    --text-muted: oklch(0.73 0.012 285);
+    --panel: oklch(0.195 0.008 285 / 0.92);
+    --hairline: oklch(0.965 0.004 285 / 0.1);
+    --signal: oklch(0.68 0.2 15);
+  }
+  :root[data-look="light"] {
+    --base: oklch(0.952 0.005 285);
+    --text: oklch(0.21 0.012 285);
+    --text-muted: oklch(0.47 0.014 285);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #111; color: oklch(0.965 0.004 285); font: 13px/1.4 Inter, system-ui, sans-serif; overflow: hidden; }
+  #stage { position: absolute; inset: 0; background: var(--base); overflow: hidden; }
+  #stage.fixed { inset: auto; width: 1280px; height: 800px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* Now Playing, roughly: the large cover left, title and artist under it. */
+  #np { position: absolute; left: 6%; top: 50%; transform: translateY(-50%); width: min(36%, 420px); color: var(--text); pointer-events: none; }
+  #np .cover { aspect-ratio: 1; width: 100%; border-radius: 12px; background: oklch(0.3 0.01 285) center/cover; box-shadow: 0 24px 60px rgb(0 0 0 / 0.35); }
+  #np h1 { font-size: 28px; font-weight: 700; margin: 24px 0 4px; letter-spacing: -0.01em; }
+  #np p { font-size: 16px; margin: 0; color: var(--text-muted); }
+  #np .lyric { margin-top: 18px; font-size: 14px; color: var(--text-muted); }
+  #stage.visualiser #np, #stage.no-overlay #np { display: none; }
+  #panel { position: fixed; top: 12px; right: 12px; width: 300px; max-height: calc(100% - 24px); overflow: auto; background: var(--panel); border: 1px solid var(--hairline); border-radius: 12px; padding: 12px; backdrop-filter: blur(12px); z-index: 2; }
+  #panel.hidden { display: none; }
+  #panel h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+  #panel label { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 8px; margin: 6px 0; color: oklch(0.73 0.012 285); }
+  #panel select, #panel input[type=text], #panel button { font: inherit; color: inherit; background: oklch(0.245 0.009 285); border: 1px solid var(--hairline); border-radius: 6px; padding: 4px 6px; min-width: 0; }
+  #panel button { cursor: pointer; padding: 5px 10px; }
+  #panel .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  #stats, #bench-out { font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; color: oklch(0.85 0.01 285); margin: 8px 0 0; }
+  #error { color: oklch(0.75 0.15 35); white-space: pre-wrap; font: 11px/1.4 ui-monospace, monospace; }
+  #drop { position: fixed; inset: 0; display: none; place-items: center; background: rgb(0 0 0 / 0.5); font-size: 20px; z-index: 3; }
+  body.dragging #drop { display: grid; }
+  .hint { color: oklch(0.6 0.012 285); font-size: 11px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="canvas"></canvas>
+  <div id="np">
+    <div class="cover" id="np-cover"></div>
+    <h1 id="np-title">No song loaded</h1>
+    <p id="np-artist">Open an mp3 or drop one here</p>
+    <p class="lyric">And the light came over the water, slowly</p>
+  </div>
+</div>
+<div id="panel">
+  <h2>M30 3D spike</h2>
+  <div class="row">
+    <button id="open">Open mp3</button>
+    <button id="play" disabled>Play</button>
+    <input id="file" type="file" accept="audio/*" hidden>
+  </div>
+  <audio id="audio" preload="auto"></audio>
+  <label>Scene <select id="scene"></select></label>
+  <label>Mode <select id="mode"><option value="backdrop">Backdrop</option><option value="visualiser">Visualiser</option></select></label>
+  <label>Look <select id="look"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+  <label>Palette <select id="palette"><option value="cover">Cover</option><option value="vivid">Vivid test</option><option value="muted">Muted test</option><option value="mono">Near-mono test</option></select></label>
+  <label>Video id <input id="seed" type="text" spellcheck="false"></label>
+  <label>Size <select id="size"><option value="window">Window</option><option value="fixed">1280×800</option></select></label>
+  <label>Render scale <select id="scale"><option>0.5</option><option>0.75</option><option selected>1</option></select></label>
+  <label>Quality <select id="quality"><option value="0.5">Low</option><option value="1" selected>Medium</option><option value="1.5">High</option></select></label>
+  <label>Frame rate <select id="fps"><option value="30">30</option><option value="60">60</option><option value="120">120</option><option value="0" selected>Display</option></select></label>
+  <label>Strength <input id="strength" type="range" min="0" max="1.5" step="0.05" value="1"></label>
+  <label>Overlay <select id="overlay"><option value="on">Now Playing</option><option value="off">None</option></select></label>
+  <div class="row">
+    <button id="capture">Capture PNG</button>
+    <button id="bench">Bench</button>
+  </div>
+  <div id="stats"></div>
+  <div id="error"></div>
+  <div id="bench-out"></div>
+  <div class="hint">Space play · 1–7 scene · M mode · L look · H hide panel · C capture</div>
+</div>
+<div id="drop">Drop an mp3</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>

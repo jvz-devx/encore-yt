@@ -254,7 +254,7 @@ fn seek_bar(p: vec2<f32>, color: vec3<f32>) -> vec3<f32> {
     let r = 3.0 * s;
 
     // Coverage of the rounded silhouette.
-    let cx = clamp(p.x, x0 + r, x1 - r);
+    let cx = clamp(p.x, x0 + r, max(x1 - r, x0 + r));
     let cy = clamp(p.y, top + r, max(bottom - r, top + r));
     let corner = clamp(r - length(p - vec2<f32>(cx, cy)) + 0.5, 0.0, 1.0);
     let rows = clamp(p.y - top + 0.5, 0.0, 1.0) * clamp(bottom - p.y + 0.5, 0.0, 1.0);

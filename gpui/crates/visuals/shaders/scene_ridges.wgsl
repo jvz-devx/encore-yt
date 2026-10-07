@@ -162,7 +162,7 @@ fn ridge_sample(p: vec2<f32>, cam_z: f32, r: RidgeLook, fine: bool) -> vec4<f32>
     let at = across * (1.15 - 0.15 * across) + shift;
     let b = max(ridge_bands(at, blur, r), 0.0);
     // The spectrum fades into a plain at the edges; the middle stands taller.
-    let envelope = (1.0 - 0.45 * across) * smoothstep(1.08, 0.55, across);
+    let envelope = (1.0 - 0.45 * across) * (1.0 - smoothstep(0.55, 1.08, across));
     // A ridge every row.
     let c = 1.0 - 2.0 * abs(fract(row + 0.5) - 0.5);
     // Half linear, so the top stays on the row line where the land tilts.
@@ -217,7 +217,7 @@ fn ridge_shade(ro: vec3<f32>, rd: vec3<f32>, t: f32, cam_z: f32, r: RidgeLook, s
 
     // Dark land, lit from the low sun ahead: the faces we see are in
     // shade, the ridge tops catch a rim of the horizon's light.
-    let albedo = mix(pal(3), pal(0), 0.25 * smoothstep(1.0, 0.0, s.w)) * 0.12;
+    let albedo = mix(pal(3), pal(0), 0.25 * (1.0 - smoothstep(0.0, 1.0, s.w))) * 0.12;
     let dif = max(dot(n, sun), 0.0);
     let amb = mix(pal(2), pal(3), 0.5) * (0.08 + 0.12 * n.y);
     let ndv = max(dot(n, -rd), 0.0);
@@ -232,11 +232,11 @@ fn ridge_shade(ro: vec3<f32>, rd: vec3<f32>, t: f32, cam_z: f32, r: RidgeLook, s
     let lw = mix(0.012, 0.009, vis);
     let w = sqrt(lw * lw + foot * foot);
     let d = (fract(s.y + 0.5) - 0.5) * r.spacing - 0.4 * w;
-    let line = exp(-(d * d) / (w * w)) * (lw / w) * smoothstep(far * 0.7, 5.0, t);
+    let line = exp(-(d * d) / (w * w)) * (lw / w) * (1.0 - smoothstep(5.0, far * 0.7, t));
     let halo = exp(-abs(d) / 0.09) * 0.12;
     let toward = pow(max(dot(normalize(vec3<f32>(rd.x, 0.0, rd.z)), sun), 0.0), 6.0);
     let tint = mix(mix(pal(1), pal(2), 0.5 * smoothstep(0.2, 1.1, s.w)), vec3<f32>(1.0, 0.92, 0.85), 0.2);
-    let spread = 0.5 + 0.5 * smoothstep(1.2, 0.4, s.w);
+    let spread = 0.5 + 0.5 * (1.0 - smoothstep(0.4, 1.2, s.w));
     let glint = (0.25 + 1.1 * s.z) * spread * (0.7 + 0.6 * toward) * mix(1.0, 1.6, vis);
     col += tint * (line + halo) * glint;
 

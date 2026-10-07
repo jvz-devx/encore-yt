@@ -234,7 +234,7 @@ fn mirrored(p_in: vec2<f32>) -> Ink {
         if p.y <= base {
             ink = row_bar(ink, q, j, centre, half_w, base - 1.0 * params.extra.x, room_up, -1.0, 1.0);
         } else {
-            let fade = 0.35 * (1.0 - smoothstep(0.0, room_down, p.y - base));
+            let fade = 0.35 * (1.0 - smoothstep(0.0, max(room_down, 1.0), p.y - base));
             ink = row_bar(ink, q, j, centre, half_w, base + 1.0 * params.extra.x, room_down, 1.0, fade);
         }
     }

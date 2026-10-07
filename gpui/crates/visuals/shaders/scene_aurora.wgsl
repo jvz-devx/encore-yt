@@ -33,10 +33,10 @@ struct AurCurtain {
     salt: i32,
 };
 
-// 1D value noise with a cheap sine hash: its inputs stay small (along a
-// curtain, a bearing), where that hash is stable.
+// 1D value noise on the sine-free hash: the salts alone put a sine hash's
+// argument above 1e4, where NVIDIA's and AMD's fast sin aren't precise.
 fn aur_h(i: f32, salt: i32) -> f32 {
-    return fract(sin(i * 127.1 + f32(salt) * 311.7) * 43758.547);
+    return hash21(vec2<f32>(i, f32(salt)));
 }
 
 fn aur_vn(x: f32, salt: i32) -> f32 {

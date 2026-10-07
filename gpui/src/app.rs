@@ -154,6 +154,12 @@ impl MusicApp {
             _events: events,
             _clock: clock,
         };
+        // The sound settings as saved, until the backend first reports
+        // (it does only once something plays or a session comes back).
+        let saved = ytfast::settings::Settings::load(&app.paths);
+        app.player.playback.normalize = saved.normalizes();
+        app.player.playback.equalizer = saved.equalizer;
+        app.player.playback.mixes = saved.mixes;
         match home_asked {
             Some(seq) => app.page_requested(View::Home.target(), seq),
             None => app.ensure_page(app.pages.view.target(), false),

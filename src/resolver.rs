@@ -274,7 +274,10 @@ impl Resolver {
             }
             failed.insert(video_id.to_owned());
         }
-        self.cache.lock().expect("cache lock").remove(video_id);
+        let gone = self.cache.lock().expect("cache lock").remove(video_id);
+        if let (Some(gone), Some(native)) = (gone, self.native.get()) {
+            native.stream_failed(&gone.url);
+        }
         self.save();
     }
 

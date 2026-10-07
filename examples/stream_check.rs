@@ -9,8 +9,10 @@
 //!
 //! Nothing is reported to the account's history: nothing here sends
 //! YouTube's playback tracking. Signed out by default (VISIONOS);
-//! `--signed-in` asks as the account (WEB_CREATOR, as the app does) for the
-//! Premium formats, so use it only when that is wanted.
+//! `--signed-in` asks as the account, as the app does (the TV client with
+//! the session's page config, then WEB_CREATOR, then VISIONOS), for the
+//! Premium formats, so use it only when that is wanted. The client that
+//! answered is printed, and why the ones before it failed.
 //!
 //! cargo run --example stream_check --no-default-features --
 //!     [--signed-in] [--formats 251,250,249,140] VIDEO_ID
@@ -40,7 +42,8 @@ struct Logger;
 
 impl log::Log for Logger {
     fn enabled(&self, m: &log::Metadata) -> bool {
-        m.level() <= log::Level::Info && m.target().starts_with("ytfast_audio")
+        m.level() <= log::Level::Info
+            && (m.target().starts_with("ytfast_audio") || m.target().starts_with("ytfast::streams"))
     }
     fn log(&self, r: &log::Record) {
         if self.enabled(r.metadata()) {
@@ -149,13 +152,12 @@ async fn resolve_now(video: &str, signed_in: bool) -> Result<String> {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let native = ytfast::streams::Native::new(client, &paths.cache, &paths.config);
-    let (who, authed) = if signed_in {
+    if signed_in {
         native.prepare().await?;
-        (&ytfast::streams::WEB_CREATOR, true)
-    } else {
-        (&ytfast::streams::VISIONOS, false)
-    };
-    let streams = native.streams_as(who, video, authed, usize::MAX).await?;
+    }
+    let (streams, who) = native.streams(video, signed_in, usize::MAX).await?;
+    let itags: Vec<String> = streams.iter().map(|s| s.itag.to_string()).collect();
+    step!("{who} answered with itags {}", itags.join(","));
     Ok(streams
         .iter()
         .map(|s| format!("{}\tNA\t{}\n", s.itag, s.url))

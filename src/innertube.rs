@@ -117,6 +117,24 @@ impl Client {
         self.session.read().expect("session lock").is_some()
     }
 
+    /// The session's `Cookie` header, for requests made outside this
+    /// client (`crate::streams`).
+    pub fn cookie_header(&self) -> Option<String> {
+        let session = self.session.read().expect("session lock");
+        session.as_ref().map(Session::header)
+    }
+
+    /// One of the session's youtube.com cookies.
+    pub fn cookie(&self, name: &str) -> Option<String> {
+        let session = self.session.read().expect("session lock");
+        session.as_ref()?.cookie(name).map(str::to_owned)
+    }
+
+    /// The channel (brand account) acted as, if not the account's own.
+    pub fn page_id(&self) -> Option<String> {
+        self.page_id.read().expect("page id lock").clone()
+    }
+
     /// The visitor id from the last response, which stream requests need
     /// to pass YouTube's bot check.
     pub fn visitor_data(&self) -> Option<String> {

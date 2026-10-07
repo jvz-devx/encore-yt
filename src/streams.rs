@@ -5,7 +5,10 @@
 //! (`crate::jsc`). What works and what doesn't (PO tokens, SABR), and what
 //! happens when YouTube changes its player, is in docs/gpui/RESOLVER.md.
 
+mod tv;
+
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -22,6 +25,11 @@ const ITAGS: [u64; 7] = [774, 141, 251, 140, 250, 249, 600];
 
 /// How long a player version is trusted before asking which is current.
 const PLAYER_CHECK: Duration = Duration::from_secs(6 * 3600);
+
+/// How long the TV client is left out after [`TV_STRIKES`] songs in a row
+/// failed with it.
+const TV_PAUSE: Duration = Duration::from_secs(3600);
+const TV_STRIKES: u32 = 3;
 
 const WEB_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
@@ -42,7 +50,9 @@ pub const VISIONOS: PlayerClient = PlayerClient {
     ],
 };
 
-/// An older TV client: takes cookies, needs the JS challenges, no PO token.
+/// An older TV client (yt-dlp's `tv_downgraded`): signed in only (signed
+/// out it answers "The page needs to be reloaded"), needs the JS
+/// challenges, no PO token, and gives a Premium account 774 and 141.
 pub const TV_DOWNGRADED: PlayerClient = PlayerClient {
     name: "TVHTML5",
     version: "5.20260707",
@@ -117,6 +127,14 @@ pub struct Native {
     logged: Mutex<std::collections::HashSet<String>>,
     /// Where to save each player response (for the live check example).
     dump: Option<PathBuf>,
+    /// The session's www.youtube.com config for the TV client, and when it
+    /// was read (or failed to be).
+    web: tokio::sync::Mutex<Option<(tv::WebConfig, Instant, bool)>>,
+    /// The TV client's failures in a row, and until when it is left out.
+    tv: Mutex<(u32, Option<Instant>)>,
+    /// False once a WEB_CREATOR stream failed to play: without Premium its
+    /// URLs need a PO token, so it isn't asked again this session.
+    creator_plays: AtomicBool,
 }
 
 impl Native {
@@ -136,6 +154,9 @@ impl Native {
             current: tokio::sync::Mutex::default(),
             logged: Mutex::default(),
             dump: None,
+            web: tokio::sync::Mutex::default(),
+            tv: Mutex::default(),
+            creator_plays: AtomicBool::new(true),
         }
     }
 
@@ -150,9 +171,14 @@ impl Native {
     }
 
     /// Downloads and prepares the current player script now, so the first
-    /// song that needs its challenges doesn't wait for it.
+    /// song that needs its challenges doesn't wait for it: signed in, the
+    /// version the session's page names.
     pub async fn prepare(&self) -> Result<String> {
-        let current = self.player().await?;
+        let want = match self.signed_in() {
+            true => self.web_config().await.player,
+            false => None,
+        };
+        let current = self.player_for(want.as_deref()).await?;
         self.solver.load(&current.player).await?;
         Ok(current.player.id)
     }
@@ -167,29 +193,93 @@ impl Native {
         self.solver.version()
     }
 
-    /// The best audio stream and the client it came from: with `account`
-    /// through WEB_CREATOR with the session's cookies (Premium needs no PO
-    /// token there), else, or when that fails, signed out through VISIONOS,
-    /// which needs no JS. The TV client answered "The page needs to be
-    /// reloaded" on 2026-10-07 both ways, so it isn't asked.
+    /// The best audio stream and the client it came from.
     pub async fn resolve(&self, video_id: &str, account: bool) -> Result<(Stream, &'static str)> {
+        let (mut streams, client) = self.streams(video_id, account, 1).await?;
+        Ok((streams.remove(0), client))
+    }
+
+    /// Up to `limit` of the wanted formats, best first, and the client they
+    /// came from. With `account`: the TV client with the session (774 and
+    /// 141 for Premium, 251 without, no PO token either way), then
+    /// WEB_CREATOR (Premium only), then signed out through VISIONOS,
+    /// which needs no JS. One `player` request per song while the first
+    /// client works.
+    pub async fn streams(
+        &self,
+        video_id: &str,
+        account: bool,
+        limit: usize,
+    ) -> Result<(Vec<Stream>, &'static str)> {
         let mut errors = Vec::new();
-        if account {
-            match self.resolve_as(&WEB_CREATOR, video_id, true).await {
-                Ok(stream) => return Ok((stream, WEB_CREATOR.name)),
+        let mut player_wide = false;
+        if account && self.tv_open() {
+            match self.streams_as(&TV_DOWNGRADED, video_id, true, limit).await {
+                Ok(streams) => {
+                    self.tv_result(true);
+                    return Ok((streams, TV_DOWNGRADED.name));
+                }
+                Err(error) => {
+                    // A player being prepared fails WEB_CREATOR as well.
+                    player_wide = error.downcast_ref::<PlayerFailure>().is_some();
+                    if !player_wide {
+                        self.tv_result(false);
+                    }
+                    self.log_failure(video_id, &error);
+                    errors.push(format!("{}: {error:#}", TV_DOWNGRADED.name));
+                }
+            }
+        }
+        if account && !player_wide && self.creator_plays.load(Ordering::Relaxed) {
+            match self.streams_as(&WEB_CREATOR, video_id, true, limit).await {
+                Ok(streams) => return Ok((streams, WEB_CREATOR.name)),
                 Err(error) => {
                     self.log_failure(video_id, &error);
                     errors.push(format!("{}: {error:#}", WEB_CREATOR.name));
                 }
             }
         }
-        match self.resolve_as(&VISIONOS, video_id, false).await {
-            Ok(stream) => Ok((stream, VISIONOS.name)),
+        match self.streams_as(&VISIONOS, video_id, false, limit).await {
+            Ok(streams) => Ok((streams, VISIONOS.name)),
             Err(error) => {
                 self.log_failure(video_id, &error);
                 errors.push(format!("{}: {error:#}", VISIONOS.name));
                 bail!("{}", errors.join("; "))
             }
+        }
+    }
+
+    /// A stream from `url` failed to play. A WEB_CREATOR one means the
+    /// account has no Premium (its URLs then need a PO token), so that
+    /// client isn't asked again this session.
+    pub fn stream_failed(&self, url: &str) {
+        if url_param(url, "c").as_deref() == Some(WEB_CREATOR.name)
+            && self.creator_plays.swap(false, Ordering::Relaxed)
+        {
+            log::warn!("WEB_CREATOR streams don't play for this account; not asking it again");
+        }
+    }
+
+    /// Whether the TV client is asked (it isn't for [`TV_PAUSE`] after
+    /// [`TV_STRIKES`] songs in a row failed with it).
+    fn tv_open(&self) -> bool {
+        let state = self.tv.lock().expect("tv lock");
+        state.1.is_none_or(|until| Instant::now() >= until)
+    }
+
+    fn tv_result(&self, ok: bool) {
+        let mut state = self.tv.lock().expect("tv lock");
+        if ok {
+            *state = (0, None);
+            return;
+        }
+        state.0 += 1;
+        if state.0 >= TV_STRIKES {
+            *state = (0, Some(Instant::now() + TV_PAUSE));
+            log::warn!(
+                "the TV client failed {TV_STRIKES} songs in a row; leaving it out for {} min",
+                TV_PAUSE.as_secs() / 60
+            );
         }
     }
 
@@ -237,16 +327,27 @@ impl Native {
         limit: usize,
     ) -> Result<Vec<Stream>> {
         let needs_js = client.name != VISIONOS.name;
+        // The TV client is asked as yt-dlp asks it, with the session's own
+        // page config (its player version first of all).
+        let web = match authed && client.name == TV_DOWNGRADED.name {
+            true => Some(self.web_config().await),
+            false => None,
+        };
+        let want = web.as_ref().and_then(|w| w.player.clone());
         let mut current = if needs_js {
-            Some(self.player().await?)
+            Some(self.player_for(want.as_deref()).await?)
         } else {
             None
         };
-        let response = self
-            .innertube
-            .player_as(client, video_id, current.as_ref().map(|c| c.sts), authed)
-            .await
-            .map_err(|e| anyhow!("{e}"))?;
+        let sts = current.as_ref().map(|c| c.sts);
+        let response = match &web {
+            Some(web) => self.player_tv(client, video_id, sts, web).await?,
+            None => self
+                .innertube
+                .player_as(client, video_id, sts, authed)
+                .await
+                .map_err(|e| anyhow!("{e}"))?,
+        };
         if let Some(dir) = &self.dump {
             let path = dir.join(format!("{}-{video_id}.json", client.name));
             let _ = std::fs::write(path, response.to_string());
@@ -258,7 +359,7 @@ impl Native {
                 (url, cipher) => {
                     let current = match &current {
                         Some(current) => current.clone(),
-                        None => current.insert(self.player().await?).clone(),
+                        None => current.insert(self.player_for(None).await?).clone(),
                     };
                     self.solve(&current.player, url, cipher).await?
                 }
@@ -335,10 +436,16 @@ impl Native {
 
     /// The current player script, downloaded once per version.
     async fn player(&self) -> Result<Current> {
+        self.player_for(None).await
+    }
+
+    /// The player script: `want` (the version the session's page names)
+    /// or else the current one, downloaded once per version.
+    async fn player_for(&self, want: Option<&str>) -> Result<Current> {
         let mut current = self.current.lock().await;
         if let Some(known) = current
             .as_ref()
-            .filter(|c| c.checked.elapsed() < PLAYER_CHECK)
+            .filter(|c| c.checked.elapsed() < PLAYER_CHECK && want.is_none_or(|w| w == c.player.id))
         {
             return Ok(known.clone());
         }
@@ -349,10 +456,18 @@ impl Native {
             .ok()
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age < PLAYER_CHECK);
-        let saved = std::fs::read_to_string(&marker).ok();
-        let id = match saved.filter(|_| fresh) {
-            Some(id) => id.trim().to_owned(),
-            None => {
+        let saved = std::fs::read_to_string(&marker)
+            .ok()
+            .map(|id| id.trim().to_owned());
+        let id = match (want, saved.filter(|_| fresh)) {
+            (Some(want), saved) if saved.as_deref() != Some(want) => {
+                log::info!("the session's page names player {want}");
+                crate::paths::write_atomic(&marker, want.as_bytes())
+                    .context("saving the player id")?;
+                want.to_owned()
+            }
+            (_, Some(id)) => id,
+            (_, None) => {
                 let id = self.player_version().await?;
                 crate::paths::write_atomic(&marker, id.as_bytes())
                     .context("saving the player id")?;
@@ -373,6 +488,102 @@ impl Native {
         };
         *current = Some(known.clone());
         Ok(known)
+    }
+
+    /// The session's www.youtube.com config (`tv::PAGE`), read at most
+    /// every [`PLAYER_CHECK`] (after a failure, every ten minutes;
+    /// meanwhile the TV client is asked without it).
+    async fn web_config(&self) -> tv::WebConfig {
+        let mut web = self.web.lock().await;
+        if let Some((config, read, ok)) = web.as_ref() {
+            let keep = if *ok {
+                PLAYER_CHECK
+            } else {
+                Duration::from_secs(600)
+            };
+            if read.elapsed() < keep {
+                return config.clone();
+            }
+        }
+        let read = self.read_web_config().await;
+        if let Err(error) = &read {
+            log::warn!("reading the session's page config failed: {error:#}");
+        }
+        let ok = read.is_ok();
+        let config = read.unwrap_or_default();
+        *web = Some((config.clone(), Instant::now(), ok));
+        config
+    }
+
+    async fn read_web_config(&self) -> Result<tv::WebConfig> {
+        let mut request = self
+            .innertube
+            .http()
+            .get(tv::PAGE)
+            .header("User-Agent", WEB_AGENT)
+            .header("Accept-Language", "en-us,en;q=0.5");
+        if let Some(cookies) = self.innertube.cookie_header() {
+            request = request.header("Cookie", cookies);
+        }
+        let page = request
+            .send()
+            .await
+            .context("asking for the session's page")?
+            .error_for_status()?
+            .text()
+            .await?;
+        let config = tv::parse_ytcfg(&page);
+        if config.player.is_none() && config.visitor.is_none() {
+            bail!("the page has no config");
+        }
+        Ok(config)
+    }
+
+    /// A `player` request as `client` with the session, as yt-dlp sends it
+    /// (`tv::player_body`, `tv::player_headers`).
+    async fn player_tv(
+        &self,
+        client: &PlayerClient,
+        video_id: &str,
+        sts: Option<u32>,
+        web: &tv::WebConfig,
+    ) -> Result<Value> {
+        let it = &self.innertube;
+        let mut web = web.clone();
+        if web.visitor.is_none() {
+            web.visitor = it.visitor_data();
+        }
+        // The app decides which channel to act as, not the browser's page.
+        web.delegated_session = it.page_id();
+        let sids = tv::Sids {
+            sapisid: it
+                .cookie("SAPISID")
+                .or_else(|| it.cookie("__Secure-3PAPISID")),
+            one_p: it.cookie("__Secure-1PAPISID"),
+            three_p: it.cookie("__Secure-3PAPISID"),
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let authorization = tv::sid_authorization(&sids, tv::WWW, web.user_session.as_deref(), now);
+        let body = tv::player_body(client, video_id, sts);
+        let mut request = it
+            .http()
+            .post(format!("{}/youtubei/v1/player?prettyPrint=false", tv::WWW))
+            .body(body.to_string());
+        for (name, value) in tv::player_headers(client, &web, authorization) {
+            request = request.header(name, value);
+        }
+        if let Some(cookies) = it.cookie_header() {
+            request = request.header("Cookie", cookies);
+        }
+        let response = request.send().await.context("asking for the streams")?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("YouTube answered the player request with HTTP {status}");
+        }
+        response.json().await.context("reading the player response")
     }
 
     /// The current player version, from the iframe API script.
@@ -535,6 +746,7 @@ pub fn audio_formats(response: &Value) -> Result<Vec<Format>> {
     let usable = |f: &&Value| {
         // Dynamic-range-compressed copies share the itag; skip them.
         f.get("isDrc").and_then(Value::as_bool) != Some(true)
+            && f.get("drmFamilies").is_none()
             && (f.get("url").is_some() || f.get("signatureCipher").is_some())
     };
     let chosen: Vec<&Value> = ITAGS
@@ -648,5 +860,62 @@ mod tests {
         let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
         assert_eq!(itags, [140, 249]);
         assert!(audio_formats(&response(&[139, 599])).is_err());
+    }
+
+    /// Premium's formats come first: 774 (Opus ~256 kbps), then 141 (AAC
+    /// 256 kbps), then 251, whatever order the response lists them in.
+    #[test]
+    fn premium_formats_first() {
+        let picked = audio_formats(&response(&[249, 251, 141, 140, 774])).expect("formats");
+        let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
+        assert_eq!(itags, [774, 141, 251, 140, 249]);
+    }
+
+    /// DRC copies and DRM-protected formats (a TV experiment) are skipped.
+    #[test]
+    fn skips_drc_and_drm() {
+        let response = json!({
+            "playabilityStatus": {"status": "OK"},
+            "streamingData": {"adaptiveFormats": [
+                {"itag": 774, "url": "https://example.invalid/a", "drmFamilies": ["WIDEVINE"]},
+                {"itag": 141, "url": "https://example.invalid/b", "isDrc": true},
+                {"itag": 141, "signatureCipher": "s=x&url=https%3A%2F%2Fexample.invalid%2Fc"},
+            ]},
+        });
+        let picked = audio_formats(&response).expect("formats");
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0].itag, 141);
+        assert!(picked[0].cipher.is_some());
+    }
+
+    fn native() -> Native {
+        let dir = std::env::temp_dir().join("ytfast-streams-test");
+        Native::new(Arc::new(Client::new()), &dir, &dir)
+    }
+
+    /// A WEB_CREATOR stream that fails to play means no Premium: that
+    /// client is left out for the session. Other clients' failures don't.
+    #[test]
+    fn creator_left_out_after_its_stream_fails() {
+        let native = native();
+        native.stream_failed("https://example.invalid/videoplayback?c=TVHTML5&n=x");
+        assert!(native.creator_plays.load(Ordering::Relaxed));
+        native.stream_failed("https://example.invalid/videoplayback?c=WEB_CREATOR&n=x");
+        assert!(!native.creator_plays.load(Ordering::Relaxed));
+    }
+
+    /// The TV client is left out after three songs in a row failed with
+    /// it; a success in between resets the count.
+    #[test]
+    fn tv_left_out_after_three_failures() {
+        let native = native();
+        native.tv_result(false);
+        native.tv_result(false);
+        native.tv_result(true);
+        native.tv_result(false);
+        native.tv_result(false);
+        assert!(native.tv_open());
+        native.tv_result(false);
+        assert!(!native.tv_open());
     }
 }

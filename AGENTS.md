@@ -18,7 +18,7 @@ This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `up
 
 ## Rust builds (fast loop, reliable finish)
 
-Crates: `gpui` (the GPUI app), `visuals` (wgpu effects), `backend` (root crate without egui), `egui` (root crate with the egui app). The root crate and `gpui/` are separate Cargo workspaces on purpose.
+Crates: `gpui` (the GPUI app), `visuals` (wgpu effects), `audio` (the pure Rust playback spike, M11), `backend` (root crate without egui), `egui` (root crate with the egui app). The root crate and `gpui/` are separate Cargo workspaces on purpose.
 
 - Never run `cargo build` to validate an edit; use `cargo check`. Build only when you need to run the binary (debug builds are incremental, ~5 s), and use `just profiling` (no LTO) instead of `--release` for measurements.
 - Make a coherent batch of edits, then check once: `just check <crate>` (= `cargo check -p <crate>`). Read diagnostics you already have (bacon, rust-analyzer) before starting a new check.

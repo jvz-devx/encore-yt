@@ -11,6 +11,7 @@
 # CRATE is one of:
 #   gpui      the GPUI app (gpui/, package ytfast-gpui)
 #   visuals   the wgpu effects crate (gpui/crates/visuals, ytfast-visuals)
+#   audio     the pure Rust playback spike (gpui/crates/audio, ytfast-audio)
 #   backend   the root crate without the egui interface (what gpui uses)
 #   egui      the root crate with the egui interface (the upstream app)
 #
@@ -26,15 +27,16 @@ step() { printf '== %s\n' "$*" >&2; }
 # Where a crate lives and how cargo selects it.
 crate_dir() {
     case "$1" in
-        gpui | visuals) echo gpui ;;
+        gpui | visuals | audio) echo gpui ;;
         backend | egui) echo . ;;
-        *) echo "unknown crate '$1' (gpui, visuals, backend, egui)" >&2; exit 2 ;;
+        *) echo "unknown crate '$1' (gpui, visuals, audio, backend, egui)" >&2; exit 2 ;;
     esac
 }
 crate_args() {
     case "$1" in
         gpui) echo "-p ytfast-gpui" ;;
         visuals) echo "-p ytfast-visuals" ;;
+        audio) echo "-p ytfast-audio" ;;
         backend) echo "--lib --no-default-features" ;;
         egui) echo "--features e2e" ;;
     esac
@@ -60,6 +62,7 @@ test_crate() {
         # desktop, network or YouTube.
         gpui) step "test gpui"; in_crate gpui cargo test -j "$jobs" -p ytfast-gpui -- $filter ;;
         visuals) step "test visuals"; in_crate gpui cargo test -j "$jobs" -p ytfast-visuals -- $filter ;;
+        audio) step "test audio"; in_crate gpui cargo test -j "$jobs" -p ytfast-audio -- $filter ;;
         backend | egui)
             # The parser fixture tests (tests/) and unit tests, without egui.
             step "test backend"
@@ -125,5 +128,5 @@ case "$action" in
     verify) verify "${1:-gpui}" ;;
     verify-workspace) verify_workspace ;;
     shaders) shaders ;;
-    *) sed -n '2,19p' "$0"; exit 2 ;;
+    *) sed -n '2,20p' "$0"; exit 2 ;;
 esac

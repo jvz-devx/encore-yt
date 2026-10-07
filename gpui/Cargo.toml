@@ -17,7 +17,7 @@ path = "src/main.rs"
 # crates/visuals holds the wgpu and audio code without GPUI, so it checks
 # and tests without building the app.
 [workspace]
-members = [".", "crates/visuals"]
+members = [".", "crates/visuals", "crates/audio"]
 
 [dependencies]
 # The backend (InnerTube, yt-dlp resolver, mpv, sign-in, MPRIS) without the

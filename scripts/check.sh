@@ -7,6 +7,7 @@
 #   scripts/check.sh egui      cargo check of the egui app, all targets
 #   scripts/check.sh tests     backend tests, including the parser fixtures
 #   scripts/check.sh shaders   validate every .wgsl under gpui/ with naga
+#   scripts/check.sh visuals   check and test the effects crate (gpui/crates/visuals)
 #   scripts/check.sh all       everything above (still no release build)
 #
 # The root crate and gpui/ are separate Cargo workspaces on purpose: one
@@ -36,6 +37,11 @@ tests() {
     step "test backend"
     cargo test -j "$jobs" --lib --tests --no-default-features
 }
+visuals() {
+    step "check and test visuals"
+    (cd gpui && cargo check -j "$jobs" -p ytfast-visuals --all-targets &&
+        cargo test -j "$jobs" -p ytfast-visuals)
+}
 shaders() {
     step "validate shaders"
     local found=0 file
@@ -52,6 +58,7 @@ case "${1:-}" in
     egui) egui ;;
     tests) tests ;;
     shaders) shaders ;;
-    all) backend; tests; gpui; egui; shaders ;;
-    *) sed -n '2,10p' "$0"; exit 2 ;;
+    visuals) visuals ;;
+    all) backend; tests; gpui; egui; shaders; visuals ;;
+    *) sed -n '2,11p' "$0"; exit 2 ;;
 esac

@@ -21,9 +21,11 @@ step "tests (root, backend only)"
 cargo test -j "$jobs" --lib --tests --no-default-features
 
 step "clippy (gpui)"
-(cd gpui && cargo clippy -j "$jobs" --all-targets -- -D warnings)
+(cd gpui && cargo clippy -j "$jobs" --workspace --all-targets -- -D warnings)
 step "tests (gpui)"
-(cd gpui && cargo test -j "$jobs")
+(cd gpui && cargo test -j "$jobs" --workspace)
+step "shaders (naga)"
+scripts/check.sh shaders
 step "release build (gpui)"
 (cd gpui && cargo build -j "$jobs" --release)
 

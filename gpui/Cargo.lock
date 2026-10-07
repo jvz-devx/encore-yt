@@ -9163,11 +9163,21 @@ dependencies = [
  "gpui-pre-reqwest-client",
  "image",
  "log",
- "serde_json",
  "smol",
  "tokio",
- "wgpu",
  "ytfast",
+ "ytfast-visuals",
+]
+
+[[package]]
+name = "ytfast-visuals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "pollster 0.4.0",
+ "serde_json",
+ "wgpu",
 ]
 
 [[package]]

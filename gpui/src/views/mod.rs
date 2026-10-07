@@ -24,6 +24,7 @@ mod widgets;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::model::Run;
 
@@ -37,15 +38,15 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         return stage;
     }
     let c = theme::colors(cx);
-    let main = if let Some(spike) = crate::visuals::page(app, cx) {
-        spike
-    } else if app.player.now_playing {
+    let main = if app.player.now_playing {
         now_playing::now_playing(app, window, cx)
     } else {
         page::page(app, window, cx)
     };
     // The page panel: the brightest surface, inset from the window's base
-    // with a large radius, so the sidebar and player bar frame it.
+    // with a large radius, so the sidebar and player bar frame it. Behind
+    // Now Playing it is see-through: the effects layer paints it.
+    let see_through = crate::visuals::fills_panel(app);
     let panel = v_flex()
         .flex_1()
         .h_full()
@@ -54,7 +55,7 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         .mr(space::SM)
         .mb(space::XS)
         .rounded(radius::LG)
-        .bg(c.surface)
+        .when(!see_through, |panel| panel.bg(c.surface))
         .overflow_hidden()
         .child(top_bar::top_bar(app, window, cx))
         .children(error_strip(app, cx))
@@ -64,7 +65,7 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         .track_focus(&app.focus)
         .size_full()
         .relative()
-        .bg(c.base)
+        // The window's base colour is painted under this by `visuals::shell`.
         .text_color(c.text)
         .type_body()
         // Decoded covers, held to a memory budget; those on screen stay.

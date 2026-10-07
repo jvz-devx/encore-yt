@@ -1,6 +1,7 @@
 //! M4: layers over the window, bottom to top: a short note above the player
-//! bar ("Link copied"), the shortcuts sheet (`?`), Play anything (Ctrl+K)
-//! and a context menu. Drawn after the rest of the window.
+//! bar ("Link copied"), the sleep timer and equalizer panels, the shortcuts
+//! sheet (`?`), Play anything (Ctrl+K) and a context menu. Drawn after the
+//! rest of the window.
 
 mod keycap;
 mod palette;
@@ -22,6 +23,8 @@ pub fn overlays(
 ) -> Option<AnyElement> {
     let mut layers: Vec<AnyElement> = Vec::new();
     layers.extend(toast(app, cx));
+    // The sleep timer and the equalizer, above the player bar.
+    layers.extend(super::extras::panel(app, cx));
     if app.desktop.layers.help {
         layers.push(shortcuts::sheet(window, cx));
     }

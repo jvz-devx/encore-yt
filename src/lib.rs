@@ -19,6 +19,7 @@ pub mod heat;
 #[cfg(feature = "egui")]
 pub mod icons;
 pub mod innertube;
+pub mod jsc;
 pub mod links;
 pub mod lyrics;
 pub mod model;

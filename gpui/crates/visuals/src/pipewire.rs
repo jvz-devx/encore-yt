@@ -6,6 +6,9 @@
 //! unlinked capture node ("ytfast-visuals-<our pid>", `--target 0`) and writes raw f32
 //! stereo at 48 kHz to its stdout; a linker thread connects every "ytfast"
 //! node's output ports to it with `pw-link`, so decks mix into one signal.
+//! The Rust engine (ytfast-audio) plays all decks through one stream of this
+//! process, which pipewire-pulse names after cpal's PulseAudio client
+//! ("cpal-pulseaudio-<our pid>"); it is tapped the same way.
 //!
 //! The capture node's media class is `Stream/Input/Audio/Analyzer`, not
 //! `Stream/Input/Audio`: WirePlumber leaves it alone (no fallback to the
@@ -110,10 +113,13 @@ impl Graph {
         self.nodes().any(|(n, _)| n == id)
     }
 
+    /// mpv's playback streams and the Rust engine's.
     fn mpv_nodes(&self) -> Vec<u64> {
+        let engine = format!("cpal-pulseaudio-{}", std::process::id());
         self.nodes()
             .filter(|(_, p)| {
-                p["node.name"] == "ytfast" && p["media.class"] == "Stream/Output/Audio"
+                (p["node.name"] == "ytfast" || p["node.name"] == engine.as_str())
+                    && p["media.class"] == "Stream/Output/Audio"
             })
             .map(|(id, _)| id)
             .collect()

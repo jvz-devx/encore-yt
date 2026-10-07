@@ -452,6 +452,8 @@ fn same_but_position(a: &Playback, b: &Playback) -> bool {
         equalizer,
         audition,
         mixes,
+        player,
+        engine,
     } = a;
     *index == b.index
         && *playing == b.playing
@@ -471,6 +473,8 @@ fn same_but_position(a: &Playback, b: &Playback) -> bool {
         && *equalizer == b.equalizer
         && *audition == b.audition
         && *mixes == b.mixes
+        && *player == b.player
+        && *engine == b.engine
 }
 
 /// A queue edit, for the log.

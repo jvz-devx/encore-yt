@@ -111,6 +111,13 @@ impl MusicApp {
         cx.notify();
     }
 
+    /// The audio engine new songs start on (saved by the backend).
+    pub(crate) fn set_player(&mut self, kind: ytfast::player::Kind, cx: &mut Context<Self>) {
+        self.player.playback.player = kind;
+        self.send(Command::Player(kind));
+        cx.notify();
+    }
+
     /// Smooth mixes on or off and their length (saved by the backend).
     pub(crate) fn set_mixes(&mut self, mixes: Mixes, cx: &mut Context<Self>) {
         let mixes = Mixes {

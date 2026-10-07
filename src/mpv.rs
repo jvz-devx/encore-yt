@@ -18,29 +18,9 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, oneshot};
 
-/// Serials of mpv processes, unique for the run.
-static SERIAL: AtomicU64 = AtomicU64::new(1);
-
-#[derive(Debug)]
-pub enum MpvEvent {
-    Property {
-        name: String,
-        data: Value,
-    },
-    /// A playlist entry finished: `eof`, `error`, `stop`, `quit` or `redirect`.
-    EndFile {
-        reason: String,
-        entry: i64,
-        error: Option<String>,
-    },
-    StartFile {
-        entry: i64,
-    },
-    /// The process exited.
-    Died,
-}
+use crate::player::{EndReason, Events, PlayerEvent};
 
 pub struct Mpv {
     serial: u64,
@@ -50,7 +30,7 @@ pub struct Mpv {
     _child: tokio::process::Child,
 }
 
-/// Properties whose changes are reported as [`MpvEvent::Property`].
+/// Properties whose changes are reported as [`PlayerEvent`]s.
 const OBSERVED: &[&str] = &[
     "time-pos",
     "duration",
@@ -58,9 +38,31 @@ const OBSERVED: &[&str] = &[
     "playlist-pos",
     "idle-active",
     "paused-for-cache",
-    "volume",
     "seeking",
 ];
+
+/// A property change as the event the backend gets.
+fn property_event(name: &str, data: &Value) -> Option<PlayerEvent> {
+    let flag = || data.as_bool() == Some(true);
+    Some(match name {
+        "time-pos" => PlayerEvent::Position(data.as_f64()),
+        "duration" => PlayerEvent::Duration(data.as_f64()),
+        "pause" => PlayerEvent::Pause(flag()),
+        "playlist-pos" => PlayerEvent::PlaylistPos(data.as_i64()),
+        "idle-active" => PlayerEvent::Idle(flag()),
+        "paused-for-cache" | "seeking" => PlayerEvent::Buffering(flag()),
+        _ => return None,
+    })
+}
+
+fn end_reason(reason: &str) -> EndReason {
+    match reason {
+        "eof" => EndReason::Eof,
+        "stop" => EndReason::Stop,
+        "error" => EndReason::Error,
+        _ => EndReason::Other,
+    }
+}
 
 /// The app shows the system media controls itself (MPRIS, or M15's on
 /// Windows and macOS), so mpv mustn't add its own "mpv" entry or take the
@@ -76,13 +78,10 @@ const SYSTEM_CONTROLS_OFF: &[&str] = &[];
 
 impl Mpv {
     /// Starts a process; its events arrive on `events` tagged with its
-    /// [`serial`](Self::serial).
-    pub async fn spawn(
-        socket: &Path,
-        volume: f64,
-        events: mpsc::UnboundedSender<(u64, MpvEvent)>,
-    ) -> Result<Arc<Self>> {
-        let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+    /// [`serial`](Self::serial). The backend uses it through
+    /// [`crate::player::Player`].
+    pub async fn spawn(socket: &Path, volume: f64, events: Events) -> Result<Self> {
+        let serial = crate::player::next_serial();
         let (child, stream) = match start(socket, volume, SYSTEM_CONTROLS_OFF).await {
             Err(error) if !SYSTEM_CONTROLS_OFF.is_empty() => {
                 log::warn!("mpv: {error:#}; starting it without {SYSTEM_CONTROLS_OFF:?}");
@@ -105,51 +104,50 @@ impl Mpv {
                     }
                     continue;
                 }
+                let entry = || {
+                    message
+                        .get("playlist_entry_id")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(-1)
+                };
                 let event = match message.get("event").and_then(Value::as_str) {
-                    Some("property-change") => MpvEvent::Property {
-                        name: message
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_owned(),
-                        data: message.get("data").cloned().unwrap_or(Value::Null),
-                    },
-                    Some("end-file") => MpvEvent::EndFile {
-                        reason: message
-                            .get("reason")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_owned(),
-                        entry: message
-                            .get("playlist_entry_id")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(-1),
+                    Some("property-change") => {
+                        let name = message.get("name").and_then(Value::as_str);
+                        let data = message.get("data").unwrap_or(&Value::Null);
+                        match name.and_then(|name| property_event(name, data)) {
+                            Some(event) => event,
+                            None => continue,
+                        }
+                    }
+                    Some("end-file") => PlayerEvent::EndFile {
+                        reason: end_reason(
+                            message
+                                .get("reason")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        ),
+                        entry: entry(),
                         error: message
                             .get("file_error")
                             .and_then(Value::as_str)
                             .map(str::to_owned),
                     },
-                    Some("start-file") => MpvEvent::StartFile {
-                        entry: message
-                            .get("playlist_entry_id")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(-1),
-                    },
+                    Some("start-file") => PlayerEvent::StartFile { entry: entry() },
                     _ => continue,
                 };
                 if events.send((serial, event)).is_err() {
                     return;
                 }
             }
-            let _ = events.send((serial, MpvEvent::Died));
+            let _ = events.send((serial, PlayerEvent::Died));
         });
-        let mpv = Arc::new(Self {
+        let mpv = Self {
             serial,
             writer: Mutex::new(writer),
             next_id: AtomicU64::new(1),
             pending,
             _child: child,
-        });
+        };
         for (i, name) in OBSERVED.iter().enumerate() {
             mpv.command(json!(["observe_property", i + 1, name]))
                 .await?;

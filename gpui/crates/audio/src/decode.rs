@@ -53,6 +53,8 @@ pub struct Job {
     pub url: String,
     pub headers: HeaderMap,
     pub start: f64,
+    /// Start at this share of the track's length instead, once it is known.
+    pub start_share: Option<f64>,
     pub rate: u32,
     pub client: Client,
     pub control: Receiver<Control>,
@@ -125,7 +127,10 @@ enum Pushed {
 }
 
 fn run(job: Job) -> Result<()> {
-    let source = HttpSource::open(&job.client, &job.url, job.headers.clone())?;
+    let source = match local_path(&job.url) {
+        Some(path) => HttpSource::local(path)?,
+        None => HttpSource::open(&job.client, &job.url, job.headers.clone())?,
+    };
     *job.stats.lock().unwrap_or_else(|e| e.into_inner()) = Some(source.stats_handle());
     let mss = MediaSourceStream::new(Box::new(source), Default::default());
     let format = symphonia::default::get_probe()
@@ -151,6 +156,24 @@ fn run(job: Job) -> Result<()> {
         .time_base
         .or_else(|| TimeBase::try_from_recip(codec_rate))
         .context("no time base")?;
+    let duration = track
+        .duration
+        .and_then(|d| time_base.calc_duration(d))
+        .map(|t| t.as_secs_f64())
+        .or_else(|| track.num_frames.map(|n| n as f64 / f64::from(codec_rate)))
+        .or_else(|| {
+            // WebM gives its length for the whole segment only.
+            let info = format.media_info();
+            info.time_base?
+                .calc_duration(info.duration?)
+                .map(|t| t.as_secs_f64())
+        })
+        .filter(|d| *d > 0.0);
+    if let Some(duration) = duration {
+        job.shared
+            .duration
+            .store(duration.to_bits(), Ordering::Relaxed);
+    }
     let decoder = CODECS
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .context("unsupported codec")?;
@@ -162,7 +185,10 @@ fn run(job: Job) -> Result<()> {
         params.channels.as_ref().map_or(0, |c| c.count())
     );
     let resampler = new_resampler(codec_rate, job.rate)?;
-    let start = job.start;
+    let start = match (job.start_share, duration) {
+        (Some(share), Some(duration)) => share.clamp(0.0, 1.0) * duration,
+        _ => job.start,
+    };
     let matroska = format.format_info().short_name == "matroska";
     let mut decoding = Decoding {
         job,
@@ -423,6 +449,14 @@ fn to_stereo(samples: &[f32], channels: usize, out: &mut Vec<f32>) {
         2 => out.extend_from_slice(samples),
         n => out.extend(samples.chunks_exact(n).flat_map(|f| [f[0], f[1]])),
     }
+}
+
+/// A local file (a path or a `file://` URL) instead of an HTTP stream.
+fn local_path(url: &str) -> Option<&str> {
+    if let Some(path) = url.strip_prefix("file://") {
+        return Some(path);
+    }
+    (!url.starts_with("http://") && !url.starts_with("https://")).then_some(url)
 }
 
 fn hint(url: &str) -> Hint {

@@ -127,12 +127,16 @@ fn request(app: &MusicApp, id: &str, cx: &mut Context<MusicApp>) {
     }
     state.loading = Some(id.to_owned());
     let socket = app.paths.runtime.join("mpv.sock");
+    // The resolved stream, whichever engine plays it; mpv's own otherwise.
+    let url = app.backend.live().and_then(|b| b.stream_url(id));
     let cache = app.paths.cache.clone();
     let id = id.to_owned();
     cx.spawn(async move |this, cx| {
         let job = id.clone();
         let result = cx
-            .background_spawn(async move { ytfast_visuals::waveform::load(&socket, &cache, &job) })
+            .background_spawn(
+                async move { ytfast_visuals::waveform::load(url, &socket, &cache, &job) },
+            )
             .await;
         let _ = this.update(cx, |_, cx| {
             let state = cx.default_global::<Waveforms>();

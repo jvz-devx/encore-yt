@@ -46,6 +46,9 @@ pub type TrackId = u64;
 pub struct Load {
     /// Start position in seconds.
     pub start: f64,
+    /// Start at this share of the track's length instead (0 to 1), once the
+    /// container gives the length; `start` otherwise.
+    pub start_share: Option<f64>,
     /// Loudness gain in dB for this track only (mpv's `volume-gain`).
     pub gain_db: f32,
     /// Extra request headers (the user agent yt-dlp resolved with).
@@ -87,6 +90,8 @@ pub enum Event {
 pub struct TrackStats {
     pub track: TrackId,
     pub position: f64,
+    /// The track's length in seconds, once the container gave it.
+    pub duration: Option<f64>,
     /// Seconds of silence while waiting for data after the track started.
     pub starved: f64,
     pub http: HttpStats,
@@ -115,7 +120,7 @@ type Decks = Arc<Mutex<[Deck; DECKS]>>;
 pub struct Engine {
     mixer: Arc<Mutex<Producer<Command>>>,
     decks: Decks,
-    events: Receiver<Event>,
+    events: Mutex<Option<Receiver<Event>>>,
     event_tx: Sender<Event>,
     client: Client,
     rate: u32,
@@ -142,7 +147,7 @@ impl Engine {
         Ok(Self {
             mixer: Arc::new(Mutex::new(commands)),
             decks,
-            events,
+            events: Mutex::new(Some(events)),
             event_tx,
             client: Client::builder().build()?,
             rate,
@@ -156,8 +161,9 @@ impl Engine {
         self.rate
     }
 
-    pub fn events(&self) -> &Receiver<Event> {
-        &self.events
+    /// The event channel; there is one, and the first caller gets it.
+    pub fn take_events(&self) -> Option<Receiver<Event>> {
+        self.events.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 
     /// Plays `url` on `deck` now, replacing what it plays and its next track.
@@ -184,6 +190,20 @@ impl Engine {
     pub fn clear_next(&self, deck: usize) {
         self.decks()[deck].next = None;
         self.send(Command::ClearNext(deck));
+    }
+
+    /// The queued track plays now; the current one stops without `Ended`.
+    /// Its bytes are already downloading, so it starts sooner than a `load`.
+    pub fn skip(&self, deck: usize) {
+        let mut decks = self.decks();
+        let next = decks[deck].next.take();
+        decks[deck].current = next;
+        self.send(Command::Skip(deck));
+    }
+
+    /// The current track's loudness gain in dB from now on.
+    pub fn set_gain(&self, deck: usize, gain_db: f32) {
+        self.send(Command::Gain(deck, 10f32.powf(gain_db / 20.0)));
     }
 
     pub fn seek(&self, deck: usize, seconds: f64) {
@@ -227,9 +247,11 @@ impl Engine {
             .as_ref()
             .map(StatsHandle::get)
             .unwrap_or_default();
+        let duration = f64::from_bits(shared.duration.load(Ordering::Relaxed));
         Some(TrackStats {
             track: shared.id,
             position: frames as f64 / self.rate as f64,
+            duration: (duration > 0.0).then_some(duration),
             starved: shared.starved.load(Ordering::Relaxed) as f64 / self.rate as f64,
             http,
         })
@@ -261,6 +283,7 @@ impl Engine {
             url: url.to_owned(),
             headers,
             start: load.start,
+            start_share: load.start_share,
             rate: self.rate,
             client: self.client.clone(),
             control: control_rx,

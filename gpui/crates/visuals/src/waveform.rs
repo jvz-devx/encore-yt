@@ -38,14 +38,23 @@ pub fn cached(cache_dir: &Path, video_id: &str) -> Option<Vec<f32>> {
     (values.len() == BUCKETS).then_some(values)
 }
 
-/// The outline of what mpv plays now (`video_id`): from the cache, or
-/// decoded and then cached. Blocks for a few seconds.
-pub fn load(socket: &Path, cache_dir: &Path, video_id: &str) -> Result<Vec<f32>> {
+/// The outline of what plays now (`video_id`): from the cache, or decoded
+/// from `url` (or, without one, the URL mpv at `socket` plays) and then
+/// cached. Blocks for a few seconds.
+pub fn load(
+    url: Option<String>,
+    socket: &Path,
+    cache_dir: &Path,
+    video_id: &str,
+) -> Result<Vec<f32>> {
     if let Some(values) = cached(cache_dir, video_id) {
         return Ok(values);
     }
     let started = Instant::now();
-    let url = stream_url(socket)?;
+    let url = match url {
+        Some(url) => url,
+        None => stream_url(socket)?,
+    };
     let samples = decode(&url)?;
     let values = outline(&samples);
     log::info!(

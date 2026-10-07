@@ -20,6 +20,7 @@ use super::backdrop::Backdrop;
 use super::bar::{self, Bar};
 use super::dissolve::{self, Change};
 use super::slots::{self, Slot, Slots};
+use super::waveform;
 use crate::theme::{self, radius};
 
 /// The backdrop renderer is dropped this long after Now Playing closes, and
@@ -489,6 +490,9 @@ impl Render for Effects {
             bar: input.bar.is_some().then(|| self.bar.image()).flatten(),
             spectrum: moving && input.playing && input.showing && !skip("spectrum"),
             levels: self.bands.levels,
+            waveform: input
+                .showing
+                .then(|| Waveform::new(input.bar.as_ref(), &c, cx)),
             color: c.text,
             flag: self.input_flag.clone(),
             hover: self.bar.hover.clone(),
@@ -513,6 +517,8 @@ struct Paint {
     /// Whether to draw the spectrum.
     spectrum: bool,
     levels: [f32; BANDS],
+    /// Now Playing's waveform: its outline (once decoded) and progress.
+    waveform: Option<Waveform>,
     color: Hsla,
     flag: Rc<Cell<bool>>,
     hover: Rc<Cell<bool>>,
@@ -549,6 +555,29 @@ impl Paint {
         }
         if let Some(strip) = Slots::get(cx, Slot::Spectrum).filter(|_| self.spectrum) {
             paint_spectrum(strip, &self.levels, self.color, window);
+        }
+        if let Some((w, bounds)) = self.waveform.zip(Slots::get(cx, Slot::Waveform)) {
+            waveform::paint(bounds, w.values.as_deref(), w.progress, w.colors, window);
+        }
+    }
+}
+
+/// What Now Playing's waveform shows.
+struct Waveform {
+    values: Option<Vec<f32>>,
+    progress: f32,
+    colors: (Hsla, Hsla),
+}
+
+impl Waveform {
+    fn new(bar: Option<&bar::Input>, c: &theme::Colors, cx: &App) -> Self {
+        let values = bar
+            .and_then(|b| b.video_id.as_deref())
+            .and_then(|id| waveform::outline(id, cx));
+        Self {
+            values,
+            progress: bar.map_or(0.0, |b| b.progress),
+            colors: waveform::colors(c),
         }
     }
 }

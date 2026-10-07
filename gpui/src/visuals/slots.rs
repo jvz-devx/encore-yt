@@ -16,6 +16,8 @@ pub enum Slot {
     Cover,
     /// The strip for the spectrum.
     Spectrum,
+    /// Now Playing's waveform.
+    Waveform,
     /// The player bar.
     Bar,
     /// The player bar's seek slider (its 24 point box).
@@ -40,6 +42,7 @@ pub(super) struct Slots {
     page: Cell<Option<Bounds<Pixels>>>,
     cover: Cell<Option<Bounds<Pixels>>>,
     spectrum: Cell<Option<Bounds<Pixels>>>,
+    waveform: Cell<Option<Bounds<Pixels>>>,
     bar: Cell<Option<Bounds<Pixels>>>,
     seek: Cell<Option<Bounds<Pixels>>>,
     play: Cell<Option<Bounds<Pixels>>>,
@@ -57,6 +60,7 @@ impl Slots {
             Slot::Page => &self.page,
             Slot::Cover => &self.cover,
             Slot::Spectrum => &self.spectrum,
+            Slot::Waveform => &self.waveform,
             Slot::Bar => &self.bar,
             Slot::Seek => &self.seek,
             Slot::Play => &self.play,

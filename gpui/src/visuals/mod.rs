@@ -192,6 +192,12 @@ pub fn fills_panel(app: &MusicApp) -> bool {
     app.player.now_playing && app.player.now_playing_over.as_ref() == Some(&app.pages.view)
 }
 
+/// Whether this layer paints Now Playing's waveform (so a position tick
+/// needn't re-render the app's views).
+pub fn paints_waveform(app: &MusicApp) -> bool {
+    fills_panel(app) && enabled()
+}
+
 /// Whether the cover in Now Playing is hidden because its copy is flying
 /// into place.
 pub fn cover_in_flight(cx: &App) -> bool {

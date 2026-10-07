@@ -1,6 +1,11 @@
 //! The song's waveform under Now Playing: its loudness outline as thin
 //! bars, the part already played in `signal`. A click seeks there.
 //!
+//! While the effects layer paints the panel ([`super::fills_panel`]) it
+//! paints the waveform too, in the box this view leaves
+//! ([`Slot::Waveform`]): the position then moves without re-rendering the
+//! app's views.
+//!
 //! The outline comes from `ytfast_visuals::waveform` on a background task
 //! (ffmpeg, cached per video id) once the song plays; until then a faint
 //! line holds its place.
@@ -8,8 +13,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::slots::{Slot, slot};
 use crate::app::MusicApp;
 use crate::theme::Colors;
 
@@ -38,33 +45,38 @@ pub fn waveform(
     {
         request(app, id, cx);
     }
-    let values = cx
-        .try_global::<Waveforms>()
-        .and_then(|w| w.shown.as_ref())
-        .filter(|(shown, _)| Some(shown) == id.as_ref())
-        .map(|(_, values)| values.clone());
     let duration = playback.duration;
-    let progress = if duration > 0. {
-        (app.player.position() / duration) as f32
-    } else {
-        0.
-    };
-    let (played, rest) = (c.signal, c.text.opacity(0.24));
     let bounds = Rc::new(Cell::new(None::<Bounds<Pixels>>));
     let seen = bounds.clone();
+    let painted = super::paints_waveform(app);
+    let own = (!painted).then(|| {
+        let values = id.as_deref().and_then(|id| outline(id, cx));
+        let progress = if duration > 0. {
+            (app.player.position() / duration) as f32
+        } else {
+            0.
+        };
+        let colors = colors(c);
+        canvas(
+            |_, _, _| (),
+            move |b, (), window, _| paint(b, values.as_deref(), progress, colors, window),
+        )
+        .size_full()
+    });
     div()
         .id("waveform")
+        .relative()
         .w(width)
         .h(height)
         .flex_none()
         .cursor_pointer()
         .child(
-            canvas(
-                move |b, _, _| seen.set(Some(b)),
-                move |b, (), window, _| paint(b, values.as_deref(), progress, played, rest, window),
-            )
-            .size_full(),
+            canvas(move |b, _, _| seen.set(Some(b)), |_, _, _, _| ())
+                .absolute()
+                .inset_0(),
         )
+        .children(own)
+        .when(painted, |d| d.child(slot(Slot::Waveform)))
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, e: &MouseDownEvent, _, cx| {
@@ -137,12 +149,16 @@ fn request(app: &MusicApp, id: &str, cx: &mut Context<MusicApp>) {
     .detach();
 }
 
-fn paint(
+/// The played and the unplayed bars' colours.
+pub(super) fn colors(c: &Colors) -> (Hsla, Hsla) {
+    (c.signal, c.text.opacity(0.24))
+}
+
+pub(super) fn paint(
     bounds: Bounds<Pixels>,
     values: Option<&[f32]>,
     progress: f32,
-    played: Hsla,
-    rest: Hsla,
+    (played, rest): (Hsla, Hsla),
     window: &mut Window,
 ) {
     let centre = bounds.center().y;

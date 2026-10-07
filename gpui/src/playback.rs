@@ -229,14 +229,16 @@ impl MusicApp {
             .update(cx, |slider, cx| slider.set_value(at, window, cx));
     }
 
-    /// Redraws what shows the position. Stage and Now Playing (its
-    /// waveform) draw it inside the app's views; otherwise only the player
-    /// bar and the mini player do, and they watch [`Clock`]. While the
-    /// effects layer draws the seek bar, its frames show the position, and
-    /// the shell redraws the bar in one of them once what the bar shows
-    /// changed ([`MusicApp::bar_shows`]): a tick needs no frame of its own.
+    /// Redraws what shows the position. Stage, and Now Playing's waveform
+    /// unless the effects layer paints it, draw it inside the app's views;
+    /// otherwise only the player bar and the mini player do, and they watch
+    /// [`Clock`]. While the effects layer draws the seek bar, its frames
+    /// show the position, and the shell redraws the bar in one of them once
+    /// what the bar shows changed ([`MusicApp::bar_shows`]): a tick needs
+    /// no frame of its own.
     pub(crate) fn position_moved(&mut self, cx: &mut Context<Self>) {
-        if self.player.now_playing || self.extras.stage.open {
+        let in_views = self.player.now_playing && !crate::visuals::paints_waveform(self);
+        if in_views || self.extras.stage.open {
             cx.notify();
         } else if self.extras.mini_open() || !crate::visuals::position_moved(cx) {
             self.player.clock.update(cx, |_, cx| cx.notify());

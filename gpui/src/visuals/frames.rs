@@ -4,8 +4,10 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use gpui_kit::*;
+use ytfast_visuals::FrameCost;
 
 #[derive(Default)]
 pub struct Frames {
@@ -49,5 +51,41 @@ impl Frames {
     pub fn forget(&mut self) {
         self.shown = None;
         self.retired.clear();
+    }
+}
+
+/// An effect's frame costs, logged every five seconds while it animates.
+#[derive(Default)]
+pub struct Stats {
+    frames: u32,
+    cost: FrameCost,
+    since: Option<Instant>,
+}
+
+impl Stats {
+    pub fn record(&mut self, label: &str, cost: FrameCost, size: (u32, u32)) {
+        let since = *self.since.get_or_insert_with(Instant::now);
+        self.frames += 1;
+        self.cost.submit += cost.submit;
+        self.cost.wait += cost.wait;
+        self.cost.copy += cost.copy;
+        if since.elapsed() < Duration::from_secs(5) {
+            return;
+        }
+        let n = self.frames as f32;
+        log::info!(
+            "visuals: {label} {}x{}: {:.0} fps; submit {:.2} ms, wait {:.2} ms, copy {:.2} ms",
+            size.0,
+            size.1,
+            n / since.elapsed().as_secs_f32(),
+            self.cost.submit / n,
+            self.cost.wait / n,
+            self.cost.copy / n,
+        );
+        *self = Self {
+            frames: 0,
+            cost: FrameCost::default(),
+            since: None,
+        };
     }
 }

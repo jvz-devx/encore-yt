@@ -518,20 +518,20 @@ impl Render for Effects {
         if !animate {
             self.backdrop_at = None;
         }
+        // A 3D scene in the visualiser fills the backdrop's place: the
+        // backdrop and its sparkles rest under it, and the views draw the
+        // cover's shadow.
+        let fills = vis_place.is_some() && moving && input.playing && self.vis.fills();
         self.counts.add(
             due,
             bar_due && input.bar.is_some(),
-            backdrop_due && backdrop_shows,
+            backdrop_due && backdrop_shows && !fills,
         );
         self.head_speed = head_speed(input.bar.as_ref(), window.scale_factor(), cx);
         if backdrop_shows {
             self.shown_at = Instant::now();
         }
         let need = backdrop_shows || input.bar.is_some() || changing || vis_place.is_some();
-        // A 3D scene in the visualiser fills the backdrop's place: the
-        // backdrop and its sparkles rest under it, and the views draw the
-        // cover's shadow.
-        let fills = vis_place.is_some() && moving && input.playing && self.vis.fills();
         let gpu = self.gpu(need, window, cx);
 
         if let Some(gpu) = &gpu {

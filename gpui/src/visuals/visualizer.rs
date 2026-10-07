@@ -43,6 +43,7 @@ pub struct Vis {
     /// The 3D scenes' renderer, and what moves them with the music.
     scene: Option<Scene>,
     pace: Pace,
+    stats: super::frames::Stats,
     frames: Frames,
     bars: Bars,
     scope: Scope,
@@ -260,6 +261,7 @@ impl Vis {
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {
+                self.stats.record(scene_label(kind), frame.cost, size);
                 self.frames.push(frame, window);
                 self.region = self.pending_region;
             }
@@ -314,6 +316,14 @@ fn scene_scale(kind: SceneKind) -> f32 {
         SceneKind::Xmb => 1.,
         SceneKind::Ridges => 0.6,
         SceneKind::Aurora => 0.5,
+    }
+}
+
+fn scene_label(kind: SceneKind) -> &'static str {
+    match kind {
+        SceneKind::Xmb => "scene xmb",
+        SceneKind::Ridges => "scene ridges",
+        SceneKind::Aurora => "scene aurora",
     }
 }
 

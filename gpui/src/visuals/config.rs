@@ -15,7 +15,7 @@
 //! variables override what is saved, without saving: `YTFAST_GPUI_VISUALS=0`
 //! (everything off), `YTFAST_GPUI_VISUALS_FPS`, `YTFAST_GPUI_VISUALS_FLIGHT_MS`,
 //! `YTFAST_GPUI_VISUALS_PRESET=off|calm|default|vivid` and
-//! `YTFAST_GPUI_VISUALIZER=bars|mirrored|ring|line|particles|scope` (also
+//! `YTFAST_GPUI_VISUALIZER=bars|mirrored|ring|line|particles|scope|xmb|ridges|aurora` (also
 //! shows it in Now Playing and Stage) and `YTFAST_GPUI_SCOPE=mono|stereo|xy`.
 
 use std::cell::RefCell;

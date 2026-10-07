@@ -15,8 +15,11 @@ use crate::theme::{self, Type, radius, size, space};
 /// concentric.
 const AVATAR: Pixels = px(32.);
 
-pub fn chip(app: &MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> impl IntoElement {
+pub fn chip(app: &MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
     let c = theme::colors(cx);
+    if crate::sign_in::SignIn::needed(&app.account.account, &app.account.profiles) {
+        return sign_in(&c, cx);
+    }
     let (lead, label): (AnyElement, String) = match &app.account.account {
         Account::Checking => (
             widgets::skeleton(AVATAR, AVATAR, radius::FULL, &c).into_any_element(),
@@ -51,6 +54,21 @@ pub fn chip(app: &MusicApp, window: &mut Window, cx: &mut Context<MusicApp>) -> 
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_account_menu(cx))),
         )
         .when(open, |el| el.child(super::menu::menu(app, window, cx)))
+        .into_any_element()
+}
+
+/// Nobody to reconnect: the chip is the Sign in button (M18).
+fn sign_in(c: &crate::theme::Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    widgets::pill_button(
+        "account-sign-in",
+        "Sign in",
+        Some(widgets::icon(IconName::LogIn, size::ICON_SM, c.text)),
+        widgets::Pill::Primary,
+        c,
+    )
+    .h(px(40.))
+    .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(window, cx)))
+    .into_any_element()
 }
 
 /// A muted icon in the avatar's place, for the signed-out and offline chips.

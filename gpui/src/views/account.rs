@@ -11,6 +11,7 @@ mod chip;
 mod controls;
 mod dialogs;
 mod menu;
+mod sign_in;
 
 use gpui_kit::*;
 
@@ -26,7 +27,9 @@ pub fn layer(
     window: &mut Window,
     cx: &mut Context<MusicApp>,
 ) -> Option<AnyElement> {
-    dialogs::dialog(app, window, cx).or_else(|| super::settings::settings(app, window, cx))
+    sign_in::sheet(app, window, cx)
+        .or_else(|| dialogs::dialog(app, window, cx))
+        .or_else(|| super::settings::settings(app, window, cx))
 }
 
 /// A person's photo as a disc, with their initial underneath while it loads

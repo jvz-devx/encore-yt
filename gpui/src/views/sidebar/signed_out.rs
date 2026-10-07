@@ -11,6 +11,7 @@ use super::library::recent;
 use crate::app::MusicApp;
 use crate::nav::View;
 use crate::theme::{Colors, Type, space};
+use crate::views::widgets::{Pill, pill_button};
 
 pub fn signed_out(app: &MusicApp, rail: bool, c: &Colors, cx: &mut Context<MusicApp>) -> Div {
     let shortcuts: Vec<AnyElement> = app
@@ -38,6 +39,12 @@ pub fn signed_out(app: &MusicApp, rail: bool, c: &Colors, cx: &mut Context<Music
                     .type_small()
                     .text_color(c.text_faint)
                     .child("Sign in to see your library"),
+            )
+            .child(
+                div().px(space::MD).pt(space::MD).child(
+                    pill_button("sidebar-sign-in", "Sign in", None, Pill::Secondary, c)
+                        .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(window, cx))),
+                ),
             )
         })
 }

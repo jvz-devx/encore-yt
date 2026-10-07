@@ -44,6 +44,8 @@ pub struct MusicApp {
     pub pages: Pages,
     pub player: Player,
     pub account: AccountUi,
+    /// The sign-in sheet (M18).
+    pub sign_in: crate::sign_in::SignIn,
     pub desktop: Desktop,
     pub extras: Extras,
     pub sidebar: Sidebar,
@@ -131,6 +133,7 @@ impl MusicApp {
             pages,
             player,
             account,
+            sign_in: crate::sign_in::SignIn::new(),
             desktop,
             extras,
             sidebar,
@@ -189,7 +192,12 @@ impl MusicApp {
                     }
                 };
             }
-            Event::Account(account) => self.on_account(account, cx),
+            Event::Account(account) => {
+                self.on_account(account, cx);
+                self.sign_in_on_account();
+            }
+            Event::CookiesSaved(saved) => self.on_cookies_saved(saved, cx),
+            Event::BrowserScan(scan) => self.on_browser_scan(scan, cx),
             Event::Page {
                 key,
                 seq,

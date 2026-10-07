@@ -42,10 +42,7 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
             div()
                 .type_small()
                 .text_color(c.text_muted)
-                .child(
-                    "No browser profile or cookie file is signed in to YouTube. Sign in to \
-                     YouTube Music in a browser, then Reconnect.",
-                )
+                .child("No browser profile or cookie file is signed in to YouTube.")
                 .into_any_element(),
         );
     }
@@ -57,6 +54,10 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
             .enumerate()
             .map(|(i, p)| profile(i, p, current == Some(p.id.as_str()), c, cx)),
     );
+    // Signed out with nothing to reconnect, the status row has Sign in.
+    if !crate::sign_in::SignIn::needed(&app.account.account, &app.account.profiles) {
+        rows.push(another_way(c, cx));
+    }
     super::section("Account", c, rows)
 }
 
@@ -101,14 +102,43 @@ fn status(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
                 .child(widgets::muted_line(detail, c)),
         )
         .child(
+            if crate::sign_in::SignIn::needed(&app.account.account, &app.account.profiles) {
+                widgets::pill_button(
+                    "settings-sign-in",
+                    "Sign in",
+                    Some(widgets::icon(IconName::LogIn, size::ICON_SM, c.text)),
+                    Pill::Primary,
+                    c,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(window, cx)))
+            } else {
+                widgets::pill_button(
+                    "settings-reconnect",
+                    "Reconnect",
+                    Some(widgets::icon(IconName::RefreshCw, size::ICON_SM, c.text)),
+                    Pill::Secondary,
+                    c,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx)))
+            },
+        )
+        .into_any_element()
+}
+
+/// Opens the sign-in sheet to add a browser, a cookies file or pasted
+/// cookies (M18).
+fn another_way(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    h_flex()
+        .pt(space::SM)
+        .child(
             widgets::pill_button(
-                "settings-reconnect",
-                "Reconnect",
-                Some(widgets::icon(IconName::RefreshCw, size::ICON_SM, c.text)),
+                "settings-sign-in-other",
+                "Sign in another way",
+                Some(widgets::icon(IconName::LogIn, size::ICON_SM, c.text)),
                 Pill::Secondary,
                 c,
             )
-            .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx))),
+            .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(window, cx))),
         )
         .into_any_element()
 }

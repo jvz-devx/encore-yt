@@ -1,0 +1,118 @@
+# Weekly: if yt-dlp-ejs (github.com/yt-dlp/ejs) has a release newer than the
+# solver vendored in src/jsc/, vendors it and pins its hashes
+# (scripts/ejs-bump.sh), checks that QuickJS solves the current player like
+# yt-dlp's EJS in deno (scripts/resolver-canary.sh --solver-only), opens a
+# pull request and runs the resolver canary on its branch. Merging that
+# pull request also publishes the new pins to apps already installed
+# (docs/gpui/RESOLVER.md, "Keeping up").
+name: EJS bump
+
+on:
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A yt-dlp-ejs release (default the latest)
+        required: false
+        default: ""
+      force:
+        description: Run the checks even if that release is already vendored
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: ejs-bump
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTC_WRAPPER: ""
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Look for a newer release
+        id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+          EJS_FORCE: ${{ inputs.force && '1' || '' }}
+        run: scripts/ejs-bump.sh "$VERSION"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.bump.outputs.bumped == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.bump.outputs.bumped == 'true'
+        with:
+          key: resolver-canary
+          save-if: false
+
+      - uses: denoland/setup-deno@v2
+        if: steps.bump.outputs.bumped == 'true'
+        with:
+          deno-version: v2.x
+
+      - name: Build dependencies
+        if: steps.bump.outputs.bumped == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev
+
+      - name: Offline resolver tests on the current player
+        if: steps.bump.outputs.bumped == 'true'
+        run: |
+          set -o pipefail
+          scripts/resolver-canary.sh --solver-only 2>&1 | tee solver.log
+
+      - name: Open the pull request
+        if: steps.bump.outputs.bumped == 'true'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          PREVIOUS: ${{ steps.bump.outputs.previous }}
+          BASE: ${{ github.ref_name }}
+        run: |
+          if git diff --quiet -- src/jsc; then
+            echo "EJS $VERSION is already vendored; nothing to propose"
+            exit 0
+          fi
+          branch="ejs-bump/$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add src/jsc
+          git commit -m "Vendor yt-dlp-ejs $VERSION" \
+            -m "scripts/ejs-bump.sh moved the solver from $PREVIOUS to $VERSION and pinned its hashes; QuickJS solves the current player like yt-dlp's EJS in deno."
+          git push --force origin "$branch"
+          {
+            echo "yt-dlp-ejs $VERSION: <https://github.com/yt-dlp/ejs/releases/tag/$VERSION> (was $PREVIOUS)."
+            echo
+            echo "- The files match GitHub's SHA-256 digests for the release assets and still carry the Unlicense header; \`src/jsc/pins.txt\` pins them."
+            echo "- QuickJS solves the current player's challenges like yt-dlp's EJS in deno:"
+            echo
+            echo '```'
+            grep -E '^(player|deno:|test |FAILED|ok:)' solver.log || true
+            echo '```'
+            echo
+            echo "The resolver canary runs on this branch. Merging also publishes the new pins to installed apps."
+          } > pr.md
+          if [[ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]]; then
+            echo "the pull request for $branch is updated"
+          elif ! gh pr create --base "$BASE" --head "$branch" \
+              --title "Vendor yt-dlp-ejs $VERSION" --body-file pr.md; then
+            echo "::warning::Couldn't open the pull request (allow GitHub Actions to create pull requests in the repository's Actions settings): $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE...$branch"
+          fi
+          gh workflow run resolver-canary.yml --ref "$branch"

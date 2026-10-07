@@ -18,6 +18,8 @@ use crate::target::{Frame, Target};
 pub const MAX_BARS: usize = 128;
 /// Six vec4s, four colour stops, then the bars and the peaks.
 const PARAMS_SIZE: u64 = (6 + 4 + 2 * MAX_BARS as u64 / 4) * 16;
+/// Levels under this are drawn as nothing (about -39 dB from the loudest).
+const FLOOR: f32 = 0.18;
 /// A peak cap stays this long before it falls, in seconds.
 const PEAK_HOLD: f32 = 0.25;
 
@@ -68,7 +70,11 @@ impl Bars {
             let (lo, f) = (band.floor() as usize, band.fract());
             let hi = (lo + 1).min(BANDS - 1);
             let level = levels[lo] + (levels[hi] - levels[lo]) * f;
-            let target = (level * s.sensitivity).clamp(0.0, 1.0);
+            // The analysis keeps 48 dB; the quietest part of it (the
+            // noise floor between notes) stays flat, so loud bars don't
+            // all sit at the top.
+            let gated = ((level - FLOOR) / (1.0 - FLOOR)).max(0.0).powf(1.2);
+            let target = (gated * s.sensitivity).clamp(0.0, 1.0);
             let v = &mut self.values[j];
             *v = if target > *v {
                 target + (*v - target) * keep
@@ -243,10 +249,11 @@ mod tests {
             bars.update(&loud, &s, 1.0 / 60.0);
         }
         assert_eq!(bars.values.len(), 48);
-        assert!(bars.values.iter().all(|&v| (v - 0.9).abs() < 0.01));
+        let full = ((0.9 - FLOOR) / (1.0 - FLOOR)).powf(1.2);
+        assert!(bars.values.iter().all(|&v| (v - full).abs() < 0.01));
         bars.update(&[0.0; BANDS], &s, 0.1);
-        assert!(bars.values.iter().all(|&v| (v - 0.7).abs() < 0.01));
-        assert!(bars.peaks.iter().all(|&p| p > 0.85));
+        assert!(bars.values.iter().all(|&v| (v - (full - 0.2)).abs() < 0.01));
+        assert!(bars.peaks.iter().all(|&p| p > full - 0.05));
         for _ in 0..120 {
             bars.update(&[0.0; BANDS], &s, 1.0 / 60.0);
         }

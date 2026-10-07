@@ -144,7 +144,9 @@ fn row_bar(ink: Ink, p: vec2<f32>, i: i32, centre: f32, half_w: f32, base: f32, 
         out = over(out, color, halo * fade);
     }
     let up = abs(p.y - base) / max(room, 1.0);
-    out = over(out, lit(color, up), clamp(0.5 - d, 0.0, 1.0) * fade);
+    // A bar at rest is a faint stub.
+    let rest = mix(0.35, 1.0, smoothstep(0.0, 0.06, v));
+    out = over(out, lit(color, up), clamp(0.5 - d, 0.0, 1.0) * fade * rest);
     if params.look.z > 0.5 {
         let pk = peak(i) * room;
         let gap = 2.0 * s;
@@ -271,9 +273,11 @@ fn line(p: vec2<f32>) -> Ink {
     return ink;
 }
 
-// Where `p` is along the cover's outline (0..1, clockwise from the top
-// centre) and how far outside it, for a box with corners rounded by `r`.
-fn outline(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32) -> vec2<f32> {
+// Where `p` is along the cover's outline (x: 0..1, clockwise from the top
+// centre), how far outside it (y), and how much wider a step along the
+// outline is out there than on it (z: more than 1 round the corners), for a
+// box with corners rounded by `r`.
+fn outline(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32) -> vec3<f32> {
     let centre = (lo + hi) * 0.5;
     let half = (hi - lo) * 0.5;
     let rr = min(r, min(half.x, half.y));
@@ -285,6 +289,8 @@ fn outline(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32) -> vec2<f32> {
     let arc = rr * PI * 0.5;
     let total = 4.0 * (a.x + a.y) + 4.0 * arc;
     var pos = 0.0;
+    let corner = (rr + max(d, 0.0)) / max(rr, 1e-3);
+    var stretch = 1.0;
     if q.y < -a.y && abs(q.x) <= a.x {
         pos = q.x;
     } else if q.x > a.x && q.y < -a.y {
@@ -303,18 +309,24 @@ fn outline(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32) -> vec2<f32> {
         pos = 3.0 * a.x + 3.0 * arc + 4.0 * a.y + rr * atan2(-v.y, -v.x);
     } else {
         // Inside the cover: hidden under it.
-        return vec2<f32>(0.0, -1.0);
+        return vec3<f32>(0.0, -1.0, 1.0);
     }
-    return vec2<f32>(fract(pos / total + 1.0), d);
+    if abs(q.x) > a.x && abs(q.y) > a.y {
+        stretch = corner;
+    }
+    return vec3<f32>(fract(pos / total + 1.0), d, stretch);
 }
 
 // Bars standing out of the cover's outline all round it, mirrored left and
 // right (lows at the top), over a soft aura that breathes with the bass.
 fn ring(p: vec2<f32>) -> Ink {
     let s = params.extra.x;
-    let lo = params.cover.xy;
-    let hi = params.cover.zw;
-    let r = params.shape.x;
+    // The bars stand on an outline a little outside the cover, rounder
+    // than it, so the corners fan out gently.
+    let gap = 3.0 * s + 0.03 * (params.cover.z - params.cover.x);
+    let lo = params.cover.xy - gap;
+    let hi = params.cover.zw + gap;
+    let r = params.shape.x + gap;
     let reach = params.shape.y;
     let o = outline(p, lo, hi, r);
     var ink = Ink(gradient(0.0), 0.0);
@@ -329,9 +341,8 @@ fn ring(p: vec2<f32>) -> Ink {
     let pitch = perimeter * 0.5 / f32(side);
     let f = u * f32(side);
     let i = i32(min(floor(f), f32(side - 1)));
-    let across = (f - (f32(i) + 0.5)) * pitch;
-    let gap = 3.0 * s;
-    let along = o.y - gap;
+    let across = (f - (f32(i) + 0.5)) * pitch * o.z;
+    let along = o.y;
     let color = gradient(u);
     // The aura: a soft glow off the cover's edge, more on the bass.
     let g = params.look.y;
@@ -347,7 +358,8 @@ fn ring(p: vec2<f32>) -> Ink {
         let halo = exp(-max(d, 0.0) / glow_radius()) * step(0.0, d) * (0.15 + 0.5 * v) * min(g, 1.5) * 0.6;
         ink = over(ink, color, halo);
     }
-    ink = over(ink, lit(color, along / max(reach, 1.0)), clamp(0.5 - d, 0.0, 1.0));
+    let rest = mix(0.3, 1.0, smoothstep(0.0, 0.06, v));
+    ink = over(ink, lit(color, along / max(reach, 1.0)), clamp(0.5 - d, 0.0, 1.0) * rest);
     if params.look.z > 0.5 {
         let pk = max(peak(k) * reach, len) + 2.0 * s;
         let cd = round_box(vec2<f32>(across, along), vec2<f32>(-half_w, pk),

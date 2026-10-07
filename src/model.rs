@@ -253,6 +253,21 @@ pub struct LyricLine {
     pub text: String,
 }
 
+/// One of the signed-in Google account's YouTube channels (the account's
+/// own, or a brand account), as the account switcher lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Channel {
+    pub name: String,
+    /// "@handle", when the channel has one.
+    pub handle: Option<String>,
+    pub photo: Option<String>,
+    /// What requests send as `X-Goog-PageId` to act as this channel;
+    /// `None` for the Google account's own channel.
+    pub page_id: Option<String>,
+    /// The channel requests act as now.
+    pub current: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Account {
     Checking,

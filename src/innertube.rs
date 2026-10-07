@@ -58,6 +58,9 @@ pub struct Stream {
 pub struct Client {
     http: reqwest::Client,
     session: RwLock<Option<Session>>,
+    /// The channel (brand account) to act as: its page id, sent as
+    /// `X-Goog-PageId`. `None` is the Google account's own channel.
+    page_id: RwLock<Option<String>>,
 }
 
 impl Default for Client {
@@ -78,6 +81,7 @@ impl Client {
         Self {
             http,
             session: RwLock::new(None),
+            page_id: RwLock::new(None),
         }
     }
 
@@ -87,6 +91,12 @@ impl Client {
 
     pub fn set_session(&self, session: Option<Session>) {
         *self.session.write().expect("session lock") = session;
+    }
+
+    /// Acts as the channel with this page id from the next request on
+    /// (`None`: the account's own channel).
+    pub fn set_page_id(&self, page_id: Option<String>) {
+        *self.page_id.write().expect("page id lock") = page_id;
     }
 
     pub fn signed_in(&self) -> bool {
@@ -101,6 +111,9 @@ impl Client {
         let mut request = request
             .header("Cookie", session.header())
             .header("X-Goog-AuthUser", "0");
+        if let Some(page_id) = self.page_id.read().expect("page id lock").as_deref() {
+            request = request.header("X-Goog-PageId", page_id);
+        }
         if let Some(sapisid) = session.sapisid() {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -229,6 +242,31 @@ impl Client {
 
     pub async fn account(&self) -> Result<Value> {
         self.call("account/account_menu", json!({})).await
+    }
+
+    /// The channels of the signed-in Google account, as the account
+    /// switcher lists them (see [`crate::parse::channels`]). The menu's
+    /// `getAccountSwitcherEndpoint` is a plain GET answered with JSON behind
+    /// an XSSI prefix.
+    pub async fn channels(&self) -> Result<Value> {
+        let request = self
+            .http
+            .get(format!("{ORIGIN}/getAccountSwitcherEndpoint"))
+            .header("Origin", ORIGIN)
+            .header("X-Origin", ORIGIN)
+            .header("Referer", format!("{ORIGIN}/"))
+            .header("User-Agent", USER_AGENT);
+        let response = self.auth_headers(request).send().await.map_err(offline)?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ApiError::Auth);
+        }
+        if !status.is_success() {
+            return Err(ApiError::Http(status.as_u16()));
+        }
+        let text = response.text().await.map_err(offline)?;
+        let json = text.trim_start_matches(")]}'").trim_start();
+        serde_json::from_str(json).map_err(|e| ApiError::Invalid(e.to_string()))
     }
 
     /// Asks YouTube Music whose session this is, before anything says

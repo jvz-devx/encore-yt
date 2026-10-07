@@ -38,6 +38,7 @@
 mod backdrop;
 mod bar;
 mod content;
+pub mod device;
 mod dissolve;
 mod effects;
 mod flight;

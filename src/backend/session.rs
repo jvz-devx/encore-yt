@@ -65,6 +65,35 @@ impl super::Worker {
             let _ = tx.send(Internal::Connected(account));
         });
     }
+
+    /// Uses a cookie file just saved from an import or a paste: it becomes
+    /// the chosen profile and the backend connects with it.
+    pub(super) fn save_cookies(&mut self, saved: anyhow::Result<crate::auth::Profile>) {
+        let saved = saved.map_err(|error| format!("{error:#}"));
+        if let Ok(profile) = &saved {
+            let mut settings = crate::settings::Settings::load(&self.paths);
+            settings.browser_profile = Some(profile.id.clone());
+            if let Err(error) = settings.save(&self.paths) {
+                log::warn!("could not save the account choice: {error:#}");
+            }
+        }
+        let connect = saved.is_ok();
+        self.sink.send(Event::CookiesSaved(saved));
+        if connect {
+            self.connect();
+        }
+    }
+
+    pub(super) fn scan_browsers(&self) {
+        let scratch = self.paths.runtime.clone();
+        let sink = self.sink.clone();
+        tokio::spawn(async move {
+            let scan = tokio::task::spawn_blocking(move || crate::auth::scan_browsers(&scratch))
+                .await
+                .unwrap_or_default();
+            sink.send(Event::BrowserScan(scan));
+        });
+    }
 }
 
 /// Lists the account's channels and makes requests act as the chosen one

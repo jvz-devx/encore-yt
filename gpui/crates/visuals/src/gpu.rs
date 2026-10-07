@@ -42,7 +42,10 @@ impl Gpu {
     fn create(cache_dir: Option<&Path>) -> Result<Self> {
         let started = Instant::now();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+            // Vulkan on Linux, Metal on macOS, DX12 or Vulkan on Windows;
+            // GL where none of them is there. Vulkan and GL alone left the
+            // effects off on every Mac.
+            backends: wgpu::Backends::PRIMARY | wgpu::Backends::GL,
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions::default(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),

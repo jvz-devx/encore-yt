@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderScale, SliderState, SliderValue};
 use gpui_kit::*;
 
-use super::Tab;
 use crate::app::MusicApp;
 use crate::theme::Colors;
 use crate::visuals::config::{self, VisualsConfig};
@@ -259,13 +258,10 @@ fn hz(v: f32) -> String {
     }
 }
 
-/// The section's state: the sliders, which one is held, and the tab
-/// showing.
+/// The section's state: the sliders and which one is held.
 pub struct Knobs {
     sliders: HashMap<Knob, Entity<SliderState>>,
     held: Cell<Option<Knob>>,
-    /// The tab showing.
-    pub tab: Cell<Tab>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -334,7 +330,6 @@ impl Knobs {
         Self {
             sliders,
             held: Cell::new(None),
-            tab: Cell::new(Tab::General),
             _subscriptions: subscriptions,
         }
     }

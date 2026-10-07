@@ -55,6 +55,7 @@ impl Ui {
             crate::account::bind_keys(cx);
             crate::desktop::bind_keys(cx);
             crate::extras::bind_keys(cx);
+            crate::settings::bind_keys(cx);
         });
         let (command_tx, commands) = tokio::sync::mpsc::unbounded_channel();
         let (events, event_rx) = mpsc::channel();

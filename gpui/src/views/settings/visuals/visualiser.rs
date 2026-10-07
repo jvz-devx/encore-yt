@@ -147,23 +147,26 @@ fn swatches(
 
 /// Closes Settings and opens the full-window visualiser.
 fn open_button(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let button = super::super::focusable(
+        widgets::pill_button(
+            "visuals-open",
+            "Open visualiser",
+            Some(widgets::icon(IconName::AudioLines, size::ICON_SM, c.text)),
+            Pill::Secondary,
+            c,
+        ),
+        c,
+    )
+    .tooltip(widgets::tooltip("Fills the window"))
+    .on_click(cx.listener(|this, _, window, cx| {
+        this.open_settings(false, window, cx);
+        if !this.extras.visualizer {
+            this.toggle_visualizer(window, cx);
+        }
+    }));
     h_flex()
         .pt(space::SM)
-        .child(
-            widgets::pill_button(
-                "visuals-open",
-                "Open visualiser",
-                Some(widgets::icon(IconName::AudioLines, size::ICON_SM, c.text)),
-                Pill::Secondary,
-                c,
-            )
-            .tooltip(widgets::tooltip("Fills the window (V)"))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.open_settings(false, window, cx);
-                if !this.extras.visualizer {
-                    this.toggle_visualizer(window, cx);
-                }
-            })),
-        )
+        .pb(space::SM)
+        .child(super::super::keyed(button, &["V"], c))
         .into_any_element()
 }

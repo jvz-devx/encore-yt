@@ -14,7 +14,7 @@ use crate::update::{self, State};
 /// How many lines of the release notes to show.
 const NOTES: usize = 8;
 
-pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+pub fn page(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
     let updates = &app.updates;
     let mut rows = vec![super::row(
         format!("Music {}", update::VERSION),
@@ -35,14 +35,15 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
             );
         }
     }
+    let this_version = super::section("", c, rows);
     let checks = widgets::switch("update-checks", updates.prefs.check, c)
         .on_click(cx.listener(|this, on: &bool, _, cx| this.set_update_checks(*on, cx)));
-    rows.push(super::row(
+    let mut rows = vec![super::row(
         "Check for updates",
         Some("Once a day, on GitHub Releases".into()),
         checks,
         c,
-    ));
+    )];
     let pre = widgets::switch("update-prereleases", updates.prefs.prereleases(), c)
         .on_click(cx.listener(|this, on: &bool, _, cx| this.set_prereleases(*on, cx)));
     rows.push(super::row(
@@ -51,7 +52,7 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
         pre,
         c,
     ));
-    super::section("Updates", c, rows)
+    vec![this_version, super::section("Automatic updates", c, rows)]
 }
 
 /// One line on where updates stand.
@@ -84,22 +85,31 @@ fn action(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
         }
         State::Available(release) if updates.install.advice().is_some() => {
             let page = release.page.clone();
-            widgets::pill_button("update-page", "Release page", None, Pill::Secondary, c)
-                .on_click(move |_, _, cx| cx.open_url(&page))
-                .into_any_element()
+            super::focusable(
+                widgets::pill_button("update-page", "Release page", None, Pill::Secondary, c),
+                c,
+            )
+            .on_click(move |_, _, cx| cx.open_url(&page))
+            .into_any_element()
         }
-        State::Available(_) => widgets::pill_button(
-            "update-install",
-            "Update and restart",
-            None,
-            Pill::Primary,
+        State::Available(_) => super::focusable(
+            widgets::pill_button(
+                "update-install",
+                "Update and restart",
+                None,
+                Pill::Primary,
+                c,
+            ),
             c,
         )
         .on_click(cx.listener(|this, _, _, cx| this.install_update(cx)))
         .into_any_element(),
-        _ => widgets::pill_button("update-check", "Check now", None, Pill::Secondary, c)
-            .on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))
-            .into_any_element(),
+        _ => super::focusable(
+            widgets::pill_button("update-check", "Check now", None, Pill::Secondary, c),
+            c,
+        )
+        .on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))
+        .into_any_element(),
     }
 }
 
@@ -119,7 +129,9 @@ pub fn pill(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Option<An
             Pill::Secondary,
             c,
         )
-        .on_click(cx.listener(|this, _, window, cx| this.open_settings(true, window, cx)))
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.open_settings_at(crate::settings::Category::Updates, window, cx)
+        }))
         .into_any_element(),
     )
 }

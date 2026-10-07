@@ -13,33 +13,23 @@ use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;
 use crate::theme::{Colors, Type, radius, size, space};
 
-pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
-    let mut rows = vec![status(app, c, cx)];
+pub fn page(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
+    let mut sections = vec![super::section("", c, [status(app, c, cx)])];
     let channels = super::super::account::channel_rows(app, "settings-channel", c, cx);
     if !channels.is_empty() {
-        rows.push(
-            div()
-                .pt(space::MD)
-                .type_body()
-                .child("Use YouTube Music as")
-                .into_any_element(),
-        );
-        rows.extend(
+        sections.push(super::section(
+            "Use YouTube Music as",
+            c,
             channels
                 .into_iter()
                 .map(|row| row.mx(-space::SM).px(space::SM).into_any_element()),
-        );
+        ));
     }
-    rows.push(
-        div()
-            .pt(space::MD)
-            .type_body()
-            .child("Use the YouTube account signed in to")
-            .into_any_element(),
-    );
+    let mut rows = Vec::new();
     if app.account.profiles.is_empty() {
         rows.push(
             div()
+                .py(space::SM)
                 .type_small()
                 .text_color(c.text_muted)
                 .child("No browser profile or cookie file is signed in to YouTube.")
@@ -58,7 +48,12 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
     if !crate::sign_in::SignIn::needed(&app.account.account, &app.account.profiles) {
         rows.push(another_way(c, cx));
     }
-    super::section("Account", c, rows)
+    sections.push(super::section(
+        "Use the YouTube account signed in to",
+        c,
+        rows,
+    ));
+    sections
 }
 
 /// The account as YouTube Music last confirmed it, and Reconnect.
@@ -90,7 +85,7 @@ fn status(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
         ),
     };
     h_flex()
-        .py(space::SM)
+        .py(space::MD)
         .gap(space::MD)
         .child(lead)
         .child(
@@ -101,7 +96,7 @@ fn status(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
                 .child(div().type_label().truncate().child(title))
                 .child(widgets::muted_line(detail, c)),
         )
-        .child(
+        .child(super::focusable(
             if crate::sign_in::SignIn::needed(&app.account.account, &app.account.profiles) {
                 widgets::pill_button(
                     "settings-sign-in",
@@ -121,7 +116,8 @@ fn status(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx)))
             },
-        )
+            c,
+        ))
         .into_any_element()
 }
 
@@ -130,12 +126,16 @@ fn status(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
 fn another_way(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     h_flex()
         .pt(space::SM)
+        .pb(space::MD)
         .child(
-            widgets::pill_button(
-                "settings-sign-in-other",
-                "Sign in another way",
-                Some(widgets::icon(IconName::LogIn, size::ICON_SM, c.text)),
-                Pill::Secondary,
+            super::focusable(
+                widgets::pill_button(
+                    "settings-sign-in-other",
+                    "Sign in another way",
+                    Some(widgets::icon(IconName::LogIn, size::ICON_SM, c.text)),
+                    Pill::Secondary,
+                    c,
+                ),
                 c,
             )
             .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(window, cx))),
@@ -163,7 +163,7 @@ fn profile(
     cx: &mut Context<MusicApp>,
 ) -> AnyElement {
     let id = profile.id.clone();
-    h_flex()
+    let row = h_flex()
         .id(("profile", i))
         .h(px(44.))
         .mx(-space::SM)
@@ -182,8 +182,8 @@ fn profile(
                 .type_body()
                 .child(profile.label.clone()),
         )
-        .on_click(cx.listener(move |this, _, _, cx| this.use_profile(id.clone(), cx)))
-        .into_any_element()
+        .on_click(cx.listener(move |this, _, _, cx| this.use_profile(id.clone(), cx)));
+    super::focusable(row, c).into_any_element()
 }
 
 /// A radio mark: a ring, with a `signal` dot when chosen.

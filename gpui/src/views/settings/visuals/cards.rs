@@ -4,6 +4,7 @@
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
+use super::super::super::overlays::keycap::combo;
 use super::super::super::widgets;
 use super::knobs::{self, Knob};
 use super::{change, labelled, toggle};
@@ -45,7 +46,12 @@ pub fn card(k: Card, s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) 
             v_flex()
                 .flex_1()
                 .min_w_0()
-                .child(div().type_label().child(title(k)))
+                .child(
+                    h_flex()
+                        .gap(space::SM)
+                        .child(div().type_label().child(title(k)))
+                        .children(keys(k).map(|keys| combo(keys, c))),
+                )
                 .child(
                     div()
                         .type_small()
@@ -77,6 +83,16 @@ fn title(k: Card) -> &'static str {
         Card::Visualizer => "Visualiser",
         Card::Dissolve => "Cover dissolve",
         Card::Flight => "Cover flight",
+    }
+}
+
+/// The key that opens what the card dresses: Stage (F), the visualiser
+/// (V).
+fn keys(k: Card) -> Option<&'static [&'static str]> {
+    match k {
+        Card::Stage => Some(&["F"]),
+        Card::Visualizer => Some(&["V"]),
+        _ => None,
     }
 }
 

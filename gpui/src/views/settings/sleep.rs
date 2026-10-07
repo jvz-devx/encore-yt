@@ -19,8 +19,11 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
             Some("Fades out, then pauses playback".into()),
         ),
     };
-    let off = widgets::pill_button("settings-sleep-off", "Turn off", None, Pill::Secondary, c)
-        .on_click(cx.listener(|this, _, _, cx| this.sleep(None, cx)));
+    let off = super::focusable(
+        widgets::pill_button("settings-sleep-off", "Turn off", None, Pill::Secondary, c),
+        c,
+    )
+    .on_click(cx.listener(|this, _, _, cx| this.sleep(None, cx)));
     let timers = SLEEP_CHOICES
         .into_iter()
         .enumerate()

@@ -384,7 +384,7 @@ impl MusicApp {
         } else if self.account.state.dialog.is_some() {
             self.close_account_dialog(window, cx);
         } else if self.account.settings {
-            self.open_settings(false, window, cx);
+            self.settings_escape(window, cx);
         } else if self.account.menu {
             self.close_account_menu(cx);
         } else {
@@ -412,6 +412,9 @@ impl MusicApp {
 
     pub fn open_settings(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.account.menu = false;
+        if open && !self.account.settings {
+            self.prepare_settings(window, cx);
+        }
         self.account.settings = open;
         if open {
             self.account.focus.focus(window, cx);

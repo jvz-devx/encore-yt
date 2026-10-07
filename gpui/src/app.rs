@@ -45,6 +45,8 @@ pub struct MusicApp {
     pub pages: Pages,
     pub player: Player,
     pub account: AccountUi,
+    /// Settings' category, tabs and search (M24).
+    pub settings: crate::settings::SettingsNav,
     /// The sign-in sheet (M18).
     pub sign_in: crate::sign_in::SignIn,
     pub desktop: Desktop,
@@ -139,6 +141,7 @@ impl MusicApp {
             pages,
             player,
             account,
+            settings: crate::settings::SettingsNav::new(cx),
             sign_in: crate::sign_in::SignIn::new(),
             desktop,
             extras,

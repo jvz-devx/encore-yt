@@ -256,6 +256,14 @@ pub mod size {
     pub const CHIP: Pixels = px(36.);
     pub const ICON: Pixels = px(18.);
     pub const ICON_SM: Pixels = px(16.);
+    /// The Settings modal at its largest, its category sidebar and the
+    /// strip of key hints along its foot (M24).
+    pub const SETTINGS_W: Pixels = px(1000.);
+    pub const SETTINGS_H: Pixels = px(760.);
+    pub const SETTINGS_NAV: Pixels = px(224.);
+    pub const SETTINGS_FOOTER: Pixels = px(44.);
+    /// Settings' readable width for its rows.
+    pub const SETTINGS_TEXT: Pixels = px(720.);
 }
 
 pub mod motion;

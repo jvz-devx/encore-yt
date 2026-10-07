@@ -17,6 +17,7 @@ use ytfast::model::{Item, ItemKind, Page, Target, Track};
 use super::control::{self, FromPage};
 use crate::app::MusicApp;
 use crate::nav::LibraryTab;
+use crate::settings::Category;
 use crate::visuals::config::Preset;
 
 /// Typing pauses this long before YouTube Music is asked.
@@ -65,6 +66,8 @@ pub enum Cmd {
     Like,
     /// `visuals <preset>`: Settings → Visuals' look.
     Visuals(Preset),
+    /// `settings <category>`: opens Settings there (M24).
+    Settings(Category),
 }
 
 /// What choosing a result does.
@@ -406,12 +409,12 @@ impl MusicApp {
             },
             Go::Artist(target) => self.open_link(target, cx),
             Go::Search(query) => self.run_search(query, window, cx),
-            Go::Command(cmd) => self.run_command(cmd, cx),
+            Go::Command(cmd) => self.run_command(cmd, window, cx),
             Go::Complete(_) => {}
         }
     }
 
-    fn run_command(&mut self, cmd: Cmd, cx: &mut Context<Self>) {
+    fn run_command(&mut self, cmd: Cmd, window: &mut Window, cx: &mut Context<Self>) {
         let playing = self.player.playback.playing;
         match cmd {
             Cmd::Radio(track) => self.send(Command::PlayTarget(control::song_radio(&track))),
@@ -436,6 +439,7 @@ impl MusicApp {
                 crate::visuals::config::set(saved.with_preset(preset), true);
                 cx.notify();
             }
+            Cmd::Settings(category) => self.open_settings_at(category, window, cx),
         }
     }
 }
@@ -605,7 +609,7 @@ fn commands(query: &str, out: &mut Vec<Ranked>) {
         }
         _ => {}
     }
-    if visuals(&word, rest, &mut push) {
+    if visuals(&word, rest, &mut push) || settings(&word, rest, &mut push) {
         return;
     }
     let simple: [(&str, &str, &str, Go); 7] = [
@@ -710,6 +714,34 @@ fn visuals(word: &str, rest: &str, push: &mut impl FnMut(Hit, Source, u8)) -> bo
         }
     }
     word == "visuals" || rest.is_empty()
+}
+
+/// `settings <category>` (or `settings:`): the categories that start with
+/// what follows, every one for the bare word. True when the word was
+/// `settings`.
+fn settings(word: &str, rest: &str, push: &mut impl FnMut(Hit, Source, u8)) -> bool {
+    let word = word.trim_end_matches(':');
+    if word.chars().count() < 3 || !"settings".starts_with(word) {
+        return false;
+    }
+    let (source, tier) = if word == "settings" {
+        (Source::Command, 0)
+    } else {
+        (Source::Suggestion, 1)
+    };
+    let rest = rest.to_lowercase();
+    for category in Category::ALL {
+        if category.label().to_lowercase().starts_with(&rest) {
+            let hit = command_hit(
+                &format!("settings:{}", category.label()),
+                format!("Settings: {}", category.label()),
+                category.blurb(),
+                Go::Command(Cmd::Settings(category)),
+            );
+            push(hit, source, tier);
+        }
+    }
+    word == "settings"
 }
 
 /// The library pages loaded so far: Library's sections and Liked Music.

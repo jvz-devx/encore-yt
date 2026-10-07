@@ -3,12 +3,12 @@
 //! Every change saves to `motion.json` and shows at once
 //! (`theme::motion`).
 
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::h_flex;
 use gpui_kit::*;
 
 use super::super::widgets;
 use crate::app::MusicApp;
-use crate::theme::motion::{self, Align, Anchor, Config, PageStyle, Reduce, TextSize};
+use crate::theme::motion::{self, Align, Anchor, Config, Lyrics, PageStyle, Reduce, TextSize};
 use crate::theme::{Colors, Type, radius, space};
 
 /// The speeds offered (0 is instant).
@@ -34,13 +34,46 @@ const SEGMENT_H: Pixels = px(28.);
 /// A switch: its id, its label, whether it is on, and what it sets.
 type Switch = (&'static str, &'static str, bool, fn(&mut Config, bool));
 
-pub fn section(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+/// Tab 0 is Motion, tab 1 Lyrics.
+pub fn page(tab: usize, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
     let m = motion::config();
-    v_flex()
-        .gap(space::XL)
-        .child(super::section("Motion", c, motion_rows(&m, c, cx)))
-        .child(super::section("Lyrics", c, lyrics_rows(&m, c, cx)))
-        .into_any_element()
+    if tab == 0 {
+        let mut choices = motion_rows(&m, c, cx);
+        let switches = choices.split_off(3);
+        vec![
+            super::section("", c, choices),
+            super::section("What moves", c, switches),
+        ]
+    } else {
+        vec![super::section("", c, lyrics_rows(&m, c, cx))]
+    }
+}
+
+/// The tab's settings differ from the defaults.
+pub fn changed(tab: usize) -> bool {
+    let m = motion::config();
+    if tab == 0 {
+        m != Config {
+            lyrics: m.lyrics,
+            ..Config::default()
+        }
+    } else {
+        m.lyrics != Lyrics::default()
+    }
+}
+
+/// The tab's settings as Music starts out, the other tab's as they are.
+pub fn reset(tab: usize, cx: &mut Context<MusicApp>) {
+    motion::update(cx, |m| {
+        if tab == 0 {
+            *m = Config {
+                lyrics: m.lyrics,
+                ..Config::default()
+            };
+        } else {
+            m.lyrics = Lyrics::default();
+        }
+    });
 }
 
 fn motion_rows(m: &Config, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
@@ -241,7 +274,7 @@ fn segmented<const N: usize>(
             (c.raised, c.text_muted, c.hover)
         };
         let name: SharedString = format!("{id}:{label}").into();
-        div()
+        let segment = div()
             .id((id, i))
             .debug_selector(move || name.to_string())
             .h(SEGMENT_H)
@@ -258,7 +291,8 @@ fn segmented<const N: usize>(
             .hover(move |s| s.bg(hover))
             .active(|s| s.opacity(0.9))
             .child(label)
-            .on_click(cx.listener(move |_, _, _, cx| motion::update(cx, |m| set(m, i))))
+            .on_click(cx.listener(move |_, _, _, cx| motion::update(cx, |m| set(m, i))));
+        super::focusable(segment, c)
     });
     h_flex()
         .flex_none()

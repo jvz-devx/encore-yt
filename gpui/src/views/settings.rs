@@ -1,29 +1,41 @@
-//! Settings, over the window: one scrolling panel of sections (Account,
-//! Visuals, Motion and Lyrics, Equalizer, Sleep timer, Loudness levelling,
-//! Smooth mixes, Notifications, Updates). Each section lives in its own file under
-//! `settings/` and draws its rows with [`row`] and its choices with [`choice`]; a new
-//! section is one more file and one more entry in [`settings`].
+//! Settings (M24): a wide modal over the window. The category sidebar with
+//! the search field sits on the left on `base`, the category on a `surface`
+//! panel on the right (header, tabs, its own scrolling body), and a strip
+//! of key hints along the foot, so it reads like the window itself. Where
+//! it is (category, tabs, search) lives in `crate::settings`.
+//!
+//! Each category draws its sections in its own file under `settings/`,
+//! with [`section`], [`row`] and [`choice`]; a new category is one more
+//! file, one more `Category` and one more arm in [`body`].
 
+mod about;
 mod account;
 mod equalizer;
+mod frame;
 mod mixes;
 mod motion;
 mod playback;
+mod results;
+mod shortcuts;
+mod sidebar;
 mod sleep;
 pub mod updates;
 mod visuals;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::base::FocusTrapElement as _;
+use gpui_kit::component::input::{Escape, MoveDown, MoveUp};
 use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::overlays::keycap::combo;
 use super::widgets;
 use crate::app::MusicApp;
-use crate::theme::{self, Colors, Type, radius, size, space};
+use crate::settings::{self as nav, Category};
+use crate::theme::{self, Colors, Type, elevation, radius, size, space};
 
-const WIDTH: Pixels = px(560.);
-
-/// The Settings panel while it's open.
+/// The Settings modal while it's open.
 pub fn settings(
     app: &MusicApp,
     window: &mut Window,
@@ -33,62 +45,45 @@ pub fn settings(
         return None;
     }
     let c = theme::colors(cx);
-    // Leaves the window's edges visible around it, however small the window.
-    let max_h = window.viewport_size().height - space::XXXL * 2.;
-    let sections = [
-        account::section(app, &c, cx),
-        // The look comes early, so its presets show as Settings opens.
-        visuals::section(app, &c, window, cx),
-        motion::section(&c, cx),
-        equalizer::section(app, &c, cx),
-        sleep::section(app, &c, cx),
-        playback::section(app, &c, cx),
-        mixes::section(app, &c, window, cx),
-        playback::notifications(app, &c, cx),
-        updates::section(app, &c, cx),
-    ];
-    let panel = widgets::floating(&c)
+    let Size {
+        width: w,
+        height: h,
+    } = modal_size(window);
+    let content = if app.settings.query.is_empty() {
+        frame::content(app, &c, window, cx)
+    } else {
+        results::content(app, &c, cx)
+    };
+    // The focus sits on the panel, inside both key contexts: single-key
+    // shortcuts stay out (`MusicDialog`), Settings' own keys work.
+    let panel = keys(app, cx)
         .id("settings")
         .debug_selector(|| "settings".into())
-        .key_context(crate::account::DIALOG_CONTEXT)
         .track_focus(&app.account.focus)
-        .w(WIDTH)
-        .max_h(max_h)
+        .w(w)
+        .h(h)
         .flex()
         .flex_col()
+        .rounded(radius::LG)
+        .overflow_hidden()
+        .bg(c.base)
+        .border_1()
+        .border_color(c.outline)
+        .shadow(elevation::high(&c))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
-            h_flex()
-                .flex_none()
-                .pl(space::XL)
-                .pr(space::MD)
-                .pt(space::MD)
-                .pb(space::XS)
-                .justify_between()
-                .child(div().type_heading().child("Settings"))
-                .child(
-                    widgets::icon_button(
-                        "settings-close",
-                        widgets::icon(IconName::X, size::ICON, c.text_muted),
-                        &c,
-                    )
-                    .tooltip(widgets::tooltip("Close"))
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.open_settings(false, window, cx)),
-                    ),
-                ),
-        )
-        .child(
-            v_flex()
-                .id("settings-sections")
+            div()
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scroll()
-                .px(space::XL)
-                .pb(space::XL)
-                .gap(space::XL)
-                .children(sections),
-        );
+                .flex()
+                .child(sidebar::sidebar(app, &c, cx))
+                .child(content),
+        )
+        .child(frame::footer(&c))
+        .focus_trap("settings-trap", &app.account.focus);
+    let panel = div()
+        .key_context(crate::account::DIALOG_CONTEXT)
+        .child(panel);
     Some(
         widgets::scrim("settings-scrim", &c)
             .on_click(cx.listener(|this, _, window, cx| this.open_settings(false, window, cx)))
@@ -101,23 +96,152 @@ pub fn settings(
     )
 }
 
-/// A section: its name, then its rows.
+/// Most of the window, with comfortable margins (a little narrower in a
+/// small window), up to `SETTINGS_W` by `SETTINGS_H`.
+fn modal_size(window: &Window) -> Size<Pixels> {
+    let viewport = window.viewport_size();
+    let margin = if viewport.width < px(1100.) {
+        space::XL
+    } else {
+        space::XXXL
+    };
+    size(
+        size::SETTINGS_W.min(viewport.width - margin * 2.),
+        size::SETTINGS_H.min(viewport.height - margin * 2.),
+    )
+}
+
+/// The room the category's body has across.
+fn body_width(window: &Window) -> Pixels {
+    (modal_size(window).width - size::SETTINGS_NAV - space::SM - size::GUTTER * 2.)
+        .min(size::SETTINGS_TEXT)
+}
+
+/// The Settings key context and its keys: ↑/↓ and Ctrl+Tab change the
+/// category (or walk the search results), `/` searches, Esc clears the
+/// search before it closes.
+fn keys(app: &MusicApp, cx: &mut Context<MusicApp>) -> Div {
+    let searching = !app.settings.query.is_empty();
+    let count = if searching {
+        nav::search(&app.settings.query).len()
+    } else {
+        0
+    };
+    div()
+        .key_context(nav::CONTEXT)
+        .on_action(
+            cx.listener(|this, _: &nav::NextCategory, window, cx| {
+                this.step_category(1, window, cx)
+            }),
+        )
+        .on_action(cx.listener(|this, _: &nav::PreviousCategory, window, cx| {
+            this.step_category(-1, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &nav::FocusSearch, window, cx| {
+            this.focus_settings_search(window, cx)
+        }))
+        // Before the field handles them: Esc clears it, the arrows walk the
+        // results (or the categories while it is empty).
+        .capture_action(cx.listener(|this, _: &Escape, window, cx| {
+            this.settings_escape(window, cx);
+            cx.stop_propagation();
+        }))
+        .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| {
+            if searching {
+                this.move_settings_hit(-1, count, cx);
+            } else {
+                this.step_category(-1, window, cx);
+            }
+            cx.stop_propagation();
+        }))
+        .capture_action(cx.listener(move |this, _: &MoveDown, window, cx| {
+            if searching {
+                this.move_settings_hit(1, count, cx);
+            } else {
+                this.step_category(1, window, cx);
+            }
+            cx.stop_propagation();
+        }))
+}
+
+/// The category's sections, for the scrolling body.
+fn body(
+    app: &MusicApp,
+    category: Category,
+    c: &Colors,
+    window: &mut Window,
+    cx: &mut Context<MusicApp>,
+) -> Vec<AnyElement> {
+    let tab = app.settings.tab(category);
+    match category {
+        Category::Account => account::page(app, c, cx),
+        Category::Playback => playback::page(app, c, window, cx),
+        Category::Equalizer => equalizer::page(app, c, cx),
+        Category::Visuals => vec![visuals::view(app, c, window, cx)],
+        Category::Motion => motion::page(tab, c, cx),
+        Category::Shortcuts => shortcuts::page(body_width(window) >= px(600.), c),
+        Category::Updates => updates::page(app, c, cx),
+        Category::About => about::page(app, c, cx),
+    }
+}
+
+/// A Reset for the category (or its tab) once it differs from the
+/// defaults; Visuals has its own per tab.
+fn reset(
+    app: &MusicApp,
+    category: Category,
+    c: &Colors,
+    cx: &mut Context<MusicApp>,
+) -> Option<AnyElement> {
+    let tab = app.settings.tab(category);
+    let changed = match category {
+        Category::Playback => playback::changed(app),
+        Category::Equalizer => equalizer::changed(app),
+        Category::Motion => motion::changed(tab),
+        _ => false,
+    };
+    changed.then(|| {
+        focusable(
+            widgets::pill_button(
+                "settings-reset",
+                "Reset",
+                Some(widgets::icon(IconName::RotateCcw, size::ICON_SM, c.text)),
+                widgets::Pill::Secondary,
+                c,
+            )
+            .debug_selector(|| "settings-reset".into()),
+            c,
+        )
+        .tooltip(widgets::tooltip("Back to the defaults"))
+        .on_click(cx.listener(move |this, _, _, cx| match category {
+            Category::Playback => playback::reset(this, cx),
+            Category::Equalizer => equalizer::reset(this, cx),
+            Category::Motion => motion::reset(tab, cx),
+            _ => {}
+        }))
+        .into_any_element()
+    })
+}
+
+/// A group of settings: an optional name over a card holding its rows.
 fn section(
     name: &'static str,
     c: &Colors,
     rows: impl IntoIterator<Item = AnyElement>,
 ) -> AnyElement {
     v_flex()
-        .gap(space::XS)
+        .gap(space::SM)
+        .when(!name.is_empty(), |s| {
+            s.child(div().type_label().text_color(c.text_muted).child(name))
+        })
         .child(
-            div()
-                .pt(space::SM)
-                .pb(space::XS)
-                .type_label()
-                .text_color(c.text_muted)
-                .child(name),
+            v_flex()
+                .rounded(radius::MD)
+                .bg(c.hover)
+                .px(space::LG)
+                .py(space::XS)
+                .children(rows),
         )
-        .children(rows)
         .into_any_element()
 }
 
@@ -129,15 +253,37 @@ fn row(
     control: impl IntoElement,
     c: &Colors,
 ) -> AnyElement {
+    keyed_row(label, &[], detail, control, c)
+}
+
+/// A setting with a shortcut: its keycaps after the label.
+fn keyed_row(
+    label: impl Into<SharedString>,
+    keys: &[&'static str],
+    detail: Option<SharedString>,
+    control: impl IntoElement,
+    c: &Colors,
+) -> AnyElement {
+    let title = h_flex()
+        .gap(space::SM)
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .type_body()
+                .tabular()
+                .child(label.into()),
+        )
+        .when(!keys.is_empty(), |t| t.child(combo(keys, c)));
     h_flex()
-        .py(space::SM)
+        .py(space::SM + space::XXS)
         .gap(space::LG)
         .child(
             v_flex()
                 .flex_1()
                 .min_w_0()
                 .gap(space::XXS)
-                .child(div().type_body().tabular().child(label.into()))
+                .child(title)
                 .children(detail.map(|d| {
                     div()
                         .type_small()
@@ -150,9 +296,18 @@ fn row(
         .into_any_element()
 }
 
+/// A button with its shortcut beside it ("Adjust bands  E").
+fn keyed(button: impl IntoElement, keys: &[&'static str], c: &Colors) -> AnyElement {
+    h_flex()
+        .gap(space::SM)
+        .child(button)
+        .child(combo(keys, c))
+        .into_any_element()
+}
+
 /// One of a set of choices (an equalizer preset, a sleep timer): a pill on
 /// `raised`, or `primary` while it is the one in effect, as YouTube Music
-/// draws its filter chips.
+/// draws its filter chips. Tab reaches it, Enter or Space picks it.
 fn choice(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -164,8 +319,11 @@ fn choice(
     } else {
         (c.raised, c.overlay, c.text)
     };
-    div()
+    let label: SharedString = label.into();
+    let name: SharedString = format!("settings-choice:{label}").into();
+    let chip = div()
         .id(id)
+        .debug_selector(move || name.to_string())
         .flex_none()
         .h(size::CHIP)
         .px(space::LG)
@@ -178,7 +336,8 @@ fn choice(
         .cursor_pointer()
         .hover(move |s| s.bg(hover))
         .active(|s| s.opacity(0.9))
-        .child(label.into())
+        .child(label);
+    focusable(chip, c)
 }
 
 /// A wrapping row of [`choice`]s under a setting.
@@ -189,4 +348,18 @@ fn choices(chips: impl IntoIterator<Item = Stateful<Div>>) -> AnyElement {
         .pb(space::SM)
         .children(chips)
         .into_any_element()
+}
+
+/// Makes a control a tab stop with a ring while the keyboard is on it.
+fn focusable(el: Stateful<Div>, c: &Colors) -> Stateful<Div> {
+    let ring = c.focus_ring;
+    el.tab_index(0).focus_visible(move |s| {
+        s.shadow(vec![BoxShadow {
+            color: ring,
+            offset: point(px(0.), px(0.)),
+            blur_radius: px(0.),
+            spread_radius: px(2.),
+            inset: false,
+        }])
+    })
 }

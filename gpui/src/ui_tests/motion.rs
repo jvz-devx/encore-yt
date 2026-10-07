@@ -99,6 +99,7 @@ fn settings_change_the_motion(cx: &mut TestAppContext) {
     motion::set_for_test(Config::default());
     let mut ui = Ui::start(cx);
     ui.keys("ctrl-,");
+    ui.click("settings-category:Motion and lyrics");
     reveal(&mut ui, "motion-pages:Slide");
     ui.click("motion-pages:Slide");
     assert_eq!(motion::config().pages, PageStyle::Slide);
@@ -106,21 +107,21 @@ fn settings_change_the_motion(cx: &mut TestAppContext) {
     ui.click("motion-speed:Instant");
     assert_eq!(motion::config().speed, 0.0);
     assert!(!motion::enabled(Kind::Panels), "instant moves nothing");
+    ui.click("settings-tab:Lyrics");
     reveal(&mut ui, "lyrics-size:XL");
     ui.click("lyrics-size:XL");
     assert_eq!(motion::config().lyrics.size, TextSize::XL);
 }
 
-/// Scrolls Settings until `name` is inside the panel (Motion is below the
-/// fold).
+/// Scrolls the category's body until `name` is inside it.
 fn reveal(ui: &mut Ui, name: &str) {
     for _ in 0..40 {
-        let panel = ui.find("settings");
+        let body = ui.find("settings-content");
         let el = ui.find(name);
-        if el.top() > panel.top() + gpui_kit::px(60.) && el.bottom() < panel.bottom() {
+        if el.top() >= body.top() && el.bottom() <= body.bottom() {
             return;
         }
-        ui.scroll("settings", 120.);
+        ui.scroll("settings-content", 120.);
     }
     panic!("{name} never scrolled into Settings");
 }

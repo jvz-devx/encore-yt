@@ -10,6 +10,7 @@ mod channels;
 mod chip;
 mod controls;
 mod dialogs;
+mod like_mark;
 mod menu;
 mod sign_in;
 
@@ -20,6 +21,7 @@ use crate::app::MusicApp;
 pub use channels::rows as channel_rows;
 pub use chip::chip;
 pub use controls::{header_actions, library_actions, like_button, save_queue_button};
+pub use like_mark::{row_like, row_like_space};
 
 /// The layer over the window: an open playlist dialog, else Settings.
 pub fn layer(

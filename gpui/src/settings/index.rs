@@ -3,7 +3,7 @@
 //! keyboard shortcut. Labels match the rows in `views::settings`.
 
 use super::Category;
-use crate::desktop::{SHORTCUTS, key_label};
+use crate::desktop::{Group, SHORTCUTS, key_label};
 
 /// One setting: where it is, its label and what it does.
 #[derive(Clone, Debug, PartialEq)]
@@ -357,7 +357,7 @@ pub fn entries() -> Vec<Entry> {
     out.extend(SHORTCUTS.iter().map(|s| {
         Entry {
             category: Category::Shortcuts,
-            tab: None,
+            tab: Group::ALL.iter().position(|g| *g == s.group),
             label: s.what.into(),
             about: s
                 .keys

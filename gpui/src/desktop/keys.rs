@@ -60,6 +60,15 @@ pub enum Group {
 }
 
 impl Group {
+    /// Settings → Keyboard shortcuts' tabs, in this order.
+    pub const ALL: [Group; 5] = [
+        Group::Playback,
+        Group::Library,
+        Group::Navigation,
+        Group::Views,
+        Group::Settings,
+    ];
+
     pub fn title(self) -> &'static str {
         match self {
             Group::Playback => "Playback",

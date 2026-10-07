@@ -152,7 +152,7 @@ fn open_button(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
             "visuals-open",
             "Open visualiser",
             Some(widgets::icon(IconName::AudioLines, size::ICON_SM, c.text)),
-            Pill::Secondary,
+            Pill::Tonal,
             c,
         ),
         c,

@@ -4,6 +4,7 @@
 //! (`theme::motion`).
 
 use gpui_kit::component::h_flex;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::widgets;
@@ -31,8 +32,15 @@ const DIMS: [(f32, &str); 4] = [
 ];
 const SEGMENT_H: Pixels = px(28.);
 
-/// A switch: its id, its label, whether it is on, and what it sets.
-type Switch = (&'static str, &'static str, bool, fn(&mut Config, bool));
+/// A switch: its id, its label and line, whether it is on, and what it
+/// sets.
+type Switch = (
+    &'static str,
+    &'static str,
+    &'static str,
+    bool,
+    fn(&mut Config, bool),
+);
 
 /// Tab 0 is Motion, tab 1 Lyrics.
 pub fn page(tab: usize, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyElement> {
@@ -113,27 +121,38 @@ fn motion_rows(m: &Config, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyEle
         super::row("Reduce motion", Some(reduce_detail(m).into()), reduce, c),
     ];
     let switches: [Switch; 5] = [
-        ("motion-menus", "Menus and popovers", m.menus, |m, on| {
-            m.menus = on
-        }),
-        ("motion-panels", "Panels and dialogs", m.panels, |m, on| {
-            m.panels = on
-        }),
+        (
+            "motion-menus",
+            "Menus and popovers",
+            "Right-click menus, the sleep timer and the account menu",
+            m.menus,
+            |m, on| m.menus = on,
+        ),
+        (
+            "motion-panels",
+            "Panels and dialogs",
+            "Settings, Up next, the shortcuts and Play anything",
+            m.panels,
+            |m, on| m.panels = on,
+        ),
         (
             "motion-toasts",
             "Notices above the player",
+            "Short notes such as Link copied",
             m.toasts,
             |m, on| m.toasts = on,
         ),
         (
             "motion-now-playing",
             "Opening Now Playing and Stage",
+            "The cover and the view growing into place",
             m.now_playing,
             |m, on| m.now_playing = on,
         ),
         (
             "motion-skeleton",
             "Loading placeholders pulse",
+            "The shapes shown while a page loads",
             m.skeleton,
             |m, on| m.skeleton = on,
         ),
@@ -141,7 +160,7 @@ fn motion_rows(m: &Config, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyEle
     rows.extend(
         switches
             .into_iter()
-            .map(|(id, label, on, set)| toggle(id, label, None, on, set, c, cx)),
+            .map(|(id, label, detail, on, set)| toggle(id, label, Some(detail), on, set, c, cx)),
     );
     rows
 }
@@ -199,8 +218,18 @@ fn lyrics_rows(m: &Config, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyEle
             c,
             cx,
         ),
-        super::row("Current line size", None, scale, c),
-        super::row("Dim other lines", None, dim, c),
+        super::row(
+            "Current line size",
+            Some("How much bigger the line being sung is".into()),
+            scale,
+            c,
+        ),
+        super::row(
+            "Dim other lines",
+            Some("How far the lines around it fade".into()),
+            dim,
+            c,
+        ),
         toggle(
             "lyrics-fade-far",
             "Fade far lines",
@@ -213,15 +242,30 @@ fn lyrics_rows(m: &Config, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyEle
         toggle(
             "lyrics-sweep",
             "Fill the line as it's sung",
-            None,
+            Some("The current line lights up from left to right"),
             l.sweep,
             |m, on| m.lyrics.sweep = on,
             c,
             cx,
         ),
-        super::row("Current line position", None, anchor, c),
-        super::row("Text size", None, size, c),
-        super::row("Alignment", None, align, c),
+        super::row(
+            "Current line position",
+            Some("Where the view keeps the line being sung".into()),
+            anchor,
+            c,
+        ),
+        super::row(
+            "Text size",
+            Some("Lyrics in Now Playing and Stage".into()),
+            size,
+            c,
+        ),
+        super::row(
+            "Alignment",
+            Some("Lines start at the left or sit centred".into()),
+            align,
+            c,
+        ),
     ]
 }
 
@@ -268,10 +312,11 @@ fn segmented<const N: usize>(
     cx: &mut Context<MusicApp>,
 ) -> impl IntoElement + use<N> {
     let segments = options.into_iter().enumerate().map(|(i, (label, chosen))| {
+        // The track shows through the ones not chosen.
         let (bg, fg, hover) = if chosen {
-            (c.primary, c.primary_foreground, c.primary_hover)
+            (Some(c.primary), c.primary_foreground, c.primary_hover)
         } else {
-            (c.raised, c.text_muted, c.hover)
+            (None, c.text_muted, c.hover)
         };
         let name: SharedString = format!("{id}:{label}").into();
         let segment = div()
@@ -282,7 +327,7 @@ fn segmented<const N: usize>(
             .flex()
             .items_center()
             .rounded(radius::FULL)
-            .bg(bg)
+            .when_some(bg, |s, bg| s.bg(bg))
             .text_color(fg)
             .type_small()
             .font_weight(FontWeight::MEDIUM)
@@ -299,6 +344,6 @@ fn segmented<const N: usize>(
         .p(space::XXS)
         .gap(space::XXS)
         .rounded(radius::FULL)
-        .bg(c.raised)
+        .bg(c.hover)
         .children(segments)
 }

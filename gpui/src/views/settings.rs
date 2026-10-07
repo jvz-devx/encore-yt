@@ -111,12 +111,6 @@ fn modal_size(window: &Window) -> Size<Pixels> {
     )
 }
 
-/// The room the category's body has across.
-fn body_width(window: &Window) -> Pixels {
-    (modal_size(window).width - size::SETTINGS_NAV - space::SM - size::GUTTER * 2.)
-        .min(size::SETTINGS_TEXT)
-}
-
 /// The Settings key context and its keys: ↑/↓ and Ctrl+Tab change the
 /// category (or walk the search results), `/` searches, Esc clears the
 /// search before it closes.
@@ -179,7 +173,7 @@ fn body(
         Category::Equalizer => equalizer::page(app, c, cx),
         Category::Visuals => vec![visuals::view(app, c, window, cx)],
         Category::Motion => motion::page(tab, c, cx),
-        Category::Shortcuts => shortcuts::page(body_width(window) >= px(600.), c),
+        Category::Shortcuts => shortcuts::page(tab, c),
         Category::Updates => updates::page(app, c, cx),
         Category::About => about::page(app, c, cx),
     }
@@ -305,9 +299,10 @@ fn keyed(button: impl IntoElement, keys: &[&'static str], c: &Colors) -> AnyElem
         .into_any_element()
 }
 
-/// One of a set of choices (an equalizer preset, a sleep timer): a pill on
-/// `raised`, or `primary` while it is the one in effect, as YouTube Music
-/// draws its filter chips. Tab reaches it, Enter or Space picks it.
+/// One of a set of choices (an equalizer preset, a sleep timer): a pill
+/// tinted over its card (as `raised` is over the page), or `primary` while
+/// it is the one in effect, as YouTube Music draws its filter chips. Tab
+/// reaches it, Enter or Space picks it.
 fn choice(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -317,7 +312,7 @@ fn choice(
     let (bg, hover, fg) = if chosen {
         (c.primary, c.primary_hover, c.primary_foreground)
     } else {
-        (c.raised, c.overlay, c.text)
+        (c.hover, c.pressed, c.text)
     };
     let label: SharedString = label.into();
     let name: SharedString = format!("settings-choice:{label}").into();

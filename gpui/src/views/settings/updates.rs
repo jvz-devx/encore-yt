@@ -86,7 +86,7 @@ fn action(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
         State::Available(release) if updates.install.advice().is_some() => {
             let page = release.page.clone();
             super::focusable(
-                widgets::pill_button("update-page", "Release page", None, Pill::Secondary, c),
+                widgets::pill_button("update-page", "Release page", None, Pill::Tonal, c),
                 c,
             )
             .on_click(move |_, _, cx| cx.open_url(&page))
@@ -105,7 +105,7 @@ fn action(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
         .on_click(cx.listener(|this, _, _, cx| this.install_update(cx)))
         .into_any_element(),
         _ => super::focusable(
-            widgets::pill_button("update-check", "Check now", None, Pill::Secondary, c),
+            widgets::pill_button("update-check", "Check now", None, Pill::Tonal, c),
             c,
         )
         .on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))

@@ -98,6 +98,8 @@ impl Category {
                 "Transitions",
             ],
             Category::Motion => &["Motion", "Lyrics"],
+            // `Group::ALL`'s titles.
+            Category::Shortcuts => &["Playback", "Library", "Navigation", "Views", "In Settings"],
             _ => &[],
         }
     }

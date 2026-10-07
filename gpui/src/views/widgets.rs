@@ -56,6 +56,10 @@ pub enum Pill {
     Secondary,
     /// Confirms something that can't be undone: Delete.
     Danger,
+    /// A secondary action on a card that is itself tinted (Settings): a
+    /// translucent fill, so it stands out from the card as `raised` does
+    /// from the page.
+    Tonal,
 }
 
 /// A pill button with an optional leading icon (36 px tall).
@@ -70,6 +74,7 @@ pub fn pill_button(
         Pill::Primary => (c.primary, c.primary_hover, c.primary_foreground),
         Pill::Secondary => (c.raised, c.overlay, c.text),
         Pill::Danger => (c.danger, c.danger.opacity(0.88), c.primary_foreground),
+        Pill::Tonal => (c.hover, c.pressed, c.text),
     };
     h_flex()
         .id(id)

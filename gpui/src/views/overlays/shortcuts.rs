@@ -15,9 +15,8 @@ const WIDTH: Pixels = px(760.);
 /// A shortcut line's height.
 const LINE: Pixels = px(34.);
 
-/// The columns, left to right (the sheet's, and Settings → Keyboard
-/// shortcuts').
-pub(crate) const COLUMNS: [&[Group]; 2] = [
+/// The columns, left to right.
+const COLUMNS: [&[Group]; 2] = [
     &[Group::Playback, Group::Navigation],
     &[Group::Views, Group::Library, Group::Settings],
 ];

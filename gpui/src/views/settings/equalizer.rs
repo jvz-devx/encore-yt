@@ -96,7 +96,7 @@ fn open_panel(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
                 size::ICON_SM,
                 c.text,
             )),
-            Pill::Secondary,
+            Pill::Tonal,
             c,
         ),
         c,

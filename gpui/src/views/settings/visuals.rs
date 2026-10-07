@@ -133,7 +133,7 @@ fn look(saved: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
                 "visuals-reset",
                 format!("Reset to {}", preset.label()),
                 None,
-                Pill::Secondary,
+                Pill::Tonal,
                 c,
             ),
             c,

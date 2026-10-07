@@ -111,7 +111,7 @@ fn status(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement 
                     "settings-reconnect",
                     "Reconnect",
                     Some(widgets::icon(IconName::RefreshCw, size::ICON_SM, c.text)),
-                    Pill::Secondary,
+                    Pill::Tonal,
                     c,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx)))
@@ -133,7 +133,7 @@ fn another_way(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
                     "settings-sign-in-other",
                     "Sign in another way",
                     Some(widgets::icon(IconName::LogIn, size::ICON_SM, c.text)),
-                    Pill::Secondary,
+                    Pill::Tonal,
                     c,
                 ),
                 c,

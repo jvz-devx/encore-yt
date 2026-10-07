@@ -222,6 +222,10 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   `Pill::Secondary` (`raised` fill: Shuffle, Radio, Try again, Dismiss).
   `widgets::icon_button`: 36 round ghost with `hover`/`pressed` fills; toggles
   colour their icon with `widgets::toggle_color` (`signal` when on).
+  `Pill::Tonal` (`hover` fill, `pressed` on hover) is the secondary pill on
+  a card that is itself tinted (Settings), so it stands out from the card
+  as `raised` does from the page. An off switch's track is `text` at 20%,
+  visible on a page, a panel or a card.
 - **Page header**: cover 224 (`radius LG`, round for artists), `XXL` gap, text
   column bottom-aligned: `type_display`, subtitle `type_body` muted, second
   subtitle and description `type_small` muted, then a row of pills.
@@ -243,6 +247,31 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
 - **Panels** (Up next, settings, dialogs): `overlay` (dialogs) or `surface`
   (side panel, `radius LG`, inset like the page panel), `elevation::high` when
   floating, padding `LG`–`XL`, headings `type_heading`.
+- **Settings** (`views/settings/`, M24): a modal of most of the window
+  (`size::SETTINGS_W` × `SETTINGS_H` at most, `XXXL` margins, `XL` below
+  1100 px) on `base` with an `outline` edge and `elevation::high`, over the
+  `scrim`. Left, a `SETTINGS_NAV` (256) sidebar: "Settings" `type_heading`
+  with its keycaps, a 36 px search pill on `raised` (`/` keycap while
+  empty), then the categories as sidebar items. Right, the category on a
+  `surface` panel inset `SM` (top, right) with `radius LG`, as the window's
+  page panel: `type_title` and a muted line, a Reset pill when it differs
+  from its defaults, Close; tabs as a segmented control (a few hug their
+  labels, many share `SETTINGS_TEXT`); a body scrolling on its own, `GUTTER`
+  sides, sections `XL` apart. A section is an optional `type_label` muted
+  name over a card (`hover` fill, `radius MD`, `px LG`) of rows: label
+  `type_body` (keycaps after it when it has a shortcut), a muted
+  `type_small` line, the control at the right. Choices on cards are pills
+  on `hover` (`primary` when chosen). Along the foot, `SETTINGS_FOOTER`
+  (44) on `base`: the modal's keys as keycaps with `type_caption` muted
+  labels, and the version in `text_faint`. Search shows results grouped
+  by category (icon and name over a card of rows, the highlighted one on
+  `selected`, its tab in `text_faint`, a chevron) and the sidebar counts
+  matches per category, fading those without. Controls are tab stops with
+  a `focus_ring` while the keyboard is on them.
+- **Keycaps** (`overlays::keycap`): a 24 px cap on `selected` with a
+  darker lower edge, `type_caption`. Key names come from the shortcut
+  table (`desktop::SHORTCUTS`) through `desktop::key_label`: Ctrl reads
+  Cmd and Alt reads Option on macOS.
 - **Covers** (`widgets::cover`): always use it. It draws the placeholder (a
   music note on `raised`) under the image so loading, failed and missing covers
   look deliberate, and a 1 px `outline` inside the edge.

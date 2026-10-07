@@ -64,7 +64,7 @@ pub fn card(k: Card, s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) 
     v_flex()
         .rounded(radius::MD)
         .bg(c.hover)
-        .px(space::MD)
+        .px(space::LG)
         .pb(space::XS)
         .child(header)
         .children(body(k, s, on.unwrap_or(true), c, cx))
@@ -189,10 +189,10 @@ fn visualizer_summary(s: &VisualsConfig) -> String {
         places.push("Stage");
     }
     if places.is_empty() {
-        format!("{}, in the full window (V)", v.style.label())
+        format!("{}, in the full window", v.style.label())
     } else {
         format!(
-            "{} in {} and the full window (V)",
+            "{} in {} and the full window",
             v.style.label(),
             places.join(" and ")
         )

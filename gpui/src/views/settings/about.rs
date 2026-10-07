@@ -137,7 +137,7 @@ fn channel(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement
         "checks are off"
     };
     let button = super::focusable(
-        widgets::pill_button("about-updates", "Updates", None, Pill::Secondary, c),
+        widgets::pill_button("about-updates", "Updates", None, Pill::Tonal, c),
         c,
     )
     .on_click(cx.listener(|this, _, window, cx| this.show_category(Category::Updates, window, cx)));
@@ -182,7 +182,7 @@ fn place(
             SharedString::from(format!("about-open-{id}")),
             "Open folder",
             Some(widgets::icon(IconName::FolderOpen, size::ICON_SM, c.text)),
-            Pill::Secondary,
+            Pill::Tonal,
             c,
         ),
         c,
@@ -215,7 +215,7 @@ fn credits(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyEle
             "about-source",
             "Source code",
             Some(widgets::icon(IconName::ExternalLink, size::ICON_SM, c.text)),
-            Pill::Secondary,
+            Pill::Tonal,
             c,
         ),
         c,
@@ -286,7 +286,7 @@ fn notices(open: bool, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
             "about-notices",
             if open { "Hide" } else { "Show" },
             None,
-            Pill::Secondary,
+            Pill::Tonal,
             c,
         ),
         c,

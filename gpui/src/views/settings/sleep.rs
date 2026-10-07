@@ -20,7 +20,7 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
         ),
     };
     let off = super::focusable(
-        widgets::pill_button("settings-sleep-off", "Turn off", None, Pill::Secondary, c),
+        widgets::pill_button("settings-sleep-off", "Turn off", None, Pill::Tonal, c),
         c,
     )
     .on_click(cx.listener(|this, _, _, cx| this.sleep(None, cx)));

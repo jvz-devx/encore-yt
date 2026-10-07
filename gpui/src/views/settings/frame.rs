@@ -53,7 +53,7 @@ pub(super) fn panel(
         .bg(c.surface)
         .overflow_hidden()
         .child(header)
-        .children(tabs.map(|t| div().flex_none().px(size::GUTTER).pb(space::LG).child(t)))
+        .children(tabs.map(|t| h_flex().flex_none().px(size::GUTTER).pb(space::LG).child(t)))
         .child(
             div()
                 .id(id)

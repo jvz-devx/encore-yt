@@ -2,6 +2,14 @@
 # Cargo's rustc wrapper for this repo (gpui/.cargo/config.toml): compile
 # through sccache when it's installed, so every worktree shares one compiler
 # cache, and plain rustc otherwise, so builds never fail for lack of it.
+#
+# Release builds (target/…/release/) skip sccache: with fat LTO and their own
+# opt-levels they rarely hit the cache, and going through the shared sccache
+# server made a full release build take 20 to 60 minutes instead of about 7
+# (M26, docs/gpui/SIZE.md). Checks, dev and profiling builds keep it.
+case "$*" in
+    */target/release/* | */target/*/release/*) exec "$@" ;;
+esac
 if command -v sccache >/dev/null 2>&1; then
     exec sccache "$@"
 fi

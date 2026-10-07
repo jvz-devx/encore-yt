@@ -54,3 +54,11 @@ main`) instead of making new worktrees: a warm slot skips all of it.
   after an edit is under 4 s in total.
 - **GitHub CI** (~20 min per release run) uses rust-cache and runs no tests;
   it runs in the background and doesn't block agents.
+
+## Release builds skip sccache (2026-10-07)
+
+Full release builds through the shared sccache server took 20 to 60 minutes
+during M26, and about 7 without it (fat LTO and per-crate opt-levels rarely
+hit the cache anyway). `scripts/rustc-wrapper` now calls rustc directly for
+anything under `target/…/release/`; checks, dev and `profiling` builds still
+go through sccache. CI already builds without it.

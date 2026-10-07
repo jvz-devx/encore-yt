@@ -129,7 +129,7 @@ pub fn row(
         .on_click(on_activate(ctx, shelf, i, cx))
         .map(|el| super::intent::page(el, item, cx))
         .map(|el| crate::views::extras::audition::hook(el, item.track.as_ref(), radius::MD, cx))
-        .map(|el| super::item_keys::hook(el, &ctx.key, shelf, i, Anchor::Row, c, cx))
+        .map(|el| super::item_keys::hook(el, ctx, shelf, i, Anchor::Row, cx))
         .into_any_element()
 }
 

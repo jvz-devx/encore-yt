@@ -5,20 +5,21 @@
 //! gives the keyboard back to the row; the account and sleep timer menus
 //! answer the same keys; in Settings the arrows change chips, segments,
 //! tabs and sliders, Ctrl+Tab and Ctrl+PageDown change tabs, and Space
-//! turns a switch.
+//! turns a switch. Tab onto a card out of sight scrolls its carousel and
+//! the page to it.
 
 use gpui_kit::{Modifiers, TestAppContext, point, px};
 use ytfast::account::Edit;
 use ytfast::backend::{Command, Event};
 use ytfast::equalizer::Preset;
-use ytfast::model::{Account, Mixes, Page, Sleep};
+use ytfast::model::{Account, Mixes, Page, ShelfStyle, Sleep, Target};
 
 use super::Ui;
 use super::home::{home_row, on_home, quick_picks};
 use crate::desktop::menu::entries;
 use crate::nav::LibraryTab;
 use crate::settings::Category;
-use crate::theme::motion::{self, TextSize};
+use crate::theme::motion::{self, Config, Reduce, TextSize};
 
 /// The open menu's highlighted entry's label, and its submenu's.
 fn highlight(ui: &mut Ui) -> (Option<&'static str>, Option<usize>) {
@@ -135,6 +136,89 @@ fn shift_f10_opens_a_focused_rows_menu_and_escape_gives_the_keyboard_back(cx: &m
             .any(|c| matches!(c, Command::PlayTracks { start: 1, .. })),
         "Enter plays the focused row"
     );
+}
+
+#[gpui_kit::test]
+fn tab_onto_a_card_out_of_sight_scrolls_its_carousel_and_the_page(cx: &mut TestAppContext) {
+    // Reduced motion: the carousel jumps rather than glides.
+    motion::set_for_test(Config {
+        reduce: Reduce::Always,
+        ..Config::default()
+    });
+    let (mut ui, home) = on_home(cx);
+    let key = Target::browse("FEmusic_home").key();
+    let (q, _) = quick_picks(&home);
+    let carousels: Vec<usize> = home
+        .shelves
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.style == ShelfStyle::Carousel)
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        carousels.len() > 1,
+        "the Home fixture has carousels of cards"
+    );
+    let page = |ui: &mut Ui| {
+        ui.app.read_with(&ui.cx, |app, _| {
+            let state = &app.pages.lists[&key].state;
+            (state.viewport_bounds(), state.logical_scroll_top())
+        })
+    };
+
+    // The keyboard starts on Quick picks' first row and tabs on through
+    // the shelves.
+    ui.click(&home_row(q, 0));
+    ui.take_sent();
+    assert_eq!(page(&mut ui).1.item_ix, 0, "Home starts at its top");
+    let mut tabs = 0;
+    for s in carousels {
+        let carousel = |ui: &mut Ui| {
+            ui.app.read_with(&ui.cx, |app, _| {
+                app.pages
+                    .carousels
+                    .get(&(key.clone(), s))
+                    .map(|h| (h.offset().x, h.bounds()))
+            })
+        };
+        // On until a card the carousel has to bring in.
+        while carousel(&mut ui).is_none_or(|(x, _)| x == px(0.)) {
+            ui.keys("tab");
+            tabs += 1;
+            assert!(tabs < 120, "no tab moved the carousel of shelf {s}");
+        }
+        let (_, view) = carousel(&mut ui).expect("drawn");
+
+        // The focused card is in sight: its menu opens at its lower left
+        // corner, inside the carousel and the page.
+        ui.keys("shift-f10");
+        let at = ui.app.read_with(&ui.cx, |app, _| {
+            app.desktop.layers.menu.as_ref().map(|m| m.at)
+        });
+        let at = at.expect("Shift+F10 opens the card's menu");
+        let card = crate::theme::size::CARD;
+        let (list, _) = page(&mut ui);
+        assert!(
+            at.x >= view.left() && at.x + card <= view.right(),
+            "shelf {s}: the card is inside the carousel: at {at:?}, carousel {view:?}"
+        );
+        assert!(
+            at.y > list.top() && at.y <= list.bottom(),
+            "shelf {s}: the card is inside the page: at {at:?}, page {list:?}"
+        );
+        // Just far enough: the card's right edge rests by the carousel's.
+        let room = view.right() - (at.x + card);
+        assert!(
+            room < px(24.),
+            "shelf {s}: the carousel brought the card just into view: {room:?} beside it"
+        );
+        ui.keys("escape");
+    }
+    assert!(
+        page(&mut ui).1.item_ix > 0,
+        "the page scrolled down to the last carousel's cards"
+    );
+    motion::set_for_test(Config::default());
 }
 
 /// Signs in, and answers Library's playlists with one of the account's.

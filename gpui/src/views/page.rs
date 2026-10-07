@@ -42,6 +42,9 @@ pub(super) struct Ctx {
     /// Which songs are liked (M25).
     pub likes: crate::likes::Likes,
     pub c: Colors,
+    /// The carousel this entry's cards or rows scroll in, so the keyboard
+    /// can bring a focused one into view.
+    pub carousel: Option<ScrollHandle>,
 }
 
 impl Ctx {
@@ -52,6 +55,7 @@ impl Ctx {
             link: app.pages.link_hover.clone(),
             likes: crate::likes::Likes::of(app),
             c: theme::colors(cx),
+            carousel: None,
         }
     }
 
@@ -145,7 +149,7 @@ fn draw_entry(
     _window: &mut Window,
     cx: &mut Context<MusicApp>,
 ) -> AnyElement {
-    let ctx = Ctx::new(app, key, cx);
+    let mut ctx = Ctx::new(app, key, cx);
     let carousel = match entry {
         Entry::Shelf(i) => Some(app.pages.carousel(key, i)),
         _ => None,
@@ -156,6 +160,11 @@ fn draw_entry(
     let Some(page) = &state.page else {
         return div().into_any_element();
     };
+    if let Entry::Shelf(i) = entry
+        && page.shelves.get(i).is_some_and(|s| shelf::scrolls(s.style))
+    {
+        ctx.carousel = carousel.clone();
+    }
     match entry {
         Entry::Tabs(tab) => {
             let tabs = chips::library_tabs(tab, &ctx, cx);

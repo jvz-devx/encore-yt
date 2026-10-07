@@ -93,6 +93,11 @@ pub fn shelf(
         .into_any_element()
 }
 
+/// Whether a shelf of `style` scrolls sideways in a carousel.
+pub fn scrolls(style: ShelfStyle) -> bool {
+    matches!(style, ShelfStyle::Carousel | ShelfStyle::RowCarousel)
+}
+
 /// Strapline and title, and See all on the right when the shelf has a page.
 pub fn title(index: usize, shelf: &Shelf, ctx: &Ctx, cx: &mut Context<MusicApp>) -> AnyElement {
     let c = &ctx.c;
@@ -163,6 +168,7 @@ fn carousel(
     };
     let arrow = |direction: f32, icon: IconName, cx: &mut Context<MusicApp>| {
         let scroll = scroll.clone();
+        let key = ctx.key.clone();
         arrow_button(
             ctx.id(format!("carousel-arrow:{index}:{direction}")),
             icon,
@@ -172,9 +178,10 @@ fn carousel(
         .top(arrow_top)
         .opacity(0.)
         .group_hover("carousel", |s| s.opacity(1.))
-        .on_click(cx.listener(move |_, _, _, cx| {
+        .on_click(cx.listener(move |this, _, _, cx| {
             cx.stop_propagation();
-            glide(scroll.clone(), direction, pitch, cx);
+            let to = page_turn(&scroll, direction, pitch);
+            glide(this, (key.clone(), index), scroll.clone(), to, cx);
         }))
     };
     let back = can_back.then(|| arrow(-1., IconName::ChevronLeft, cx).left(-space::LG));
@@ -219,21 +226,34 @@ fn arrow_button(id: SharedString, icon: IconName, c: &Colors) -> Stateful<Div> {
         .child(widgets::icon(icon, size::ICON, c.text))
 }
 
-/// Scrolls a carousel by most of its visible width, settling on an item's
-/// edge, easing out over `motion::SLOW` at the chosen speed.
-fn glide(scroll: ScrollHandle, direction: f32, pitch: Pixels, cx: &mut Context<MusicApp>) {
+/// Where a page turn of a carousel lands: most of its visible width on,
+/// settling on an item's edge.
+fn page_turn(scroll: &ScrollHandle, direction: f32, pitch: Pixels) -> Pixels {
     let width = scroll.bounds().size.width;
-    let max = scroll.max_offset().x;
     let from = -scroll.offset().x;
     let items = ((width / pitch).floor() - 1.).max(1.);
-    let to = ((from / pitch).round() + direction * items) * pitch;
-    let to = to.clamp(px(0.), max);
+    ((from / pitch).round() + direction * items) * pitch
+}
+
+/// Scrolls carousel `shelf` (page key, shelf) to `to`, easing out over
+/// `motion::SLOW` at the chosen speed, or at once with reduced motion. A
+/// glide already under way stops.
+pub fn glide(
+    app: &mut MusicApp,
+    shelf: (String, usize),
+    scroll: ScrollHandle,
+    to: Pixels,
+    cx: &mut Context<MusicApp>,
+) {
+    let from = -scroll.offset().x;
+    let to = to.clamp(px(0.), scroll.max_offset().x);
     let Some(length) = motion::duration(motion::SLOW) else {
+        app.pages.glides.remove(&shelf);
         scroll.set_offset(point(-to, scroll.offset().y));
         cx.notify();
         return;
     };
-    cx.spawn(async move |this, cx| {
+    let task = cx.spawn(async move |this, cx| {
         let start = Instant::now();
         loop {
             cx.background_executor()
@@ -247,8 +267,8 @@ fn glide(scroll: ScrollHandle, direction: f32, pitch: Pixels, cx: &mut Context<M
                 break;
             }
         }
-    })
-    .detach();
+    });
+    app.pages.glides.insert(shelf, task);
 }
 
 /// Quick picks: columns of four rows.

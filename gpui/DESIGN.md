@@ -204,6 +204,15 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   tabular `text_faint`. Hover `hover` fill and a play glyph on a `scrim` over
   the thumb; press `pressed`. Playing: `selected` fill, title and index in
   `signal`, `AudioLines` on the thumb's scrim.
+- **Like mark** (`account::row_like`, M25): signed in, song rows on pages and
+  in Up next keep a 36 px ghost button before the duration. A liked song
+  shows a filled 16 px `ThumbsUp` in `signal` there, always (a toggle that is
+  on); other songs show an outline one in `text_muted` only under the
+  pointer. Clicking likes or removes the like. Rows that aren't songs keep
+  the room empty, so the ends line up. Which songs are liked comes from
+  `crate::likes` (the account's marks, else the row's own rating).
+  `YTFAST_GPUI_FAKE_LIKED=<videoId,videoId>` or `=every3` marks songs liked
+  for checks signed out.
 - **Quick picks** (`RowCarousel`): columns of four rows, 380 wide, `LG` apart,
   scrolling sideways.
 - **Chip** (`page::chip`): 36 pill on `raised`, `px LG`, `type_label`, hover

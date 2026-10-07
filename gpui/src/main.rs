@@ -11,6 +11,7 @@ mod app;
 mod assets;
 mod desktop;
 mod extras;
+mod likes;
 mod link;
 mod nav;
 mod pages;

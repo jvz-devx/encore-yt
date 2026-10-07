@@ -21,6 +21,7 @@ Views never name a colour, size or font directly: they use these.
    Weight and size carry the hierarchy, never colour alone.
 5. **Quiet motion.** Hover and press change at once. Things that appear settle
    in (opacity, `motion::BASE`, ease out). Nothing loops except loading.
+   How much moves, and how fast, is the listener's call (Settings → Motion).
 
 ## Layout
 
@@ -122,16 +123,40 @@ Inter 4.001 static cuts, bundled (`assets/fonts`, OFL). Body is 14 px.
 
 - `elevation::low(c)`: play disc on a cover. `elevation::high(c)`: menus,
   popovers, dialogs (with `overlay` fill and `radius::LG`).
-- `motion::FAST 120 ms` (icon swaps, toggles), `BASE 200 ms` (content
-  arriving, panels opening), `SLOW 320 ms` (sliding panels, the cover flying);
-  easing `motion::ease_out` (quint). Animate opacity and position only.
-- A page fades in once per page key (`with_animation("enter:<key>")`).
-- Loading pulses with `widgets::skeleton` (1.6 s, opacity 0.55–1).
-- Reduced motion: when the desktop asks for it (the portal's
-  `reduced-motion`, or KDE's animation speed at Instant), `theme::init` sets
-  GPUI's `reduce_motion`, so every `with_animation` shows its last frame at
-  once and loops stand still. Motion driven by hand (timers, M8 effects)
-  checks `theme::reduced_motion(cx)` and jumps to the end instead.
+- `motion::FAST 120 ms` (menus, icon swaps, toggles), `BASE 200 ms`
+  (content arriving, panels opening), `SLOW 320 ms` (sliding panels, a page
+  sliding or scaling in, a lyric line growing, the cover flying); easing
+  `motion::ease_out` (quint). Animate opacity and position only.
+- Every animation goes through `motion::animate` / `.with_motion(id, kind,
+  base, ..)`, never a bare `with_animation`: it scales `base` by the speed
+  and draws the last frame at once when the kind is switched off or motion
+  is reduced. Motion a view drives itself asks `motion::progress` (page
+  transitions) or `motion::duration` (the carousel glide).
+- Loading pulses with `widgets::skeleton` (1.6 s, opacity 0.55–1) unless the
+  pulse is off.
+
+### Settings → Motion (`motion.json` in the config directory)
+
+- Page transitions: None, Fade (the default), Slide, Scale. Forward comes
+  from the right and Back from the left (`Pages::transition`). GPUI can't
+  transform an element, so Slide is a relative offset and Scale is a clip
+  that opens around the page at full size while it drifts in; the page
+  never reflows while it moves. A page that arrives after its skeleton
+  fades in on its own.
+- Speed: instant, 0.5× to 2× (a hand edit may go from 0.1× to 4×).
+- Switches per kind (`motion::Kind`): menus and popovers, panels and
+  dialogs, toasts, Now Playing and Stage opening, skeleton pulse, lyrics.
+- Reduced motion: System (the portal's `reduced-motion`, or KDE's animation
+  speed at Instant), Always or Never. The result also sets GPUI's
+  `reduce_motion`, so the kit's spinners stand still; motion driven by hand
+  (timers, M8 effects) checks `theme::reduced_motion(cx)`.
+- Lyrics (`views::glide`, Now Playing and Stage): the current line grows
+  (100–120%) and fills from left to right as it is sung; past lines shrink a
+  little and dim, upcoming lines dim less, far lines fade further. The view
+  eases the current line to the top third or the centre. Text size S/M/L/XL
+  and left or centred lines. Brightness is the `text` token's opacity.
+  `YTFAST_GPUI_FAKE_LYRICS=<file.lrc>` gives every song local timed lyrics
+  for checks (`gpui/fixtures/lyrics.lrc`).
 
 ## Icons
 

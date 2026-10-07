@@ -12,6 +12,7 @@ use gpui_kit::*;
 
 use super::{menu, widgets};
 use crate::app::MusicApp;
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 
 pub fn overlays(
@@ -74,14 +75,14 @@ fn toast(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<AnyElement> {
                     )
                     .child(text),
             )
-            .with_animation(
+            .with_motion(
                 SharedString::from(format!("toast-{stamp}")),
-                Animation::new(motion::BASE).with_easing(motion::ease_out),
+                motion::Kind::Toasts,
+                motion::BASE,
                 |el, t| {
                     el.opacity(t)
                         .bottom(size::PLAYER_BAR + space::LG - space::SM * (1. - t))
                 },
-            )
-            .into_any_element(),
+            ),
     )
 }

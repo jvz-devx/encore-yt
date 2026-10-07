@@ -60,12 +60,16 @@ fn main() -> anyhow::Result<()> {
         ))
     });
     let early = app::Early::start(paths.clone())?;
+    let motion_path = paths.config.join("motion.json");
 
     gpui_kit::application()
         .with_assets(assets::AppAssets)
         .run(move |cx| {
             startup::mark(startup::Milestone::Platform);
             gpui_kit::init(cx);
+            // Settings → Motion, before the theme applies the desktop's
+            // reduced motion through it.
+            theme::motion::init(motion_path);
             // Fonts, colours and gpui-component's theme (YTFAST_GPUI_THEME=light).
             theme::init(asking, cx);
             startup::mark(startup::Milestone::Theme);

@@ -1,9 +1,9 @@
-//! The Lyrics tab. Timed lyrics follow the song: the current line lit
-//! about a third of the way down, upcoming lines readable, past lines
-//! dimmer. A hand scroll holds the view for a few seconds; clicking a line
-//! seeks to it. Plain lyrics scroll as text.
+//! The Lyrics tab. Timed lyrics follow the song and glide as Settings →
+//! Motion → Lyrics says (`views::glide`): the current line larger and lit
+//! at its anchor, the others dimmed. A hand scroll holds the view for a
+//! few seconds; clicking a line seeks to it. Plain lyrics scroll as text.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::v_flex;
@@ -11,15 +11,17 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::model::Lyrics;
 
+use super::super::glide::{self, Glide};
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;
 use crate::playback::LYRICS_HOLD;
-use crate::theme::{Colors, Type, radius, size, space};
+use crate::theme::motion::Align;
+use crate::theme::{self, Colors, Type, radius, size, space};
 
-/// Where the current line sits in the view, from the top.
-const ANCHOR: f32 = 0.33;
-/// How much of the way to the target each frame scrolls (an ease out).
-const EASE: f32 = 0.2;
+/// The medium text size of a line, and its line height against its size
+/// (the title style, 22/28).
+const TITLE: f32 = 22.;
+const LEADING: f32 = 28. / 22.;
 
 pub fn lyrics(
     app: &mut MusicApp,
@@ -95,38 +97,44 @@ fn timed(
     c: &Colors,
     cx: &mut Context<MusicApp>,
 ) -> impl IntoElement {
+    let glide = Glide::now();
     let position = app.player.position();
+    let duration = app.player.playback.duration;
     let current = ytfast::lyrics::current_line(&lyrics.lines, position);
-    follow(app, id, current, window);
-    wake_for_next(app, lyrics, current, position, cx);
+    follow(app, id, current, &glide, window);
+    wake(app, &glide, lyrics, current, position, cx);
     let handle = app.player.lyrics_scroll.handle.clone();
-    let lines = lyrics.lines.iter().enumerate().map(|(i, line)| {
-        let fg = match current {
-            Some(now) if i == now => c.text,
-            Some(now) if i < now => c.text_faint.opacity(0.55),
-            _ => c.text_muted.opacity(0.75),
-        };
-        let hover = c.text;
-        let start = line.start;
-        let text = if line.text.trim().is_empty() {
-            "♪".to_string()
-        } else {
-            line.text.clone()
-        };
-        div()
+    let hover = c.text;
+    let lines = (0..lyrics.lines.len()).map(|i| {
+        let start = lyrics.lines[i].start;
+        let el = div()
             .id(("lyric", i))
             .px(space::SM)
             .py(space::SM)
             .rounded(radius::MD)
-            .type_title()
-            .text_color(fg)
+            .font_family(theme::FONT_DISPLAY)
+            .font_weight(FontWeight::BOLD)
             .cursor_pointer()
             .hover(move |s| s.text_color(hover))
-            .child(text)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.player.lyrics_scroll.held_until = None;
                 this.seek_to(start, cx);
-            }))
+            }));
+        glide::line(
+            &glide,
+            glide::Line {
+                el,
+                prefix: "lyric",
+                index: i,
+                lines: &lyrics.lines,
+                current,
+                position,
+                duration,
+                size: glide.size(TITLE),
+                leading: LEADING,
+                text: c.text,
+            },
+        )
     });
     v_flex()
         .id("lyrics")
@@ -137,14 +145,21 @@ fn timed(
         .pt(space::XL)
         .pb(px(240.))
         .children(lines)
-        .children(credit(lyrics, c))
+        .children(credit(lyrics, glide.lyrics.align, c))
         .on_scroll_wheel(cx.listener(|this, _: &ScrollWheelEvent, _, _| {
             this.player.lyrics_scroll.held_until = Some(Instant::now() + LYRICS_HOLD);
         }))
 }
 
-/// Eases the view toward the current line, unless a hand scroll holds it.
-fn follow(app: &mut MusicApp, id: &str, current: Option<usize>, window: &mut Window) {
+/// Keeps the current line at its anchor, unless a hand scroll holds the
+/// view; a new song starts at the top.
+fn follow(
+    app: &mut MusicApp,
+    id: &str,
+    current: Option<usize>,
+    glide: &Glide,
+    window: &mut Window,
+) {
     let scroll = &mut app.player.lyrics_scroll;
     if scroll.song.as_deref() != Some(id) {
         scroll.song = Some(id.to_string());
@@ -155,60 +170,45 @@ fn follow(app: &mut MusicApp, id: &str, current: Option<usize>, window: &mut Win
         return;
     }
     scroll.held_until = None;
-    let Some(line) = current.and_then(|i| scroll.handle.bounds_for_item(i)) else {
-        // Not laid out yet: look again next frame.
-        if current.is_some() {
-            window.request_animation_frame();
-        }
-        return;
-    };
-    let view = scroll.handle.bounds();
-    let max = scroll.handle.max_offset().y;
-    let target = (view.top() + view.size.height * ANCHOR - line.top() - line.size.height / 2.)
-        .clamp(-max, px(0.));
-    let now = scroll.handle.offset();
-    let gap = target - now.y;
-    if gap.abs() < px(0.5) {
-        return;
-    }
-    let step = if gap.abs() < px(1.) { gap } else { gap * EASE };
-    scroll.handle.set_offset(point(now.x, now.y + step));
-    window.request_animation_frame();
+    glide::follow(glide, &scroll.handle, current, window);
 }
 
-/// Redraws when the next line starts, so it lights on time.
-fn wake_for_next(
+/// Redraws when the next line starts or the sweep moves on, so lines
+/// light on time.
+fn wake(
     app: &mut MusicApp,
+    glide: &Glide,
     lyrics: &Lyrics,
     current: Option<usize>,
     position: f64,
     cx: &mut Context<MusicApp>,
 ) {
     let playing = app.player.playback.playing && !app.player.playback.loading;
+    let duration = app.player.playback.duration;
     let scroll = &mut app.player.lyrics_scroll;
     if !playing {
         scroll.wake = None;
         return;
     }
-    let next = current.map_or(0, |i| i + 1);
-    let Some(line) = lyrics.lines.get(next) else {
+    let Some((key, delay)) = glide::next_wake(glide, &lyrics.lines, current, position, duration)
+    else {
         return;
     };
-    if scroll.wake.as_ref().is_some_and(|(i, _)| *i == next) {
+    if scroll.wake.as_ref().is_some_and(|(k, _)| *k == key) {
         return;
     }
-    let delay = Duration::from_secs_f64((line.start - position).max(0.0) + 0.02);
     let task = cx.spawn(async move |this, cx| {
         cx.background_executor().timer(delay).await;
         let _ = this.update(cx, |_, cx| cx.notify());
     });
-    scroll.wake = Some((next, task));
+    scroll.wake = Some((key, task));
 }
 
-fn credit(lyrics: &Lyrics, c: &Colors) -> Option<impl IntoElement> {
+fn credit(lyrics: &Lyrics, align: Align, c: &Colors) -> Option<impl IntoElement> {
     let source = lyrics.source.clone()?;
     Some(
         div()
+            .when(align == Align::Centre, |el| el.text_center())
             .px(space::SM)
             .pt(space::XL)
             .type_caption()
@@ -234,5 +234,5 @@ fn plain(id: &str, lyrics: &Lyrics, c: &Colors) -> impl IntoElement {
                 .when(line.trim().is_empty(), |s| s.h(space::MD))
                 .child(line.to_string())
         }))
-        .children(credit(lyrics, c))
+        .children(credit(lyrics, Align::Left, c))
 }

@@ -13,6 +13,7 @@
 
 mod account;
 pub(crate) mod extras;
+mod glide;
 mod menu;
 mod now_playing;
 mod overlays;

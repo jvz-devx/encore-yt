@@ -12,6 +12,7 @@
 
 mod home;
 mod menu;
+mod motion;
 mod player;
 mod search;
 mod settings;
@@ -150,6 +151,19 @@ impl Ui {
         let at = self.find(name).center();
         self.cx.simulate_mouse_move(at, None, Modifiers::none());
         self.cx.simulate_click(at, Modifiers::none());
+        self.frame();
+    }
+
+    /// Turns the wheel over the element named `name` by `pixels` (positive
+    /// scrolls down).
+    pub fn scroll(&mut self, name: &str, pixels: f32) {
+        let at = self.find(name).center();
+        self.cx.simulate_mouse_move(at, None, Modifiers::none());
+        self.cx.simulate_event(gpui_kit::ScrollWheelEvent {
+            position: at,
+            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-pixels))),
+            ..Default::default()
+        });
         self.frame();
     }
 

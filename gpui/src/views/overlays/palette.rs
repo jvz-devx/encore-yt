@@ -12,6 +12,7 @@ use gpui_kit::*;
 use super::keycap::{combo, keycap};
 use crate::app::MusicApp;
 use crate::desktop::palette::{Hit, Kind, PlayAnything};
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 use crate::views::widgets;
 
@@ -63,9 +64,10 @@ pub fn palette(
                     )))
             })
             .child(footer(pa, &c))
-            .with_animation(
+            .with_motion(
                 SharedString::from(format!("play-anything-{}", pa.serial)),
-                Animation::new(motion::BASE).with_easing(motion::ease_out),
+                motion::Kind::Panels,
+                motion::BASE,
                 |el, t| el.top(-space::MD * (1. - t)),
             );
     let top = (viewport.height * 0.14).max(space::XXXL);
@@ -77,12 +79,12 @@ pub fn palette(
                 cx.listener(|this, _, window, cx| this.close_play_anything(window, cx)),
             )
             .child(panel)
-            .with_animation(
+            .with_motion(
                 SharedString::from(format!("play-anything-scrim-{}", pa.serial)),
-                Animation::new(motion::BASE).with_easing(motion::ease_out),
+                motion::Kind::Panels,
+                motion::BASE,
                 |el, t| el.opacity(t),
-            )
-            .into_any_element(),
+            ),
     )
 }
 

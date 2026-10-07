@@ -397,6 +397,10 @@ impl MusicApp {
         if !self.player.lyrics_requested.insert(track.video_id.clone()) {
             return;
         }
+        if let Some(lyrics) = fake_lyrics() {
+            self.on_lyrics(track.video_id, Ok(Some(lyrics)));
+            return;
+        }
         let playback = &self.player.playback;
         let duration = track.duration.map(f64::from).unwrap_or(playback.duration);
         let browse_id = playback.lyrics.clone();
@@ -534,4 +538,20 @@ pub fn bind_keys(_cx: &mut App) {}
 /// Handlers for this area's actions, on the window's root element.
 pub fn on_actions(root: Div, _cx: &mut Context<MusicApp>) -> Div {
     root
+}
+
+/// For checks with `YTFAST_FAKE_STREAM`: `YTFAST_GPUI_FAKE_LYRICS=<file.lrc>`
+/// gives every song those timed lyrics, so nothing is fetched.
+fn fake_lyrics() -> Option<Lyrics> {
+    let path = std::env::var_os("YTFAST_GPUI_FAKE_LYRICS")?;
+    let text = std::fs::read_to_string(&path)
+        .inspect_err(|e| log::warn!("YTFAST_GPUI_FAKE_LYRICS: {e}"))
+        .ok()?;
+    let lines = ytfast::lyrics::parse_lrc(&text);
+    let plain = lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>();
+    Some(Lyrics {
+        text: plain.join("\n"),
+        source: Some("Test lyrics".into()),
+        lines,
+    })
 }

@@ -7,7 +7,6 @@
 
 use std::borrow::Cow;
 use std::sync::Arc;
-use std::time::Duration;
 
 use gpui_kit::component::{Colorize, Theme, ThemeMode, oklch};
 use gpui_kit::*;
@@ -192,9 +191,10 @@ pub fn mode(cx: &App) -> Mode {
     cx.global::<Look>().mode
 }
 
-/// Whether the desktop asks for less motion. GPUI's animations
-/// (`with_animation`, gpui-component's spinners) already settle at once
-/// then; motion driven by hand (timers, M8 effects) checks this.
+/// Whether motion is cut back (Settings → Motion, or the desktop asking
+/// for it). GPUI's animations (`with_animation`, gpui-component's
+/// spinners) already settle at once then; motion driven by hand (timers,
+/// M8 effects) checks this.
 pub fn reduced_motion(cx: &App) -> bool {
     cx.reduce_motion()
 }
@@ -258,23 +258,7 @@ pub mod size {
     pub const ICON_SM: Pixels = px(16.);
 }
 
-/// Motion: durations and the one easing curve. Hover and press states
-/// change at once; motion is for things that appear or move.
-pub mod motion {
-    use super::Duration;
-    /// Small state changes: icons swapping, a toggle.
-    #[allow(dead_code, reason = "a design-system token for views still to come")]
-    pub const FAST: Duration = Duration::from_millis(120);
-    /// Page content arriving, panels opening.
-    pub const BASE: Duration = Duration::from_millis(200);
-    /// Larger moves: a panel sliding, the cover flying.
-    #[allow(dead_code, reason = "a design-system token for views still to come")]
-    pub const SLOW: Duration = Duration::from_millis(320);
-    /// Ease out (quint): starts fast, settles softly.
-    pub fn ease_out(t: f32) -> f32 {
-        1.0 - (1.0 - t).powi(5)
-    }
-}
+pub mod motion;
 
 /// Elevation: layered translucent shadows instead of borders.
 pub mod elevation {
@@ -448,7 +432,7 @@ fn follow(desktop: portal::Desktop, cx: &mut App) {
     if mode != look.mode {
         apply(mode, cx);
     }
-    cx.set_reduce_motion(desktop.reduced_motion());
+    motion::follow_desktop(desktop.reduced_motion(), cx);
     cx.refresh_windows();
 }
 

@@ -10,6 +10,7 @@ use ytfast::model::Sleep;
 use super::super::widgets;
 use super::controls::time_left;
 use crate::app::MusicApp;
+use crate::theme::motion::MotionExt as _;
 use crate::theme::{Colors, Type, elevation, motion, radius, size, space};
 
 const WIDTH: Pixels = px(232.);
@@ -50,13 +51,9 @@ pub fn floating(
 
 /// A panel settles in: it fades and rises a few pixels.
 pub fn appear(panel: Stateful<Div>, id: &'static str) -> AnyElement {
-    panel
-        .with_animation(
-            id,
-            Animation::new(motion::FAST).with_easing(motion::ease_out),
-            |el, t| el.opacity(t).mb(px(6.) * (1. - t)),
-        )
-        .into_any_element()
+    panel.with_motion(id, motion::Kind::Menus, motion::FAST, |el, t| {
+        el.opacity(t).mb(px(6.) * (1. - t))
+    })
 }
 
 pub fn menu(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {

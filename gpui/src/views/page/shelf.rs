@@ -215,7 +215,7 @@ fn arrow_button(id: SharedString, icon: IconName, c: &Colors) -> Stateful<Div> {
 }
 
 /// Scrolls a carousel by most of its visible width, settling on an item's
-/// edge, easing out over `motion::SLOW`.
+/// edge, easing out over `motion::SLOW` at the chosen speed.
 fn glide(scroll: ScrollHandle, direction: f32, pitch: Pixels, cx: &mut Context<MusicApp>) {
     let width = scroll.bounds().size.width;
     let max = scroll.max_offset().x;
@@ -223,18 +223,18 @@ fn glide(scroll: ScrollHandle, direction: f32, pitch: Pixels, cx: &mut Context<M
     let items = ((width / pitch).floor() - 1.).max(1.);
     let to = ((from / pitch).round() + direction * items) * pitch;
     let to = to.clamp(px(0.), max);
-    if crate::theme::reduced_motion(cx) {
+    let Some(length) = motion::duration(motion::SLOW) else {
         scroll.set_offset(point(-to, scroll.offset().y));
         cx.notify();
         return;
-    }
+    };
     cx.spawn(async move |this, cx| {
         let start = Instant::now();
         loop {
             cx.background_executor()
                 .timer(Duration::from_millis(8))
                 .await;
-            let t = (start.elapsed().as_secs_f32() / motion::SLOW.as_secs_f32()).min(1.);
+            let t = (start.elapsed().as_secs_f32() / length.as_secs_f32()).min(1.);
             let x = from + (to - from) * motion::ease_out(t);
             let y = scroll.offset().y;
             scroll.set_offset(point(-x, y));

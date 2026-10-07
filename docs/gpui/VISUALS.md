@@ -657,10 +657,90 @@ XMB 0.74 ms a frame (2560x1600) and 0.58 ms (Now Playing's panel), Ridges
 Now Playing with a scene (captured on the Mac, dark and light; the scenes
 run at Now Playing's pace, about 90 frames a second there): the cover,
 title, waveform and Up next read over all three in both looks. In the
-light look the scenes nearly vanish (XMB a faint wave, Ridges and Aurora a
-pale haze): `tone_light` presses them into luminance 0.645-0.8. Keeping
-them there needs a scrim behind the text instead of the whole-panel
-squeeze (SPIKE-3D.md).
+light look the scenes nearly vanished (XMB a faint wave, Ridges and Aurora
+a pale haze): `tone_light` pressed them into luminance 0.645-0.8. The
+scrim below replaces that squeeze.
+
+### The scrim behind text (M30, 2026-10-07)
+
+In the light look a scene behind text keeps the visualiser's full tone
+(`tone_visualiser`, the pastel curve the full window uses) and only the
+text gets the light range: under each text block what shows there is
+pressed into luminance 0.7-0.86 with its hue and saturation kept
+(`scrimmed` in `scene_common.wgsl`). The mask is solid 8 points round a
+block, then a Gaussian of the distance that falls off twice as fast up and
+down as sideways (a lens of light along a line of text, not a cloud), gone
+by 1.6 of the block's feather. The blocks and their feathers:
+
+| Where | Blocks (slot) | Feather |
+|---|---|---|
+| Now Playing | the song: title, artists, waveform, format (`SongText`) | 200 pt |
+| | the tab column (`Tabs`), which has its own glass panel | 36 pt |
+| | the top bar over the panel's top | 120 pt |
+| Stage | the title (`Title`) and the corner buttons (`Corner`) | 200 pt |
+| | the lyrics (`Lyrics`) and the transport | 120 pt |
+| Full window | the title (`Title`) | 200 pt |
+| | the top bar (`Corner`) | 120 pt |
+
+A block within 64 points of the scene's edge reaches past it, so the top
+bars, the corner buttons and the transport get light from the edge, like a
+vignette, instead of a patch standing in the scene. The XMB's wave and
+sparkles fade to 40% under the scrim. The dark look is unchanged: its cap
+already keeps the scenes' shapes.
+
+**Where it is drawn: in the scene's shader, from the slots.** The views lay
+out empty `visuals::slot` boxes round their text, as they do for the
+effects (a view forgets a box it doesn't show, `visuals::clear_slot`);
+`visuals/scrim.rs` turns them into up to six rectangles in the scene's
+points, which ride in the scene's uniforms (10 more vec4s). Why there and
+not as GPUI quads behind the text:
+
+- Cheap: the mask is a few operations a pixel in a pass that already runs,
+  at the scene's resolution (half size for Aurora) and the scene's rate,
+  with no extra layer. A blurred GPUI panel would cover much of the
+  window, and every layer over the panel costs the UHD 630 GPU time in
+  every window frame (GPU budget, above).
+- Adaptive: a translucent surface-coloured panel has to be as opaque as
+  the darkest scene needs (about 80% over the XMB's night gradient) and
+  turns bright scenes into a white box; the shader lifts each pixel only as
+  far as text needs and keeps its hue, so the scene's shapes still show
+  through, pale, behind the words.
+- Smooth enough: the rectangles reach the shader with the frame they
+  belong to (one scene frame late, like the frame itself); the text blocks
+  move only on a resize or a new song's title, never while playing.
+  Paused, the scene rests and the backdrop (toned as before) shows.
+
+Tried and dropped: a solid core with a quintic fall over 88 points (a
+pale cloud with a visible rim over the full window's dark XMB), a round
+Gaussian (a smudge under the title), the light's colour from the scene's
+own colour before its tone (the patch came out pinker than the grey scene
+round it), and fixed-width title blocks (the light was wider than the
+words; Stage and the full window now size the title block to its text).
+
+The regular backdrop keeps its whole-frame tone: it is a blurred cover with
+little shape to lose, and it reads well in both looks.
+
+**Settings → Visuals → 3D → Scrim in the light look**: on by default; off
+gives the old whole-scene tone. Strength 50-150%: 100% keeps `text_muted`
+at 4.5:1; less lets more of the scene through (and lowers the contrast);
+more lays the theme's surface colour over the lifted scene, up to half.
+
+**Contrast.** From the shader's output (`cargo test -p encore-visuals
+scrim -- --nocapture`: a 320x200 frame, a text block in the middle, the
+darkest pixel under it against the light `text_muted`, luminance 0.104),
+each scene behind text and in the full window with a vivid, a muted and a
+near-monochrome palette: 4.82:1 at worst (the XMB's full-window gradient;
+5.2-5.6:1 behind text). From the captures (the darkest background pixel
+more than 3 px from a glyph, round the artist line, which is
+`text_muted`): Now Playing 5.12-5.14:1 with each scene, the full window
+4.67:1 (XMB), 5.04:1 (Ridges), 5.02:1 (Aurora); round the title (`text`)
+the cover's shadow darkens the light to 0.62 at worst, 11:1.
+
+Captures (`artifacts/gpui/`, light look, signed out, test audio): `f-xmb-*`
+(a red cover), `f-ridges-*` (a vivid one), `f-aurora-*` (a dark, muted
+one), each `-np`, `-stage` and `-full`; `s7-xmb-*` (a near-monochrome
+cover), `s8-backdrop-np`/`-stage` (the regular backdrop, unchanged) and
+`set-3d-down` (the setting).
 
 ## 1. wgpu output inside the GPUI window
 

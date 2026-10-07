@@ -132,11 +132,13 @@ pub fn line(glide: &Glide, line: Line<'_>) -> AnyElement {
     };
     let sweep = (glide.lyrics.sweep && line.current == Some(i))
         .then(|| sung(line.lines, i, line.position, line.duration));
-    // The unsung part of the current line is as dim as an upcoming line.
-    let unsung = glide.look(i + 1, Some(i)).alpha;
+    // The unsung part of the current line is as dim as an upcoming line:
+    // that is the line's own colour, and the sung part is painted over it
+    // (GPUI blends a highlight's colour over the text's).
+    let unsung = sweep.map(|_| glide.look(i + 1, Some(i)).alpha);
     let content = match sweep {
         Some(p) => StyledText::new(words.clone())
-            .with_highlights(sweep_runs(&words, p, line.text, unsung))
+            .with_highlights(sweep_runs(&words, p, line.text))
             .into_any_element(),
         None => words.into_any_element(),
     };
@@ -149,7 +151,7 @@ pub fn line(glide: &Glide, line: Line<'_>) -> AnyElement {
         let px_size = size * look.scale;
         el.text_size(px(px_size))
             .line_height(px(px_size * leading))
-            .text_color(text.opacity(look.alpha))
+            .text_color(text.opacity(unsung.unwrap_or(look.alpha)))
     };
     if !glide.moves || from == to {
         return style(el, to).into_any_element();
@@ -183,23 +185,20 @@ fn sung(lines: &[LyricLine], i: usize, position: f64, duration: f64) -> f32 {
 }
 
 /// The colours of a line sung `p` of the way: bright up to the edge, a
-/// soft edge a few characters wide, then the unsung opacity.
-fn sweep_runs(
-    words: &str,
-    p: f32,
-    text: Hsla,
-    unsung: f32,
-) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+/// soft edge a few characters wide, then nothing over the line's own
+/// (unsung) colour.
+fn sweep_runs(words: &str, p: f32, text: Hsla) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
     let chars: Vec<(usize, char)> = words.char_indices().collect();
     let n = chars.len();
     let edge = p * (n + FEATHER) as f32;
     let colour = |fill: f32| HighlightStyle {
-        color: Some(text.opacity(unsung + (1. - unsung) * fill)),
+        color: Some(text.opacity(fill)),
         ..Default::default()
     };
     let end_of = |k: usize| chars.get(k + 1).map_or(words.len(), |(b, _)| *b);
     let mut runs = Vec::new();
-    // Characters wholly sung, then the edge one by one, then the rest.
+    // Characters wholly sung, then the edge one by one; the rest keeps
+    // the line's colour.
     let solid = (edge - FEATHER as f32).floor().clamp(0., n as f32) as usize;
     if solid > 0 {
         runs.push((0..end_of(solid - 1), colour(1.)));
@@ -208,9 +207,6 @@ fn sweep_runs(
     for (k, &(at, _)) in chars.iter().enumerate().take(soft_end).skip(solid) {
         let fill = ((edge - k as f32) / FEATHER as f32).clamp(0., 1.);
         runs.push((at..end_of(k), colour(fill)));
-    }
-    if soft_end < n {
-        runs.push((chars[soft_end].0..words.len(), colour(0.)));
     }
     runs
 }

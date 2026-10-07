@@ -63,6 +63,19 @@ fn header(eq: &Equalizer, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoEl
         )
         .child(
             widgets::icon_button(
+                "equalizer-settings",
+                widgets::icon(IconName::Settings, size::ICON, c.text_muted),
+                c,
+            )
+            .debug_selector(|| "equalizer-settings".into())
+            .tooltip(widgets::tooltip("Equalizer settings"))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.close_panels(window, cx);
+                this.open_settings_at(crate::settings::Category::Equalizer, window, cx);
+            })),
+        )
+        .child(
+            widgets::icon_button(
                 "close-equalizer",
                 widgets::icon(IconName::X, size::ICON, c.text_muted),
                 c,

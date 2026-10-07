@@ -16,6 +16,7 @@ mod link;
 mod nav;
 mod pages;
 mod playback;
+mod settings;
 mod sidebar;
 mod sign_in;
 mod startup;
@@ -79,6 +80,7 @@ fn main() -> anyhow::Result<()> {
             account::bind_keys(cx);
             desktop::bind_keys(cx);
             extras::bind_keys(cx);
+            settings::bind_keys(cx);
             // img("https://...") fetches cover art through this client.
             match http
                 .join()

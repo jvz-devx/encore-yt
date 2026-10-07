@@ -44,8 +44,11 @@ pub fn menu(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
                 .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx))),
         )
         .child(
-            widgets::menu_item("menu-settings", IconName::Settings, "Settings", &c)
-                .on_click(cx.listener(|this, _, window, cx| this.open_settings(true, window, cx))),
+            widgets::menu_item("menu-settings", IconName::Settings, "Settings", &c).on_click(
+                cx.listener(|this, _, window, cx| {
+                    this.open_settings_at(crate::settings::Category::Account, window, cx)
+                }),
+            ),
         );
     // Hangs from the chip's bottom right corner, above the page.
     div().absolute().right_0().top(px(48.)).child(deferred(

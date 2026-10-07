@@ -18,7 +18,7 @@ const LINE: Pixels = px(34.);
 /// The columns, left to right.
 const COLUMNS: [&[Group]; 2] = [
     &[Group::Playback, Group::Navigation],
-    &[Group::Views, Group::Library],
+    &[Group::Views, Group::Library, Group::Settings],
 ];
 
 pub fn sheet(window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
@@ -103,17 +103,21 @@ fn group(group: Group, c: &Colors) -> impl IntoElement {
                 .text_color(c.text_muted)
                 .child(group.title()),
         )
-        .children(
-            SHORTCUTS
-                .iter()
-                .filter(|s| s.group == group)
-                .map(|s| line(s.keys, s.what, c)),
-        )
+        .children(lines(group, c))
+}
+
+/// The group's shortcuts from the one table (`desktop::SHORTCUTS`), a line
+/// each.
+pub(crate) fn lines(group: Group, c: &Colors) -> impl Iterator<Item = Div> + '_ {
+    SHORTCUTS
+        .iter()
+        .filter(move |s| s.group == group)
+        .map(|s| line(s.keys, s.what, c))
 }
 
 /// What it does on the left, its keys on the right ("or" between
 /// alternatives).
-fn line(keys: &[&[&'static str]], what: &'static str, c: &Colors) -> impl IntoElement {
+fn line(keys: &[&[&'static str]], what: &'static str, c: &Colors) -> Div {
     let mut caps = h_flex().flex_none().gap(space::SM);
     for (i, keys) in keys.iter().enumerate() {
         if i > 0 {

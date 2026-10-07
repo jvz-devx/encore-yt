@@ -264,7 +264,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f", ToggleStage, Some(MUSIC)),
         KeyBinding::new("e", ToggleEqualizer, Some(MUSIC)),
         KeyBinding::new("p", JumpToPeak, Some(MUSIC)),
-        KeyBinding::new("ctrl-m", ToggleMini, Some("Music")),
+        KeyBinding::new("secondary-m", ToggleMini, Some("Music")),
         KeyBinding::new("escape", ClosePanel, Some("ExtrasPanel")),
         KeyBinding::new("e", ClosePanel, Some("ExtrasPanel")),
         KeyBinding::new("f", ToggleStage, Some("Stage")),

@@ -45,6 +45,8 @@ pub struct MusicApp {
     pub pages: Pages,
     pub player: Player,
     pub account: AccountUi,
+    /// Settings' category, tabs and search (M24).
+    pub settings: crate::settings::SettingsNav,
     /// The sign-in sheet (M18).
     pub sign_in: crate::sign_in::SignIn,
     pub desktop: Desktop,
@@ -139,6 +141,7 @@ impl MusicApp {
             pages,
             player,
             account,
+            settings: crate::settings::SettingsNav::new(cx),
             sign_in: crate::sign_in::SignIn::new(),
             desktop,
             extras,
@@ -151,6 +154,12 @@ impl MusicApp {
             _events: events,
             _clock: clock,
         };
+        // The sound settings as saved, until the backend first reports
+        // (it does only once something plays or a session comes back).
+        let saved = ytfast::settings::Settings::load(&app.paths);
+        app.player.playback.normalize = saved.normalizes();
+        app.player.playback.equalizer = saved.equalizer;
+        app.player.playback.mixes = saved.mixes;
         match home_asked {
             Some(seq) => app.page_requested(View::Home.target(), seq),
             None => app.ensure_page(app.pages.view.target(), false),

@@ -153,10 +153,27 @@ fn top_bar(painted: bool, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoEl
     let left = if painted {
         styles(c, cx).into_any_element()
     } else {
-        div()
-            .type_small()
-            .text_color(c.text_muted)
-            .child("Visuals are off. Turn them on in Settings.")
+        h_flex()
+            .gap(space::MD)
+            .child(
+                div()
+                    .type_small()
+                    .text_color(c.text_muted)
+                    .child("Visuals are off."),
+            )
+            .child(
+                widgets::pill_button(
+                    "visualizer-settings",
+                    "Turn them on in Settings",
+                    None,
+                    widgets::Pill::Secondary,
+                    c,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_visualizer(window, cx);
+                    this.open_settings_at(crate::settings::Category::Visuals, window, cx);
+                })),
+            )
             .into_any_element()
     };
     h_flex()

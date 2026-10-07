@@ -3,20 +3,20 @@
 //! bar, Visualiser and Transitions. Each tab shows a card per effect (its
 //! switch, sliders and choices) and a Reset once it differs from its
 //! preset. Changes show at once (`visuals::config`); sliders save when let
-//! go. [`section`] draws it inside the Settings panel; [`view`] is the
-//! same without the section's name, for a page of its own.
+//! go. The Settings frame draws the tabs (`Category::tabs`, in [`Tab`]'s
+//! order) and [`view`] the tab chosen there.
 
 mod cards;
 mod knobs;
 mod visualiser;
 
 use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;
-use crate::theme::{Colors, Type, elevation, radius, size, space};
+use crate::settings::Category;
+use crate::theme::{Colors, Type, size, space};
 use crate::visuals::config::{self, Preset, VisualsConfig};
 use cards::Card;
 use knobs::Knobs;
@@ -42,17 +42,6 @@ impl Tab {
         Tab::Transitions,
     ];
 
-    fn label(self) -> &'static str {
-        match self {
-            Tab::General => "General",
-            Tab::Backdrop => "Backdrop",
-            Tab::Particles => "Particles",
-            Tab::PlayerBar => "Player bar",
-            Tab::Visualiser => "Visualiser",
-            Tab::Transitions => "Transitions",
-        }
-    }
-
     fn cards(self) -> &'static [Card] {
         match self {
             Tab::General => &[],
@@ -65,28 +54,28 @@ impl Tab {
     }
 }
 
-/// The Visuals section of the Settings panel.
-pub fn section(
-    _app: &MusicApp,
+/// Whether the frame shows the tabs: with every effect off only General
+/// has anything to set.
+pub fn tabs_shown() -> bool {
+    config::saved().on
+}
+
+/// The tab chosen in the frame.
+pub fn view(
+    app: &MusicApp,
     c: &Colors,
     window: &mut Window,
     cx: &mut Context<MusicApp>,
 ) -> AnyElement {
-    super::section("Visuals", c, [view(c, window, cx)])
-}
-
-/// The tabs and the tab showing.
-pub fn view(c: &Colors, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyElement {
     Knobs::sync(window, cx);
     let saved = config::saved();
-    // With every effect off only General has anything to set.
-    let tab = if saved.on {
-        cx.global::<Knobs>().tab.get()
-    } else {
-        Tab::General
+    let chosen = app.settings.tab(Category::Visuals);
+    let tab = match Tab::ALL.get(chosen) {
+        Some(tab) if saved.on => *tab,
+        _ => Tab::General,
     };
     let rows: Vec<AnyElement> = if tab == Tab::General {
-        general(&saved, c, cx)
+        vec![super::section("", c, general(&saved, c, cx))]
     } else {
         let mut rows = vec![tab_reset(tab, &saved, c, cx)];
         rows.extend(tab.cards().iter().map(|k| cards::card(*k, &saved, c, cx)));
@@ -94,47 +83,9 @@ pub fn view(c: &Colors, window: &mut Window, cx: &mut Context<MusicApp>) -> AnyE
     };
     v_flex()
         .gap(space::SM)
-        .when(saved.on, |d| d.child(tab_bar(tab, c, cx)))
-        .child(v_flex().gap(space::SM).pb(space::SM).children(rows))
+        .pb(space::SM)
+        .children(rows)
         .into_any_element()
-}
-
-/// The tabs as a segmented control: the chosen one a lifted pill on the
-/// raised track, as Now Playing's.
-fn tab_bar(chosen: Tab, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
-    let tabs = Tab::ALL.map(|tab| {
-        let active = tab == chosen;
-        let hover = c.text;
-        h_flex()
-            .id(("visuals-tab", tab as usize))
-            .flex_1()
-            .h_full()
-            .px(space::XS)
-            .justify_center()
-            .rounded(radius::FULL)
-            .type_label()
-            .whitespace_nowrap()
-            .text_color(if active { c.text } else { c.text_muted })
-            .when(active, |s| s.bg(c.overlay).shadow(elevation::low(c)))
-            .when(!active, |s| {
-                s.cursor_pointer()
-                    .hover(move |s| s.text_color(hover))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        if let Some(knobs) = cx.try_global::<Knobs>() {
-                            knobs.tab.set(tab);
-                        }
-                        cx.notify();
-                    }))
-            })
-            .child(tab.label())
-    });
-    h_flex()
-        .flex_none()
-        .h(size::CHIP)
-        .p(space::XXS)
-        .rounded(radius::FULL)
-        .bg(c.raised)
-        .children(tabs)
 }
 
 /// General: the look's preset, effects on or off, and the frame rate.
@@ -177,11 +128,14 @@ fn look(saved: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
         preset.summary().into()
     };
     let reset = (!saved.is_preset()).then(|| {
-        widgets::pill_button(
-            "visuals-reset",
-            format!("Reset to {}", preset.label()),
-            None,
-            Pill::Secondary,
+        super::focusable(
+            widgets::pill_button(
+                "visuals-reset",
+                format!("Reset to {}", preset.label()),
+                None,
+                Pill::Tonal,
+                c,
+            ),
             c,
         )
         .on_click(cx.listener(move |_, _, _, cx| {
@@ -271,11 +225,14 @@ fn tab_reset(tab: Tab, s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>
         format!("As {} sets it", s.preset.label())
     };
     let button = changed.then(|| {
-        widgets::pill_button(
-            ("visuals-tab-reset", tab as usize),
-            "Reset",
-            None,
-            Pill::Secondary,
+        super::focusable(
+            widgets::pill_button(
+                ("visuals-tab-reset", tab as usize),
+                "Reset",
+                None,
+                Pill::Secondary,
+                c,
+            ),
             c,
         )
         .on_click(cx.listener(move |_, _, _, cx| change(cx, |s| *s = reset(tab, s))))

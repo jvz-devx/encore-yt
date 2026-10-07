@@ -3,9 +3,9 @@
 //! sheet (`?`), Play anything (Ctrl+K) and a context menu. Drawn after the
 //! rest of the window.
 
-mod keycap;
+pub(crate) mod keycap;
 mod palette;
-mod shortcuts;
+pub(crate) mod shortcuts;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};

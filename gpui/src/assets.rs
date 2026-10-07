@@ -74,7 +74,15 @@ gpui_kit::assets::icon_assets!(
         Globe,
         FileUp,
         ClipboardPaste,
-        CircleArrowUp
+        CircleArrowUp,
+        CirclePlay,
+        Wind,
+        Keyboard,
+        SearchX,
+        FolderOpen,
+        ExternalLink,
+        RotateCcw,
+        Info
     ]
 );
 

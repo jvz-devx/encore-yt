@@ -32,7 +32,7 @@ use crate::app::{Link, MusicApp};
 
 pub use cli::command_line;
 pub use control::Layers;
-pub use keys::{Group, SHORTCUTS, bind_keys, on_actions};
+pub use keys::{Group, SHORTCUTS, bind_keys, key_label, on_actions};
 pub use window::start;
 
 pub struct Desktop {

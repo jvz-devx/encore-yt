@@ -161,6 +161,13 @@ fn run(job: Job) -> Result<()> {
         .and_then(|d| time_base.calc_duration(d))
         .map(|t| t.as_secs_f64())
         .or_else(|| track.num_frames.map(|n| n as f64 / f64::from(codec_rate)))
+        .or_else(|| {
+            // WebM gives its length for the whole segment only.
+            let info = format.media_info();
+            info.time_base?
+                .calc_duration(info.duration?)
+                .map(|t| t.as_secs_f64())
+        })
         .filter(|d| *d > 0.0);
     if let Some(duration) = duration {
         job.shared

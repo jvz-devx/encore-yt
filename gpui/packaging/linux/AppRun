@@ -1,5 +1,6 @@
 #!/bin/sh
-# yt-dlp and deno sit next to the app in usr/bin; the app puts its own
-# directory first on PATH. mpv comes from the system.
+# mpv, yt-dlp and deno sit next to the app in usr/bin (mpv's libraries in
+# usr/lib); the app puts its own directory first on PATH, so it plays
+# through this mpv even when the system has one.
 HERE="$(dirname "$(readlink -f "$0")")"
 exec "$HERE/usr/bin/ytfast-gpui" "$@"

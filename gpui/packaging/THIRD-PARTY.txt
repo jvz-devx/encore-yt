@@ -20,11 +20,34 @@ deno (all installers)
   The JavaScript runtime yt-dlp uses to solve YouTube's challenges.
   License: MIT. Source: https://github.com/denoland/deno
 
-mpv (Windows installer only)
-  Plays the audio. On Linux and macOS Music uses the system's mpv.
-  License: GPL-2.0-or-later (this build includes GPL components; mpv's own
-  code is mostly LGPL-2.1-or-later).
+mpv (AppImage, macOS app, Windows installer)
+  Plays the audio. The .deb and .rpm use the distribution's mpv instead
+  (a package dependency). mpv is GPL-2.0-or-later as a whole, and
+  LGPL-2.1-or-later when built without its GPL parts.
   Source: https://github.com/mpv-player/mpv
-  Build: https://github.com/shinchiro/mpv-winbuild-cmake (the release named
-  in the Windows installer's mpv-version.txt). Its build scripts name every
-  library it contains and where its source is.
+  License: https://github.com/mpv-player/mpv/blob/master/Copyright
+
+  Each build contains FFmpeg (https://ffmpeg.org, source
+  https://ffmpeg.org/download.html and https://git.ffmpeg.org/ffmpeg.git;
+  LGPL-2.1-or-later, GPL-2.0-or-later when built with GPL parts, see
+  https://ffmpeg.org/legal.html) and libplacebo (LGPL-2.1-or-later,
+  https://code.videolan.org/videolan/libplacebo), plus other libraries
+  under their own licenses.
+
+  AppImage: mpv 0.41.0, FFmpeg 7.1.2 and libplacebo 7.351.0, built from
+    the release sources by gpui/packaging/linux/build-mpv.sh in this
+    repository, without GPL parts (mpv -Dgpl=false, FFmpeg without
+    --enable-gpl), so this copy is LGPL-2.1-or-later. Its other shared
+    libraries (in usr/lib: libass, GnuTLS, LuaJIT (MIT), PulseAudio's
+    client library and their dependencies) are Ubuntu 22.04's packages, whose sources are at
+    https://packages.ubuntu.com/source/jammy/<package>.
+  macOS app: mpv's own release build, unchanged (mpv-v0.41.0-macos-14-arm
+    or -macos-15-intel from https://github.com/mpv-player/mpv/releases/tag/v0.41.0),
+    GPL-2.0-or-later, with the libraries it bundles in Contents/MacOS/lib
+    (FFmpeg 8 and others, built by Homebrew; mpv's CI scripts in
+    https://github.com/mpv-player/mpv/tree/v0.41.0/ci name them).
+  Windows: https://github.com/shinchiro/mpv-winbuild-cmake (the release
+    named in the installer's bin\mpv-version.txt), GPL-2.0-or-later. Its
+    build scripts name every library it contains and where its source is.
+
+  The complete source of each of these builds is at the links above.

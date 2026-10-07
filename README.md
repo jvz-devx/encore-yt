@@ -8,11 +8,11 @@ It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music
 
 ## Download
 
-[Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Each one bundles `yt-dlp` and `deno`, which find the audio streams; the app looks next to itself for them before your `PATH`, and says so under the top bar if one is missing.
+[Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing: the AppImage, the macOS app and the Windows installer include mpv (which plays the audio) and yt-dlp and deno (which find the streams). The app looks next to itself for them before your `PATH`, and says so under the top bar if one is missing.
 
-- **Linux** (x86_64, glibc 2.35 or newer): the `.AppImage` (`chmod +x` it and run; needs `mpv` installed, e.g. `sudo dnf install mpv`), or the `.deb` / `.rpm` (`sudo apt install ./ytfast-gpui-*.deb`, `sudo dnf install ./ytfast-gpui-*.rpm`), which pull in `mpv` and add a "Music" menu entry and a `ytfast-gpui` command.
-- **Windows** (x86_64): `…-setup.exe` installs for your user with a Start menu entry; `…-portable.zip` holds the same files. Both include `mpv`. SmartScreen warns about the unsigned installer: More info, Run anyway.
-- **macOS** (Apple silicon `macos-arm64`, Intel `macos-x86_64`): open the `.dmg` and drag ytfast to Applications. Install mpv with `brew install mpv`. The app isn't notarized, so clear the quarantine once: `xattr -dr com.apple.quarantine /Applications/ytfast.app` (or right-click, Open).
+- **Linux** (x86_64, glibc 2.35 or newer): the `.AppImage` (`chmod +x` it and run), or the `.deb` / `.rpm` (`sudo apt install ./ytfast-gpui-*.deb`, `sudo dnf install ./ytfast-gpui-*.rpm`). The packages use your distribution's mpv, which apt or dnf installs along with them, and add a "Music" menu entry and a `ytfast-gpui` command.
+- **Windows** (x86_64): `…-setup.exe` installs for your user with a Start menu entry; `…-portable.zip` holds the same files. SmartScreen warns about the unsigned installer: More info, Run anyway.
+- **macOS** (Apple silicon `macos-arm64` on macOS 14 or newer, Intel `macos-x86_64` on macOS 15 or newer): open the `.dmg` and drag ytfast to Applications. The app isn't notarized, so clear the quarantine once: `xattr -dr com.apple.quarantine /Applications/ytfast.app` (or right-click, Open).
 
 On Windows and macOS the tray, MPRIS, notifications and following the system's light/dark setting are Linux-only for now, and closing the window quits.
 
@@ -92,7 +92,7 @@ Credits:
 
 - [ytfast](https://github.com/MayberryDT/ytfast) by Tyler Mayberry, and through it [fastframe](https://github.com/crmne/fastframe), [ZapFast](https://github.com/crmne/zapfast) and [Spotifast](https://github.com/crmne/spotifast) by Carmine Paolino (MIT).
 - [GPUI](https://github.com/zed-industries/zed) by Zed Industries and [gpui-kit / gpui-component](https://gpui-kit.com) by Longbridge (Apache-2.0).
-- [mpv](https://mpv.io) plays the audio, [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) find the streams; they run as separate programs.
+- [mpv](https://mpv.io) plays the audio, [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [deno](https://deno.com) find the streams; they run as separate programs and the installers bundle them (licences and sources in `gpui/packaging/THIRD-PARTY.txt`).
 - The [Inter](https://rsms.me/inter/) typeface (OFL) and [Lucide](https://lucide.dev) icons (ISC).
 
 ## License

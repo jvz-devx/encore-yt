@@ -55,7 +55,8 @@ ashpd = { version = "0.13", default-features = false, features = ["async-io", "s
 # Linux packages (cargo-deb, cargo-generate-rpm), built by
 # .github/workflows/release.yml after it fetches yt-dlp and deno into
 # target/tools. The app lives in /usr/lib/ytfast-gpui with those two in bin/;
-# mpv comes from the distribution.
+# mpv comes from the distribution: both packages depend on it, so apt and
+# dnf install it with the app.
 [package.metadata.deb]
 name = "ytfast-gpui"
 maintainer = "jvz-devx <jvz-devx@users.noreply.github.com>"

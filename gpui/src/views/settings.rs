@@ -1,11 +1,14 @@
 //! Settings, over the window: one scrolling panel of sections (Account,
-//! Playback, Notifications). Each section lives in its own file under
-//! `settings/` and draws its rows with [`row`]; a new section (M6:
-//! Equalizer, Sleep timer, Smooth mixes) is one more file and one more
-//! entry in [`settings`].
+//! Equalizer, Sleep timer, Loudness levelling, Smooth mixes,
+//! Notifications). Each section lives in its own file under `settings/`
+//! and draws its rows with [`row`] and its choices with [`choice`]; a new
+//! section is one more file and one more entry in [`settings`].
 
 mod account;
+mod equalizer;
+mod mixes;
 mod playback;
+mod sleep;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
@@ -13,7 +16,7 @@ use gpui_kit::*;
 
 use super::widgets;
 use crate::app::MusicApp;
-use crate::theme::{self, Colors, Type, size, space};
+use crate::theme::{self, Colors, Type, radius, size, space};
 
 const WIDTH: Pixels = px(560.);
 
@@ -31,7 +34,10 @@ pub fn settings(
     let max_h = window.viewport_size().height - space::XXXL * 2.;
     let sections = [
         account::section(app, &c, cx),
+        equalizer::section(app, &c, cx),
+        sleep::section(app, &c, cx),
         playback::section(app, &c, cx),
+        mixes::section(app, &c, window, cx),
         playback::notifications(app, &c, cx),
     ];
     let panel = widgets::floating(&c)
@@ -119,9 +125,56 @@ fn row(
                 .flex_1()
                 .min_w_0()
                 .gap(space::XXS)
-                .child(div().type_body().child(label.into()))
-                .children(detail.map(|d| div().type_small().text_color(c.text_muted).child(d))),
+                .child(div().type_body().tabular().child(label.into()))
+                .children(detail.map(|d| {
+                    div()
+                        .type_small()
+                        .tabular()
+                        .text_color(c.text_muted)
+                        .child(d)
+                })),
         )
         .child(control)
+        .into_any_element()
+}
+
+/// One of a set of choices (an equalizer preset, a sleep timer): a pill on
+/// `raised`, or `primary` while it is the one in effect, as YouTube Music
+/// draws its filter chips.
+fn choice(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    chosen: bool,
+    c: &Colors,
+) -> Stateful<Div> {
+    let (bg, hover, fg) = if chosen {
+        (c.primary, c.primary_hover, c.primary_foreground)
+    } else {
+        (c.raised, c.overlay, c.text)
+    };
+    div()
+        .id(id)
+        .flex_none()
+        .h(size::CHIP)
+        .px(space::LG)
+        .flex()
+        .items_center()
+        .rounded(radius::FULL)
+        .bg(bg)
+        .text_color(fg)
+        .type_label()
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover))
+        .active(|s| s.opacity(0.9))
+        .child(label.into())
+}
+
+/// A wrapping row of [`choice`]s under a setting.
+fn choices(chips: impl IntoIterator<Item = Stateful<Div>>) -> AnyElement {
+    h_flex()
+        .flex_wrap()
+        .gap(space::SM)
+        .pb(space::SM)
+        .children(chips)
         .into_any_element()
 }

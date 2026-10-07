@@ -8,13 +8,19 @@ struct Params {
     audio: vec4<f32>,
     // xy: output size in pixels, z: light look (0/1), w: particles (0/1)
     output: vec4<f32>,
-    // x: weight of the new cover (cross-fade), y: has a cover (0/1)
+    // x: weight of the new cover (cross-fade), y: has a cover (0/1),
+    // z: the flow's clock (seconds times the swirl speed)
     cover: vec4<f32>,
     // The large cover's box under its drop shadow: left, top, right, bottom
     shadow_box: vec4<f32>,
     // x: the box's corner radius, y: pixels per point, z: the shadow's
     // alpha, w: on (0/1)
     shadow: vec4<f32>,
+    // Strengths, 1 for the Default look: x: blur, y: how many motes (0..2),
+    // z: mote size, w: bloom
+    tune: vec4<f32>,
+    // x: colour intensity
+    tune2: vec4<f32>,
     palette: array<vec4<f32>, 4>,
 };
 
@@ -115,9 +121,9 @@ fn motes(uv: vec2<f32>, aspect: f32, t: f32, kick: f32) -> f32 {
         let sway = vec2<f32>(sin(t * 0.4 + h.z * 6.28), cos(t * 0.3 + h.x * 6.28)) * 0.08;
         let centre = 0.25 + 0.5 * h.xy + sway;
         let d = length(fract(q) - centre);
-        let size = (0.035 + 0.04 * h.z) * (1.0 + 0.9 * kick);
+        let size = (0.035 + 0.04 * h.z) * (1.0 + 0.9 * kick) * params.tune.z;
         let twinkle = 0.55 + 0.45 * sin(t * (0.6 + h.w) + h.w * 40.0);
-        let alive = step(0.5, h.w);
+        let alive = step(1.0 - 0.5 * params.tune.y, h.w);
         sum += alive * twinkle * smoothstep(size, size * 0.15, d) * (1.0 - 0.35 * depth);
     }
     return sum;
@@ -128,7 +134,7 @@ fn motes(uv: vec2<f32>, aspect: f32, t: f32, kick: f32) -> f32 {
 fn tone_dark(color: vec3<f32>) -> vec3<f32> {
     let lin = pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
     let y = max(dot(lin, LUMA), 1e-4);
-    let saturated = max(mix(vec3<f32>(y), lin, DARK_SATURATION), vec3<f32>(0.0));
+    let saturated = max(mix(vec3<f32>(y), lin, DARK_SATURATION * params.tune2.x), vec3<f32>(0.0));
     let target_y = 0.004 + (DARK_CAP - 0.004) * (1.0 - exp(-y * 9.0));
     let toned = saturated * (target_y / y);
     // Channels over 1 would break the cap's hue; they can't at these levels.
@@ -148,7 +154,8 @@ fn tone_light(color: vec3<f32>) -> vec3<f32> {
     let up = max(max(offset.r, max(offset.g, offset.b)), 1e-4);
     let down = max(max(-offset.r, max(-offset.g, -offset.b)), 1e-4);
     let fit = min(target_y / y, min((1.0 - target_y) / up, target_y / down));
-    let toned = vec3<f32>(target_y) + offset * fit * LIGHT_CHROMA;
+    // More than the gamut allows would clip and darken: at most all of it.
+    let toned = vec3<f32>(target_y) + offset * fit * min(LIGHT_CHROMA * params.tune2.x, 1.0);
     return pow(clamp(toned, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.2));
 }
 
@@ -195,6 +202,7 @@ fn cover_shadow(p: vec2<f32>) -> f32 {
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let t = params.audio.x;
+    let tf = params.cover.z;
     let bass = params.audio.y;
     let kick = params.audio.z;
     let light = params.output.z > 0.5;
@@ -203,30 +211,30 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     // Domain warp: two layers of noise push the coordinates around slowly.
     let warp = vec2<f32>(
-        fbm(p * 1.3 + vec2<f32>(t * 0.045, -t * 0.035)),
-        fbm(p * 1.3 + vec2<f32>(-t * 0.03, t * 0.05) + 5.2),
+        fbm(p * 1.3 + vec2<f32>(tf * 0.045, -tf * 0.035)),
+        fbm(p * 1.3 + vec2<f32>(-tf * 0.03, tf * 0.05) + 5.2),
     );
     let flow = p + (warp - 0.5) * 0.85;
 
     // The cover, slowly turning and zoomed in, breathing with the bass.
-    let angle = t * 0.025;
+    let angle = tf * 0.025;
     let rot = mat2x2<f32>(cos(angle), -sin(angle), sin(angle), cos(angle));
     let cover_uv = rot * flow * (0.6 - kick * 0.025) + 0.5;
     let near = cover_at(cover_uv);
-    let wide = wide_blur(cover_uv, 0.16);
+    let wide = wide_blur(cover_uv, 0.16 * params.tune.x);
 
     // The palette as a flowing gradient (all there is without a cover).
-    let n = fbm(flow * 1.8 + t * 0.06);
+    let n = fbm(flow * 1.8 + tf * 0.06);
     let g1 = mix(params.palette[0].rgb, params.palette[1].rgb, smoothstep(0.2, 0.8, n));
     let g2 = mix(params.palette[2].rgb, params.palette[3].rgb, smoothstep(0.3, 0.7, warp.x));
     let gradient = mix(g1, g2, smoothstep(0.2, 0.8, in.uv.y + (warp.y - 0.5) * 0.6));
 
-    var color = mix(gradient, mix(near, wide, 0.4), 0.7 * params.cover.y);
+    var color = mix(gradient, mix(near, wide, min(0.4 * params.tune.x, 1.0)), 0.7 * params.cover.y);
 
     // Bloom: the brightest colours of the wide blur glow, a little more on
     // the bass.
     let glow = wide * smoothstep(0.3, 0.85, dot(wide, LUMA));
-    color += glow * (0.35 + 0.35 * bass);
+    color += glow * (0.35 + 0.35 * bass) * params.tune.w;
 
     if light {
         color = tone_light(color);

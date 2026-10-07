@@ -25,6 +25,13 @@ const HIGH_HZ: f32 = 16_000.0;
 /// (paused, stopped) [`AudioTap::bands`] reports silence.
 const STALE: Duration = Duration::from_millis(150);
 
+/// Where `hz` falls among the bands, as a fractional band index (band `i`
+/// is centred on `i`), clamped to the first and last band.
+pub fn band_at(hz: f32) -> f32 {
+    let at = BANDS as f32 * (hz.max(1.0) / LOW_HZ).ln() / (HIGH_HZ / LOW_HZ).ln() - 0.5;
+    at.clamp(0.0, (BANDS - 1) as f32)
+}
+
 /// The newest analysis.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Bands {

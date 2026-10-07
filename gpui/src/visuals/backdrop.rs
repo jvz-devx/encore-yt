@@ -117,6 +117,8 @@ impl Backdrop {
             look: tick.look,
             particles: !tick.reduce && !super::effects::skip("particles"),
             shadow: self.shadow,
+            flow: tick.seconds,
+            tune: ytfast_visuals::Tune::default(),
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {

@@ -330,6 +330,7 @@ impl Bar {
             play,
             cover,
             ridge: input.heat.as_ref().map(|_| RIDGE),
+            halos: 1.0,
             colors: colours(cx, accent(&palette)),
             palette,
         }

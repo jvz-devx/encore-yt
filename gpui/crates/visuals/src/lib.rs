@@ -9,6 +9,9 @@
 //! - [`Strip`]: the player bar's background in one pass (palette glow, the
 //!   seek bar with the song's waveform, beat halos).
 //! - [`Dissolve`]: a cover burning into the next one on a track change.
+//! - [`Visualizer`]: the audio visualiser (bars, mirrored bars, a ring
+//!   round the cover, a line spectrum, a particle field), with alpha, from
+//!   [`Bars`] made of the spectrum.
 //! - [`AudioTap`]: a PipeWire capture of mpv's stream, analysed into
 //!   spectrum bands plus bass and beat levels.
 //! - [`waveform`]: a whole song's loudness outline, decoded with ffmpeg and
@@ -16,6 +19,7 @@
 //!
 //! Findings and numbers: `gpui/NOTES-visuals.md`.
 
+pub mod color;
 mod cover;
 mod dissolve;
 mod gpu;
@@ -26,12 +30,14 @@ mod renderer;
 mod spectrum;
 mod strip;
 mod target;
+mod visualizer;
 pub mod waveform;
 
 pub use cover::{COVER_SIZE, Cover};
 pub use dissolve::Dissolve;
 pub use gpu::Gpu;
-pub use renderer::{CoverShadow, FrameParams, Look, Renderer};
-pub use spectrum::{AudioTap, BANDS, Bands};
+pub use renderer::{CoverShadow, FrameParams, Look, Renderer, Tune};
+pub use spectrum::{AudioTap, BANDS, Bands, band_at};
 pub use strip::{Seek, Strip, StripColors, StripParams};
 pub use target::{Frame, FrameCost};
+pub use visualizer::{BarSettings, Bars, MAX_BARS, Visualizer, VisualizerParams};

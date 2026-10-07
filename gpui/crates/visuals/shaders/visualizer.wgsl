@@ -17,7 +17,8 @@ struct Params {
     // x: the cover's corner radius, y: the ring's longest bar, z: the
     // particles' clock, w: treble 0..1
     shape: vec4<f32>,
-    // x: pixels per point, y: has a cover (0/1)
+    // x: pixels per point, y: has a cover (0/1), z: the margin the bands
+    // keep at each side, in pixels
     extra: vec4<f32>,
     // The gradient along the spectrum, linear RGB, low to high.
     stops: array<vec4<f32>, 4>,
@@ -58,14 +59,19 @@ fn count() -> i32 {
     return max(i32(params.output.w), 1);
 }
 
+// A level as drawn: a calmer scale that keeps loud passages off the top.
+fn calm(v: f32) -> f32 {
+    return 0.86 * pow(clamp(v, 0.0, 1.0), 1.25);
+}
+
 fn bar(i: i32) -> f32 {
     let j = u32(clamp(i, 0, count() - 1));
-    return params.bars[j >> 2u][j & 3u];
+    return calm(params.bars[j >> 2u][j & 3u]);
 }
 
 fn peak(i: i32) -> f32 {
     let j = u32(clamp(i, 0, count() - 1));
-    return params.peaks[j >> 2u][j & 3u];
+    return calm(params.peaks[j >> 2u][j & 3u]);
 }
 
 // The gradient at `u` (0 lows, 1 highs), linear RGB.
@@ -135,39 +141,44 @@ fn row_bar(ink: Ink, p: vec2<f32>, i: i32, centre: f32, half_w: f32, base: f32, 
     let tip = base + dir * len;
     let lo = vec2<f32>(centre - half_w, min(base, tip));
     let hi = vec2<f32>(centre + half_w, max(base, tip));
-    let d = round_box(p, lo, hi, min(half_w, 3.0 * s));
+    // Rounded all the way: a pill, a dot at rest.
+    let d = round_box(p, lo, hi, half_w);
     var out = ink;
     let g = params.look.y;
     if g > 0.0 {
         let r = glow_radius();
-        let halo = exp(-max(d, 0.0) / r) * step(0.0, d) * (0.12 + 0.4 * v) * min(g, 1.5) * 0.5;
+        let halo = exp(-max(d, 0.0) / r) * step(0.0, d) * (0.1 + 0.3 * v) * min(g, 1.5) * 0.35;
         out = over(out, color, halo * fade);
     }
     let up = abs(p.y - base) / max(room, 1.0);
-    // A bar at rest is a faint stub.
+    // A bar at rest is a faint stub; each one deepens from its base up.
     let rest = mix(0.35, 1.0, smoothstep(0.0, 0.06, v));
-    out = over(out, lit(color, up), clamp(0.5 - d, 0.0, 1.0) * fade * rest);
+    let along = clamp(abs(p.y - base) / max(len, 1.0), 0.0, 1.0);
+    let body = mix(0.55, 1.0, along);
+    out = over(out, lit(color, up), clamp(0.5 - d, 0.0, 1.0) * fade * rest * body);
     if params.look.z > 0.5 {
         let pk = peak(i) * room;
-        let gap = 2.0 * s;
-        let cap = 2.0 * s;
+        let gap = 3.0 * s;
+        let cap = 1.5 * s;
         let y0 = base + dir * (max(pk, len) + gap);
         let y1 = y0 + dir * cap;
         let cd = round_box(p, vec2<f32>(centre - half_w, min(y0, y1)),
             vec2<f32>(centre + half_w, max(y0, y1)), cap * 0.5);
-        let shown = smoothstep(0.01, 0.04, peak(i));
+        let shown = smoothstep(0.01, 0.04, peak(i)) * 0.55;
         out = over(out, cap_color(color), clamp(0.5 - cd, 0.0, 1.0) * fade * shown);
     }
     return out;
 }
 
 // Bars rising from the bottom, lows at the left.
-fn bars(p: vec2<f32>) -> Ink {
-    let size = params.output.xy;
+fn bars(p_in: vec2<f32>) -> Ink {
+    let margin = params.extra.z;
+    let size = vec2<f32>(params.output.x - 2.0 * margin, params.output.y);
+    let p = vec2<f32>(p_in.x - margin, p_in.y);
     let n = count();
     let pitch = size.x / f32(n);
     let i = i32(floor(p.x / pitch));
-    let half_w = max(pitch * 0.34, 0.5 * params.extra.x);
+    let half_w = max(pitch * 0.3, 0.5 * params.extra.x);
     var ink = Ink(gradient(0.0), 0.0);
     // The neighbours' glow reaches into this column.
     for (var k = -1; k <= 1; k++) {
@@ -184,14 +195,16 @@ fn bars(p: vec2<f32>) -> Ink {
 
 // Bars mirrored round the centre (lows in the middle), growing up from the
 // centre line, with a dimmer reflection below.
-fn mirrored(p: vec2<f32>) -> Ink {
-    let size = params.output.xy;
+fn mirrored(p_in: vec2<f32>) -> Ink {
+    let margin = params.extra.z;
+    let size = vec2<f32>(params.output.x - 2.0 * margin, params.output.y);
+    let p = vec2<f32>(p_in.x - margin, p_in.y);
     let n = count();
     let half_x = size.x * 0.5;
     let pitch = half_x / f32(n);
     let x = abs(p.x - half_x);
     let i = i32(floor(x / pitch));
-    let half_w = max(pitch * 0.34, 0.5 * params.extra.x);
+    let half_w = max(pitch * 0.3, 0.5 * params.extra.x);
     let base = size.y * 0.62;
     let room_up = base - 8.0 * params.extra.x;
     let room_down = (size.y - base) - 4.0 * params.extra.x;
@@ -216,7 +229,8 @@ fn mirrored(p: vec2<f32>) -> Ink {
 // The smooth curve through the bars at `x` (Catmull-Rom).
 fn curve_value(x: f32, values_peak: bool) -> f32 {
     let n = count();
-    let f = clamp(x / params.output.x, 0.0, 1.0) * f32(n - 1);
+    let margin = params.extra.z;
+    let f = clamp((x - margin) / max(params.output.x - 2.0 * margin, 1.0), 0.0, 1.0) * f32(n - 1);
     let i = i32(floor(f));
     let t = f - f32(i);
     var p0 = bar(i - 1);
@@ -241,6 +255,9 @@ fn curve_value(x: f32, values_peak: bool) -> f32 {
 fn line(p: vec2<f32>) -> Ink {
     let size = params.output.xy;
     let s = params.extra.x;
+    let margin = params.extra.z;
+    // The curve fades out into the margins.
+    let ends = smoothstep(0.0, margin + 1.0, p.x) * smoothstep(0.0, margin + 1.0, size.x - p.x);
     let room = size.y * 0.9 - 4.0 * s;
     let v = curve_value(p.x, false);
     let y = size.y - 2.0 * s - v * room;
@@ -252,23 +269,23 @@ fn line(p: vec2<f32>) -> Ink {
     var ink = Ink(color, 0.0);
     if p.y > y {
         let depth = (p.y - y) / max(size.y - y, 1.0);
-        let fill = mix(0.42, 0.04, sqrt(depth)) * (0.6 + 0.4 * v);
-        ink = over(ink, color, fill);
+        let fill = mix(0.3, 0.03, sqrt(depth)) * (0.6 + 0.4 * v);
+        ink = over(ink, color, fill * ends);
     }
     let g = params.look.y;
     if g > 0.0 {
-        let halo = exp(-d / (glow_radius() * 1.4)) * (0.25 + 0.5 * v) * min(g, 1.5) * 0.7;
-        ink = over(ink, color, halo);
+        let halo = exp(-d / (glow_radius() * 1.4)) * (0.2 + 0.4 * v) * min(g, 1.5) * 0.5;
+        ink = over(ink, color, halo * ends);
     }
     let width = 1.25 * s;
-    ink = over(ink, lit(color, v), clamp(width + 0.5 - d, 0.0, 1.0));
+    ink = over(ink, lit(color, v), clamp(width + 0.5 - d, 0.0, 1.0) * ends);
     if params.look.z > 0.5 {
         let pv = curve_value(p.x, true);
         let py = size.y - 2.0 * s - pv * room - 3.0 * s;
         let pd = abs(p.y - py);
         let dash = step(0.45, fract(p.x / (6.0 * s)));
-        ink = over(ink, cap_color(color), clamp(0.5 * s + 0.5 - pd, 0.0, 1.0) * 0.7 * dash
-            * smoothstep(0.02, 0.06, pv));
+        ink = over(ink, cap_color(color), clamp(0.5 * s + 0.5 - pd, 0.0, 1.0) * 0.45 * dash
+            * smoothstep(0.02, 0.06, pv) * ends);
     }
     return ink;
 }

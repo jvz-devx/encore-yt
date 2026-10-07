@@ -305,22 +305,22 @@ impl Style {
     }
 }
 
-/// What Now Playing shows above the song's title.
+/// What Now Playing shows above the song's title: one music graphic, never
+/// two stacked (a file from before that offered both gets the visualiser).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Placement {
     /// The thin spectrum (the Default look).
     Spectrum,
+    #[serde(alias = "both")]
     Visualizer,
-    Both,
     Nothing,
 }
 
 impl Placement {
-    pub const ALL: [Placement; 4] = [
+    pub const ALL: [Placement; 3] = [
         Placement::Spectrum,
         Placement::Visualizer,
-        Placement::Both,
         Placement::Nothing,
     ];
 
@@ -328,17 +328,16 @@ impl Placement {
         match self {
             Placement::Spectrum => "Spectrum",
             Placement::Visualizer => "Visualiser",
-            Placement::Both => "Both",
             Placement::Nothing => "Nothing",
         }
     }
 
     pub fn spectrum(self) -> bool {
-        matches!(self, Placement::Spectrum | Placement::Both)
+        self == Placement::Spectrum
     }
 
     pub fn visualizer(self) -> bool {
-        matches!(self, Placement::Visualizer | Placement::Both)
+        self == Placement::Visualizer
     }
 }
 

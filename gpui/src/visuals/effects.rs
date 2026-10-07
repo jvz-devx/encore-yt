@@ -707,12 +707,7 @@ impl Paint {
             return;
         }
         if let Some(strip) = Slots::get(cx, Slot::Spectrum).filter(|_| self.spectrum) {
-            paint_spectrum(
-                super::spectrum_strip(strip),
-                &self.levels,
-                self.color,
-                window,
-            );
+            paint_spectrum(strip, &self.levels, self.color, window);
         }
         if let Some((w, bounds)) = self.waveform.zip(Slots::get(cx, Slot::Waveform)) {
             waveform::paint(bounds, w.values.as_deref(), w.progress, w.colors, window);

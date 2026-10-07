@@ -444,6 +444,20 @@ frames while music plays and the window is visible, not under reduced
 motion. The ring renders at full size on whole pixels: at 0.75 its frame's
 edge left a faint line in Stage.
 
+**Colour and calm.** A sepia or black-and-white cover no longer turns the
+window muddy olive: the backdrop's tone mapping keeps less of the cover's
+colour the less colourful its palette is (from 25% under OKLab chroma
+0.05 to all of it at 0.12), and the visualiser's stops cap their chroma
+the same way, so such covers give a quiet grey with a trace of their hue.
+The stops run from deeper to lighter along the spectrum, so bars carry a
+gradient even from a one-colour palette. Bars and mirrored bars are pills
+with gaps that deepen from base to tip, with a gentler glow and fainter
+peak caps; levels are drawn on a calmer scale (0.86 of v^1.25) so loud
+passages don't pin the top; in Stage and the full window the bands keep a
+7% margin at each side. Now Playing shows one music graphic, the
+spectrum or the visualiser, never both stacked (the earlier "Both" loads
+as the visualiser). Captures `h-sepia*`, `h-bw`, `h-vivid*`.
+
 **Motion.** The cover flight, the cover dissolve and the audition ring take
 Settings → Motion's speed and reduced motion (`motion::duration`); the
 full-window visualiser fades in through `with_motion`.

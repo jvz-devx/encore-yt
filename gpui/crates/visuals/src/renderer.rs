@@ -216,13 +216,29 @@ impl Renderer {
         ]);
         let t = &p.tune;
         floats.extend([t.blur, t.wave, t.wave_clock, t.bloom]);
-        floats.extend([t.intensity, t.ribbons as f32, t.wave_height, 0.0]);
+        let colour = colour_kept(&self.palettes[self.front]);
+        floats.extend([t.intensity, t.ribbons as f32, t.wave_height, colour]);
         let (new, old) = (self.palettes[self.front], self.palettes[1 - self.front]);
         for (n, o) in new.iter().zip(&old) {
             floats.extend((0..4).map(|i| o[i] + (n[i] - o[i]) * mix));
         }
         bytes(&floats)
     }
+}
+
+/// How much of the cover's colour the tone mapping keeps: all of it for a
+/// colourful cover, little for a sepia or black-and-white one, whose tint
+/// pushed to full saturation turns the whole window muddy. From the
+/// palette's strongest OKLab chroma between 0.05 and 0.12.
+fn colour_kept(palette: &[[f32; 4]; 4]) -> f32 {
+    let chroma = palette
+        .iter()
+        .map(|c| {
+            let lab = crate::color::oklab(crate::color::to_linear([c[0], c[1], c[2]]));
+            lab[1].hypot(lab[2])
+        })
+        .fold(0.0, f32::max);
+    0.25 + 0.75 * ((chroma - 0.05) / 0.07).clamp(0.0, 1.0)
 }
 
 /// Seven vec4s and four palette colours.

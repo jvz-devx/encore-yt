@@ -123,6 +123,8 @@ pub struct VisualizerParams<'a> {
     pub cover: Option<([f32; 4], f32)>,
     /// The ring's longest bar.
     pub reach: f32,
+    /// The margin bars, mirrored bars and the line keep at each side.
+    pub margin: f32,
     /// The gradient along the spectrum, linear RGB, low to high.
     pub stops: [[f32; 3]; 4],
     pub bars: &'a Bars,
@@ -205,7 +207,7 @@ impl Visualizer {
         let (cover, corner) = p.cover.unwrap_or_default();
         floats.extend(cover);
         floats.extend([corner, p.reach, p.travel, p.treble]);
-        floats.extend([p.scale, flag(p.cover.is_some()), 0.0, 0.0]);
+        floats.extend([p.scale, flag(p.cover.is_some()), p.margin, 0.0]);
         for stop in &p.stops {
             floats.extend(*stop);
             floats.push(1.0);
@@ -298,6 +300,7 @@ mod tests {
                 scale: 1.0,
                 cover: Some(([50.0, 30.0, 110.0, 90.0], 8.0)),
                 reach: 24.0,
+                margin: 0.0,
                 stops: [
                     [1.0, 0.3, 0.3],
                     [0.9, 0.6, 0.2],

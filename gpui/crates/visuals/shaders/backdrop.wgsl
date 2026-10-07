@@ -22,7 +22,8 @@ struct Params {
     // z: the wave's clock, w: bloom
     tune: vec4<f32>,
     // x: colour intensity, y: the wave's ribbons (1..3), z: the height of
-    // its middle (0 top, 1 bottom)
+    // its middle (0 top, 1 bottom), w: how much of the cover's colour the
+    // tone mapping keeps (low for a sepia or black-and-white cover)
     tune2: vec4<f32>,
     palette: array<vec4<f32>, 4>,
 };
@@ -115,7 +116,8 @@ fn wide_blur(uv: vec2<f32>, radius: f32) -> vec3<f32> {
 fn tone_dark(color: vec3<f32>) -> vec3<f32> {
     let lin = pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
     let y = max(dot(lin, LUMA), 1e-4);
-    let saturated = max(mix(vec3<f32>(y), lin, DARK_SATURATION * params.tune2.x), vec3<f32>(0.0));
+    let saturated = max(mix(vec3<f32>(y), lin, DARK_SATURATION * params.tune2.x * params.tune2.w),
+        vec3<f32>(0.0));
     let target_y = 0.004 + (DARK_CAP - 0.004) * (1.0 - exp(-y * 9.0));
     let toned = saturated * (target_y / y);
     // Channels over 1 would break the cap's hue; they can't at these levels.
@@ -136,7 +138,8 @@ fn tone_light(color: vec3<f32>) -> vec3<f32> {
     let down = max(max(-offset.r, max(-offset.g, -offset.b)), 1e-4);
     let fit = min(target_y / y, min((1.0 - target_y) / up, target_y / down));
     // More than the gamut allows would clip and darken: at most all of it.
-    let toned = vec3<f32>(target_y) + offset * fit * min(LIGHT_CHROMA * params.tune2.x, 1.0);
+    let toned = vec3<f32>(target_y) + offset * fit
+        * min(LIGHT_CHROMA * params.tune2.x * params.tune2.w, 1.0);
     return pow(clamp(toned, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.2));
 }
 

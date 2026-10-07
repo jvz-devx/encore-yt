@@ -152,6 +152,11 @@ impl Vis {
             scale,
             cover,
             reach: f32::from(reach(place, cx)) * scale,
+            // Bands across a scene stand clear of its edges.
+            margin: match place {
+                Place::NowPlaying => 0.,
+                Place::Stage | Place::Full => size.0 as f32 * 0.07,
+            },
             stops: stops(v.palette, &v.custom, palette, tick.look, cx),
             bars: &self.bars,
         };
@@ -286,7 +291,11 @@ pub(super) fn stops(
             let mut labs = cover.map(|c| lab([c[0], c[1], c[2]]));
             // Lows to highs by hue, so neighbours blend rather than jump.
             labs.sort_by(|a, b| a[2].atan2(a[1]).total_cmp(&b[2].atan2(b[1])));
-            labs.map(|l| vivid(l, look, 0.12))
+            // A sepia or black-and-white cover gives a quiet grey with a
+            // trace of its hue, not its muddy tint pushed to full colour.
+            let colourful = colourfulness(&labs);
+            let labs = labs.map(|l| tame(l, colourful));
+            spread(labs.map(|l| vivid(l, look, 0.12 * colourful)), look)
         }
         Palette::Accent => {
             let base = lab(rgb(c.signal));
@@ -294,7 +303,7 @@ pub(super) fn stops(
             for (i, o) in out.iter_mut().enumerate() {
                 *o = turn(base, i as f32 * 14.);
             }
-            out.map(|l| vivid(l, look, 0.12))
+            spread(out.map(|l| vivid(l, look, 0.12)), look)
         }
         Palette::Theme => [lab(rgb(c.text)); 4],
         Palette::Custom => {
@@ -307,6 +316,37 @@ pub(super) fn stops(
         let lin = color::oklab_to_linear(l);
         lin.map(|v| v.clamp(0., 1.))
     })
+}
+
+/// How colourful a palette is, 0 (grey) to 1: its strongest OKLab chroma
+/// between 0.05 and 0.12.
+pub(super) fn colourfulness(labs: &[[f32; 3]; 4]) -> f32 {
+    let chroma = labs.iter().map(|l| l[1].hypot(l[2])).fold(0., f32::max);
+    ((chroma - 0.05) / 0.07).clamp(0., 1.)
+}
+
+/// An OKLab colour's chroma scaled down for a palette that is hardly
+/// colourful, to at most 0.03 for a grey one.
+fn tame(lab: [f32; 3], colourful: f32) -> [f32; 3] {
+    let c = lab[1].hypot(lab[2]);
+    let most = 0.03 + colourful * 0.3;
+    let scale = if c > most { most / c } else { 1. };
+    [lab[0], lab[1] * scale, lab[2] * scale]
+}
+
+/// The stops from deeper to lighter along the spectrum, so the bars carry
+/// a gradient even when the palette is one colour.
+fn spread(labs: [[f32; 3]; 4], look: Look) -> [[f32; 3]; 4] {
+    let (lo, hi) = match look {
+        Look::Dark => (0.7, 0.9),
+        Look::Light => (0.42, 0.6),
+    };
+    let mut out = labs;
+    for (i, l) in out.iter_mut().enumerate() {
+        let target = lo + (hi - lo) * (0.15 + 0.7 * i as f32 / 3.);
+        l[0] = (l[0] + target) * 0.5;
+    }
+    out
 }
 
 /// An OKLab colour brought into the look's lightness range, with at least

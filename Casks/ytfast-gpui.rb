@@ -5,13 +5,7 @@ cask "ytfast-gpui" do
   sha256 arm:   "d607d7b5cf92ae805f12b74094a4d900ee5986a1f9a55c8f01821756c8b7940f",
          intel: "c02744fb0a422d7a1eea7d411e9c188303a5ae49a603018ced0114555f318c2b"
 
-  # The bundled mpv needs macOS 14 on Apple silicon and 15 on Intel.
-  on_arm do
-    depends_on macos: :sonoma
-  end
-  on_intel do
-    depends_on macos: :sequoia
-  end
+  depends_on macos: ">= :big_sur"
 
   url "https://github.com/jvz-devx/ytfast-gpui/releases/download/v#{version}/ytfast-gpui-#{version}-macos-#{arch}.dmg"
   name "Music (ytfast)"

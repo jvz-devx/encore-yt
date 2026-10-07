@@ -54,11 +54,10 @@ detect_arch() {
 	esac
 }
 
-# The macOS each build needs (as the release workflow builds them, after
-# the bundled mpv): 14 on Apple silicon, 15 on Intel.
+# The macOS the builds need: 11 (Rust's and GPUI's minimum, nothing else
+# is bundled).
 check_macos() {
-	local arch="$1" need version major
-	if [[ "$arch" == "arm64" ]]; then need=14; else need=15; fi
+	local need=11 version major
 	version="$(sw_vers -productVersion)"
 	major="${version%%.*}"
 	if [[ "$major" -lt "$need" ]]; then
@@ -138,7 +137,7 @@ main() {
 
 	local arch json tag version file base expected actual dest app
 	arch="$(detect_arch)"
-	check_macos "$arch"
+	check_macos
 
 	trap cleanup EXIT
 	work="$(mktemp -d "${TMPDIR:-/tmp}/ytfast-install.XXXXXX")"

@@ -137,6 +137,11 @@ impl MusicApp {
                     .focused
                     .store(window.is_window_active(), Ordering::Relaxed);
             }));
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            let now = self.backend.now();
+            self.desktop.media = super::media::attach(window, &self.desktop.remote, now, cx);
+        }
         // Reopen at the size it had.
         let this = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
@@ -153,6 +158,10 @@ impl MusicApp {
         }
         self.desktop.window = None;
         self.desktop.activation = None;
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            self.desktop.media = None;
+        }
         self.desktop.flags.window_open.send_replace(false);
         self.desktop.flags.focused.store(false, Ordering::Relaxed);
         Some(!self.player.queue.is_empty())

@@ -187,6 +187,34 @@ self._backend_task = cx.spawn(async move |this, cx| {
   on this machine with other builds running); after that a change rebuilds
   in ~25 s and the tests run in under a second, in parallel.
 
+## Media keys on Windows and macOS (M15)
+
+`src/desktop/media.rs`, through the `souvlaki` crate (no default features,
+so no D-Bus on Linux, where the backend's MPRIS stays). It follows the same
+`desktop::Now` watch as MPRIS and drives the app through the same `Remote`;
+the controls live while the main window is open (closing it quits outside
+Linux).
+
+- Windows: System Media Transport Controls need the window's HWND, from
+  GPUI's `Window` via `raw-window-handle` 0.6 (the version gpui-pre uses).
+  The overlay doesn't advance the timeline itself, so the position is
+  republished every 5 s while playing, and at once on a seek or pause.
+- macOS: `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter` belong to the
+  process; souvlaki calls them from GPUI's foreground (the main thread).
+  The cover is fetched by the system from YouTube's thumbnail URL.
+- mpv would add its own entry and take the media keys: it starts with
+  `--media-controls=no` (Windows, mpv 0.39+) and `--input-media-keys=no`
+  (Windows and macOS, where that option also gates mpv's
+  RemoteCommandCenter). An mpv that refuses the options is restarted without
+  them.
+- Checked only by CI builds (`cargo check` for these targets doesn't work
+  here: ring and aws-lc-sys need the MSVC tools or the macOS SDK). Untested
+  on real hardware: the Windows overlay, lock screen and keyboard media keys
+  (play/pause, next, previous; the timeline and seeking from the flyout);
+  macOS Control Center's Now Playing (title, artist, album, cover,
+  progress), the media keys and AirPods controls, and seeking from Control
+  Center; that mpv shows no entry of its own on either OS.
+
 ## Build numbers (debug, `-j4`, deps at opt-level 2)
 
 - Clean build: 9m49s wall (7m14s user; another build was likely sharing the CPU). 864 crates in lock.

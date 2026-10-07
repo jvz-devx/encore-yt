@@ -2,15 +2,19 @@
 //! command line, notifications, signals, the window's lifetime, keyboard
 //! shortcuts (`keys`), context menus (`menu`), Play anything (`palette`) and
 //! what they ask of the app (`control`), and the bundled tools (`tools`).
+//! On Windows and macOS the system media controls (`media`, M15) stand in
+//! for MPRIS.
 //!
-//! MPRIS, the tray and the command line drive the app through a
-//! [`Remote`]: transport goes straight to the backend (it works with no
-//! window open), and window or account matters come back here as
-//! [`Request`]s, carried out on the foreground.
+//! MPRIS, the system media controls, the tray and the command line drive
+//! the app through a [`Remote`]: transport goes straight to the backend (it
+//! works with no window open), and window or account matters come back here
+//! as [`Request`]s, carried out on the foreground.
 
 mod cli;
 pub mod control;
 mod keys;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod media;
 pub mod menu;
 pub mod palette;
 mod signals;
@@ -43,6 +47,9 @@ pub struct Desktop {
     bounds: Option<WindowBounds>,
     /// Follows the open window's focus.
     activation: Option<Subscription>,
+    /// The system media controls, while the window is open (Windows, macOS).
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    media: Option<media::Media>,
     /// The shortcuts sheet, Play anything, a context menu, a short note.
     pub layers: Layers,
     _requests: Task<()>,
@@ -87,6 +94,8 @@ impl Desktop {
             window: None,
             bounds: None,
             activation: None,
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            media: None,
             layers: Layers::default(),
             _requests: task,
         };

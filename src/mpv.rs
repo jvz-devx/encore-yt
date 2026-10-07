@@ -62,6 +62,18 @@ const OBSERVED: &[&str] = &[
     "seeking",
 ];
 
+/// The app shows the system media controls itself (MPRIS, or M15's on
+/// Windows and macOS), so mpv mustn't add its own "mpv" entry or take the
+/// media keys. `--media-controls` needs mpv 0.39 (the Windows installer
+/// bundles a newer one); an older mpv refuses to start with it, so
+/// [`Mpv::spawn`] then starts it without these.
+#[cfg(target_os = "windows")]
+const SYSTEM_CONTROLS_OFF: &[&str] = &["--input-media-keys=no", "--media-controls=no"];
+#[cfg(target_os = "macos")]
+const SYSTEM_CONTROLS_OFF: &[&str] = &["--input-media-keys=no"];
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const SYSTEM_CONTROLS_OFF: &[&str] = &[];
+
 impl Mpv {
     /// Starts a process; its events arrive on `events` tagged with its
     /// [`serial`](Self::serial).
@@ -71,32 +83,13 @@ impl Mpv {
         events: mpsc::UnboundedSender<(u64, MpvEvent)>,
     ) -> Result<Arc<Self>> {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
-        let _ = std::fs::remove_file(socket);
-        let mut command = tokio::process::Command::new("mpv");
-        crate::platform::no_console(&mut command);
-        let mut child = command
-            .args([
-                "--idle=yes",
-                "--no-video",
-                "--no-terminal",
-                "--no-config",
-                "--ytdl=no",
-                "--gapless-audio=yes",
-                "--prefetch-playlist=yes",
-                "--cache=yes",
-                "--demuxer-max-bytes=64MiB",
-                "--audio-client-name=ytfast",
-                "--replaygain=no",
-            ])
-            .arg(format!("--volume={volume}"))
-            .arg(format!("--input-ipc-server={}", ipc_name(socket)))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .context("starting mpv")?;
-        let stream = connect(socket, &mut child).await?;
+        let (child, stream) = match start(socket, volume, SYSTEM_CONTROLS_OFF).await {
+            Err(error) if !SYSTEM_CONTROLS_OFF.is_empty() => {
+                log::warn!("mpv: {error:#}; starting it without {SYSTEM_CONTROLS_OFF:?}");
+                start(socket, volume, &[]).await?
+            }
+            started => started?,
+        };
         let (reader, writer) = tokio::io::split(stream);
         let pending: Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::default();
         let pending_reader = pending.clone();
@@ -256,6 +249,42 @@ async fn open(socket: &Path) -> std::io::Result<Stream> {
 #[cfg(windows)]
 async fn open(socket: &Path) -> std::io::Result<Stream> {
     tokio::net::windows::named_pipe::ClientOptions::new().open(ipc_name(socket))
+}
+
+/// Starts mpv with `extra` options and connects to its control socket.
+async fn start(
+    socket: &Path,
+    volume: f64,
+    extra: &[&str],
+) -> Result<(tokio::process::Child, Stream)> {
+    let _ = std::fs::remove_file(socket);
+    let mut command = tokio::process::Command::new("mpv");
+    crate::platform::no_console(&mut command);
+    let mut child = command
+        .args([
+            "--idle=yes",
+            "--no-video",
+            "--no-terminal",
+            "--no-config",
+            "--ytdl=no",
+            "--gapless-audio=yes",
+            "--prefetch-playlist=yes",
+            "--cache=yes",
+            "--demuxer-max-bytes=64MiB",
+            "--audio-client-name=ytfast",
+            "--replaygain=no",
+        ])
+        .args(extra)
+        .arg(format!("--volume={volume}"))
+        .arg(format!("--input-ipc-server={}", ipc_name(socket)))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .context("starting mpv")?;
+    let stream = connect(socket, &mut child).await?;
+    Ok((child, stream))
 }
 
 async fn connect(socket: &Path, child: &mut tokio::process::Child) -> Result<Stream> {

@@ -57,6 +57,16 @@ gpui-kit = { version = "=0.7.1", features = ["test-support"] }
 # gpui-base with these features, on zbus's `async-io` reactor.
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+# M15: the system media controls (Windows System Media Transport Controls,
+# macOS Now Playing and media keys), src/desktop/media.rs. Linux has MPRIS in
+# the backend.
+souvlaki = { version = "0.8.3", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The main window's HWND for the media controls; the version gpui-pre uses.
+raw-window-handle = "0.6"
+
 # Linux packages (cargo-deb, cargo-generate-rpm), built by
 # .github/workflows/release.yml after it fetches yt-dlp and deno into
 # target/tools. The app lives in /usr/lib/ytfast-gpui with those two in bin/;

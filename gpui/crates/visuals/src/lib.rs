@@ -40,4 +40,4 @@ pub use renderer::{CoverShadow, FrameParams, Look, Renderer, Tune};
 pub use spectrum::{AudioTap, BANDS, Bands, band_at};
 pub use strip::{Seek, Strip, StripColors, StripParams};
 pub use target::{Frame, FrameCost};
-pub use visualizer::{AMBIENT, Ambient, BarSettings, Bars, MAX_BARS, Visualizer, VisualizerParams};
+pub use visualizer::{BarSettings, Bars, MAX_BARS, Visualizer, VisualizerParams};

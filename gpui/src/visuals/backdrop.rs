@@ -30,6 +30,8 @@ pub struct Backdrop {
     /// The flow's clock (it runs at the swirl speed), and the animation
     /// time it last moved with.
     flow: f32,
+    /// The light wave's clock: the flow's at the wave's speed.
+    wave_clock: f32,
     seconds: f32,
     /// The settings' revision last drawn with.
     revision: u64,
@@ -41,10 +43,10 @@ pub struct Backdrop {
 }
 
 impl Backdrop {
-    /// The flow's clock (seconds at the swirl speed), which the ambient
-    /// layer's wave follows too.
-    pub fn flow(&self) -> f32 {
-        self.flow
+    /// The light wave's clock (the flow's at the wave's speed), which the
+    /// sparkles gather round too.
+    pub fn wave_clock(&self) -> f32 {
+        self.wave_clock
     }
 
     pub fn image(&self) -> Option<std::sync::Arc<RenderImage>> {
@@ -123,7 +125,9 @@ impl Backdrop {
         if config_changed(&mut self.revision) {
             self.pending = self.pending.max(2);
         }
-        self.flow += (tick.seconds - self.seconds).max(0.) * b.swirl;
+        let passed = (tick.seconds - self.seconds).max(0.);
+        self.flow += passed * b.swirl;
+        self.wave_clock += passed * b.swirl * config.wave.speed;
         self.seconds = tick.seconds;
         if !tick.due && self.pending == 0 {
             return;
@@ -140,6 +144,14 @@ impl Backdrop {
                 blur: b.blur,
                 bloom: b.bloom,
                 intensity: b.intensity,
+                wave: if config.wave.on {
+                    config.wave.strength
+                } else {
+                    0.
+                },
+                wave_clock: self.wave_clock,
+                ribbons: config.wave.ribbons,
+                wave_height: config.wave.height,
             },
         };
         match renderer.frame(&params) {

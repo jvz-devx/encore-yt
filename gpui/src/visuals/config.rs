@@ -25,13 +25,28 @@ use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
 /// The file's format version; files from newer builds still load.
-/// Version 2: the frame rate offers 120 and the display's rate, and 30 is
-/// the default (version 1's default was 20).
+/// Version 2: the frame rate offers 120 and the display's rate, and its
+/// default depends on the system ([`default_fps`]).
 pub const VERSION: u32 = 2;
 /// The frame rate that follows the display (`fps` in the file).
 pub const DISPLAY_FPS: u32 = 0;
 /// The frame rates Settings offers; [`DISPLAY_FPS`] is the display's rate.
-pub const FPS: [u32; 5] = [15, 30, 60, 120, DISPLAY_FPS];
+pub const FPS: [u32; 6] = [15, 20, 30, 60, 120, DISPLAY_FPS];
+
+/// The frame rate out of the box: the display's on macOS (a frame costs
+/// Apple's GPUs little), 30 on Windows, and 20 on Linux, where the
+/// integrated GPUs it was measured on spend 6-10 ms on each window frame
+/// (gpui/NOTES-visuals.md, "Frame rate"). The sparkles drift well under a
+/// pixel a frame at 20, so motion still looks fluid.
+pub fn default_fps() -> u32 {
+    if cfg!(target_os = "macos") {
+        DISPLAY_FPS
+    } else if cfg!(target_os = "windows") {
+        30
+    } else {
+        20
+    }
+}
 /// The sparkles' radius in device pixels: least, most.
 pub const SPARKLE_PX: (f32, f32) = (0.5, 4.);
 /// The visualiser's bar counts: least, most.
@@ -472,7 +487,7 @@ impl Default for VisualsConfig {
             version: VERSION,
             preset: Preset::Default,
             on: true,
-            fps: 30,
+            fps: default_fps(),
             backdrop: Backdrop::default(),
             particles: Particles::default(),
             wave: Wave::default(),
@@ -646,10 +661,10 @@ impl VisualsConfig {
 
     /// Values from a file (or a hand edit) brought into their ranges.
     fn clamped(mut self) -> Self {
-        // Version 1's default of 20 is 30 now; other rates it doesn't offer
-        // go to the default too.
+        // Version 1's default of 20 is the system's default now; rates this
+        // build doesn't offer go to it too.
         if !FPS.contains(&self.fps) || (self.version < 2 && self.fps == 20) {
-            self.fps = 30;
+            self.fps = default_fps();
         }
         self.version = VERSION;
         let m = |v: &mut f32, hi: f32| *v = if v.is_finite() { v.clamp(0., hi) } else { 1. };

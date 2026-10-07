@@ -1,7 +1,8 @@
 // The Now Playing backdrop: a slowly flowing, blurred copy of the cover over
-// a gradient of its palette and a soft bloom of its brightest colours,
-// toned so text stays legible on top. The sparkles and the light wave are
-// the visualiser shader's ambient layer, drawn over this at full size.
+// a gradient of its palette, a soft bloom of its brightest colours and a
+// faint light wave (after the PS3's XrossMediaBar), toned so text stays
+// legible on top. The fine sparkles round the wave are the app's, drawn
+// over this at the window's resolution.
 // Output is BGRA8 in display (gamma) space, as GPUI's atlas expects.
 
 struct Params {
@@ -17,9 +18,11 @@ struct Params {
     // x: the box's corner radius, y: pixels per point, z: the shadow's
     // alpha, w: on (0/1)
     shadow: vec4<f32>,
-    // Strengths, 1 for the Default look: x: blur, y and z: unused, w: bloom
+    // Strengths, 1 for the Default look: x: blur, y: the wave (0 off),
+    // z: the wave's clock, w: bloom
     tune: vec4<f32>,
-    // x: colour intensity
+    // x: colour intensity, y: the wave's ribbons (1..3), z: the height of
+    // its middle (0 top, 1 bottom)
     tune2: vec4<f32>,
     palette: array<vec4<f32>, 4>,
 };
@@ -177,6 +180,35 @@ fn cover_shadow(p: vec2<f32>) -> f32 {
     return (1.0 - tight * alpha * 0.5) * (1.0 - wide * alpha);
 }
 
+// The wave's ribbon `i` at `x` (0..1 across): its middle, in output
+// heights from the top, slowly undulating with the wave's clock `t`. The
+// app's sparkles follow the same curves (visuals::ambient::ribbon).
+fn ribbon(i: i32, x: f32, t: f32) -> f32 {
+    let k = f32(i);
+    let a = sin(6.2832 * (x * (0.55 + 0.12 * k) + 0.23 * k) + t * (0.09 + 0.025 * k));
+    let b = sin(6.2832 * (x * (1.15 - 0.2 * k) - 0.31 * k) - t * (0.05 + 0.02 * k));
+    return params.tune2.z + 0.03 * (k - 1.0) + (0.1 - 0.02 * k) * a + 0.04 * b;
+}
+
+// The wave over `color`: soft translucent ribbons of the palette, each with
+// a faint brighter crest; lighter than what is under them in either look.
+fn with_wave(color: vec3<f32>, uv: vec2<f32>, light: bool) -> vec3<f32> {
+    let strength = params.tune.y * select(1.0, 2.0, light);
+    if strength <= 0.0 {
+        return color;
+    }
+    var out = color;
+    let ribbons = clamp(i32(params.tune2.y + 0.5), 1, 3);
+    for (var i = 0; i < ribbons; i++) {
+        let k = f32(i);
+        let d = (uv.y - ribbon(i, uv.x, params.tune.z)) / (0.07 + 0.03 * k);
+        let sheet = exp(-d * d) * 0.07 + exp(-d * d * 60.0) * 0.05;
+        let tint = mix(params.palette[i].rgb, vec3<f32>(1.0), select(0.25, 0.65, light));
+        out = mix(out, tint, clamp(sheet * strength * (1.0 - 0.25 * k), 0.0, 1.0));
+    }
+    return out;
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let t = params.audio.x;
@@ -222,6 +254,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         color *= 1.0 - 0.3 * dot(p, p);
     }
 
+
+    color = with_wave(color, in.uv, light);
 
     // GPUI blends shadows in display space: the same here.
     if params.shadow.w > 0.5 {

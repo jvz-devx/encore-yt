@@ -3,8 +3,9 @@
 //! (glow, seek bar, halos) whenever a song plays. It also runs the cover
 //! dissolves, which the shell paints over the app ([`Effects::overlay`]).
 //!
-//! It re-renders on its own timer (`fps()`, 30 by default, or with the
-//! display when Settings → Visuals' frame rate says so) and never
+//! It re-renders on its own timer (`fps()`, 20 a second by default on
+//! Linux, or with the display when Settings → Visuals' frame rate says so)
+//! and never
 //! notifies `MusicApp`. Frames stop when the window isn't visible
 //! (minimised), playback is paused, or motion is reduced (then a still
 //! frame is drawn when something changes). One `ytfast_visuals::Gpu` serves
@@ -18,7 +19,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::*;
 use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
-use super::ambient::Ambient;
+use super::ambient::{Clocks, Field};
 use super::backdrop::{self, Backdrop};
 use super::bar::{self, Bar};
 use super::device::Device;
@@ -39,9 +40,11 @@ const DRIFT_FPS: f32 = 3.;
 /// rate beats draw at most.
 const BEAT_STEP: f32 = 0.12;
 const BEAT_FPS: f32 = 10.;
-/// The backdrop draws with every paced frame up to this rate; above it
-/// (120 or the display's rate) every other one, which still looks fluid.
-const BACKDROP_FPS: f32 = 60.;
+/// The backdrop draws with every other paced frame (it moves slowly and is
+/// blurred; the sparkles over it move with every frame), at least this
+/// often and at most `BACKDROP_MAX_FPS`.
+const BACKDROP_MIN_FPS: f32 = 10.;
+const BACKDROP_MAX_FPS: f32 = 30.;
 /// The ticker's rate while only the player bar moves and the frame rate
 /// follows the display (its frames come on beats and the playhead).
 const BAR_ONLY_FPS: u32 = 30;
@@ -96,8 +99,8 @@ pub struct Effects {
     bands: Bands,
     art: Option<Art>,
     backdrop: Backdrop,
-    /// The sparkles and the light wave over the backdrop.
-    ambient: Ambient,
+    /// The sparkles' clocks.
+    sparkles: Clocks,
     bar: Bar,
     vis: Vis,
     changes: Rc<RefCell<[Change; 2]>>,
@@ -140,7 +143,7 @@ impl Effects {
             bands: Bands::default(),
             art: None,
             backdrop: Backdrop::default(),
-            ambient: Ambient::default(),
+            sparkles: Clocks::default(),
             bar: Bar::new(),
             vis: Vis::default(),
             changes: Rc::new(RefCell::new([
@@ -191,7 +194,6 @@ impl Effects {
         }
         self.window = Some(handle);
         self.backdrop.forget();
-        self.ambient.hide(cx);
         self.bar.forget();
         self.vis.forget();
         for change in self.changes.borrow_mut().iter_mut() {
@@ -384,7 +386,6 @@ impl Effects {
         let backdrop = self.backdrop_shows();
         if !backdrop && self.backdrop.has_renderer() && self.shown_at.elapsed() >= KEEP {
             self.backdrop.release(cx);
-            self.ambient.release(cx);
         }
         if self.drew_at.elapsed() >= KEEP && !backdrop {
             log::info!("visuals: idle, releasing the GPU");
@@ -494,6 +495,7 @@ impl Render for Effects {
         let changing = self.changes.borrow().iter().any(Change::active);
         let fading = (backdrop_shows && self.backdrop.fading()) || self.bar.fading();
         let animate = moving && (music || fading || changing);
+        self.sparkles.advance(moving && music && backdrop_shows);
         let (due, dt) = self.tick(animate);
         self.bar_only = !input.showing && input.scene.is_none() && !fading && !changing;
         // Window frames come at `fps()` while Now Playing animates; the bar
@@ -506,7 +508,7 @@ impl Render for Effects {
             && (self.backdrop.fading()
                 || self
                     .backdrop_at
-                    .is_none_or(|at| at.elapsed().as_secs_f32() >= 0.8 / BACKDROP_FPS));
+                    .is_none_or(|at| at.elapsed().as_secs_f32() >= 0.8 / backdrop_fps()));
         if backdrop_due {
             self.backdrop_at = Some(Instant::now());
         }
@@ -547,18 +549,11 @@ impl Render for Effects {
                 Some((area, _)) if !(skip("backdrop") && self.backdrop.image().is_some()) => {
                     let shadow = cover_shadow(input.showing, cx);
                     let tick = paced(backdrop_due);
-                    self.backdrop.update(&tick, area, art, shadow, window);
-                    if Ambient::wanted() && !skip("ambient") {
-                        let palette = self.bar.palette();
-                        let flow = self.backdrop.flow();
-                        self.ambient.update(&tick, area, flow, &palette, window, cx);
-                    } else {
-                        self.ambient.hide(cx);
-                    }
+                    self.backdrop.update(&tick, area, art, shadow, window)
                 }
                 Some(_) => {}
                 None if backdrop_shows && backdrop_on => window.request_animation_frame(),
-                None => self.ambient.hide(cx),
+                None => {}
             }
             match vis_place.filter(|_| moving && input.playing) {
                 Some(place) => {
@@ -610,8 +605,17 @@ impl Render for Effects {
             backdrop: (backdrop_shows && backdrop_on)
                 .then(|| self.backdrop.image())
                 .flatten(),
-            ambient: (backdrop_shows && backdrop_on && Ambient::wanted())
-                .then(|| self.ambient.image())
+            sparkles: (backdrop_shows && backdrop_on && !skip("sparkles"))
+                .then(|| {
+                    Field::new(
+                        &self.sparkles,
+                        self.backdrop.wave_clock(),
+                        if self.reduce { 0. } else { self.bands.level },
+                        self.look,
+                        self.bar.palette(),
+                        c.signal,
+                    )
+                })
                 .flatten(),
             scene: self.scene_backdrop(),
             vis: vis_place.and_then(|_| self.vis.image()),
@@ -649,8 +653,8 @@ impl Render for Effects {
 /// What the layer paints, captured for the canvas.
 struct Paint {
     backdrop: Option<std::sync::Arc<RenderImage>>,
-    /// The ambient layer's frame, over the backdrop at full size.
-    ambient: Option<std::sync::Arc<RenderImage>>,
+    /// The sparkles over the backdrop.
+    sparkles: Option<Field>,
     fallback: Background,
     showing: bool,
     /// The backdrop fills a scene (Stage, the full-window visualiser).
@@ -692,8 +696,8 @@ impl Paint {
                 }
                 None => window.paint_quad(fill(panel, self.fallback).corner_radii(corners)),
             }
-            if let Some(image) = self.ambient {
-                let _ = window.paint_image(panel, panel, corners, image, 0, false);
+            if let Some(sparkles) = &self.sparkles {
+                sparkles.paint(panel, window);
             }
         }
         if let Some((image, bounds)) = self.vis {
@@ -850,10 +854,16 @@ fn head_speed(bar: Option<&bar::Input>, scale: f32, cx: &App) -> f32 {
     f32::from(seek.size.width) * scale / bar.duration as f32
 }
 
+/// The backdrop's frames a second: half the window's, within
+/// `BACKDROP_MIN_FPS..=BACKDROP_MAX_FPS` (the display's rate counts as 60).
+fn backdrop_fps() -> f32 {
+    (fps().unwrap_or(60) as f32 / 2.).clamp(BACKDROP_MIN_FPS, BACKDROP_MAX_FPS)
+}
+
 /// Window frames per second at most while effects move: Settings →
-/// Visuals' frame rate or `YTFAST_GPUI_VISUALS_FPS`, 30 by default (each
-/// frame redraws the window: 6-10 ms of GPU time on the UHD 630); `None`
-/// for the display's own rate.
+/// Visuals' frame rate or `YTFAST_GPUI_VISUALS_FPS`, by default
+/// [`super::config::default_fps`] (each frame redraws the window: 6-10 ms of
+/// GPU time on the UHD 630); `None` for the display's own rate.
 fn fps() -> Option<u32> {
     let fps = super::config::get().fps;
     (fps != super::config::DISPLAY_FPS).then_some(fps.max(1))

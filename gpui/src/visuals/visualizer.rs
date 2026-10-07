@@ -154,7 +154,6 @@ impl Vis {
             reach: f32::from(reach(place, cx)) * scale,
             stops: stops(v.palette, &v.custom, palette, tick.look, cx),
             bars: &self.bars,
-            ambient: Default::default(),
         };
         match renderer.frame(&params) {
             Ok(Some(frame)) => {

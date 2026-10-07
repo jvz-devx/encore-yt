@@ -1,13 +1,12 @@
 // The audio visualiser: bars, mirrored bars, a ring round the cover, a line
 // spectrum or a particle field, from the bars the app worked out of the
-// spectrum; and the backdrop's ambient layer (style 5): a soft flowing light
-// wave and fine sparkles drifting along it. Drawn with an alpha channel (straight, not premultiplied, as
+// spectrum. Drawn with an alpha channel (straight, not premultiplied, as
 // GPUI's sprites take it) over the backdrop. Positions are in output
 // pixels. Colour is BGRA8 in display (gamma) space.
 
 struct Params {
     // xy: output size in pixels, z: style (0 bars, 1 mirrored, 2 ring,
-    // 3 line, 4 particles, 5 ambient), w: bar count
+    // 3 line, 4 particles), w: bar count
     output: vec4<f32>,
     // x: seconds, y: bass, z: kick, w: level (0..1)
     audio: vec4<f32>,
@@ -20,18 +19,6 @@ struct Params {
     shape: vec4<f32>,
     // x: pixels per point, y: has a cover (0/1)
     extra: vec4<f32>,
-    // The ambient layer (style 5). Sparkles: x: amount 0..2, y: smallest
-    // and z: largest radius in device pixels, w: softness 0..1
-    ambient: vec4<f32>,
-    // x: brightness 0..2, y: the drift's clock, z: depth spread 0..1,
-    // w: music reaction 0..1
-    ambient2: vec4<f32>,
-    // x: twinkle 0..1, y: the twinkle's clock, z: drift direction
-    // (radians, 0 rightwards, counter-clockwise), w: colour tint 0..1
-    ambient3: vec4<f32>,
-    // The wave: x: strength 0..2 (0 off), y: its clock, z: ribbons 1..3,
-    // w: height of its middle (0 top, 1 bottom)
-    wave: vec4<f32>,
     // The gradient along the spectrum, linear RGB, low to high.
     stops: array<vec4<f32>, 4>,
     // Four bars to a vec4: heights, then peak caps, 0..1.
@@ -424,103 +411,6 @@ fn particles(p: vec2<f32>) -> Ink {
     return ink;
 }
 
-// The wave's ribbon `i` at `x` (0..1 across): its middle, in output
-// heights from the top, slowly undulating with the wave's clock `t`.
-fn ribbon(i: i32, x: f32, t: f32) -> f32 {
-    let k = f32(i);
-    let a = sin(6.2832 * (x * (0.55 + 0.12 * k) + 0.23 * k) + t * (0.09 + 0.025 * k));
-    let b = sin(6.2832 * (x * (1.15 - 0.2 * k) - 0.31 * k) - t * (0.05 + 0.02 * k));
-    return params.wave.w + 0.03 * (k - 1.0) + (0.1 - 0.02 * k) * a + 0.04 * b;
-}
-
-fn ribbons() -> i32 {
-    return clamp(i32(params.wave.z + 0.5), 1, 3);
-}
-
-// How close a point at height `y` (output heights) is to the wave, 0..1.
-fn near_wave(x: f32, y: f32) -> f32 {
-    var d = 1.0;
-    for (var i = 0; i < ribbons(); i++) {
-        d = min(d, abs(y - ribbon(i, x, params.wave.y)));
-    }
-    return exp(-(d * d) / 0.03);
-}
-
-// The ambient layer (the backdrop's, after the PS3's XrossMediaBar): soft,
-// translucent ribbons of the cover's colours flowing slowly across, and
-// fine sparkles, mostly a pixel or two, drifting with them. Each sparkle is
-// one per grid cell in three layers of depth (far ones smaller, fainter
-// and slower, as far as the depth spread says), from a hash of its cell
-// that stays put while the grid drifts, so nothing shimmers; it twinkles
-// over seconds and gathers loosely round the wave. The music lifts the
-// brightness a little, no more.
-fn ambient(p: vec2<f32>) -> Ink {
-    let size = params.output.xy;
-    let s = params.extra.x;
-    let uv = p / size;
-    let light = params.look.w > 0.5;
-    // White shows less on the light look's pale backdrop: twice as much.
-    let boost = select(1.0, 2.0, light);
-    var ink = Ink(vec3<f32>(1.0), 0.0);
-    let wave = params.wave.x * boost;
-    if wave > 0.0 {
-        for (var i = 0; i < ribbons(); i++) {
-            let k = f32(i);
-            let d = (uv.y - ribbon(i, uv.x, params.wave.y)) / (0.07 + 0.03 * k);
-            // A soft sheet with a faint brighter crest.
-            let sheet = exp(-d * d) * 0.07 + exp(-d * d * 60.0) * 0.05;
-            let color = mix(params.stops[i].rgb, vec3<f32>(1.0), select(0.25, 0.65, light));
-            ink = over(ink, color, sheet * wave * (1.0 - 0.25 * k));
-        }
-    }
-    let amount = params.ambient.x;
-    if amount <= 0.0 {
-        return ink;
-    }
-    let q = p / s;
-    let spread = params.ambient2.z;
-    let angle = params.ambient3.z;
-    let heading = vec2<f32>(cos(angle), -sin(angle));
-    let lift = 1.0 + 0.5 * params.ambient2.w * params.audio.w;
-    for (var layer = 0; layer < 3; layer++) {
-        // 0 far, 1 near; with no spread every layer sits in the middle.
-        let near = mix(0.5, f32(layer) * 0.5, spread);
-        // Cell size in points, drift in points a second.
-        let cell = 16.0 + 18.0 * near;
-        let drift = 3.0 + 7.0 * near;
-        let g = (q - heading * params.ambient2.y * drift) / cell;
-        let c = floor(g);
-        // 97 cells round: the hashes repeat, so a long drift stays exact.
-        let cw = c - 97.0 * floor(c / 97.0);
-        let h = hash4(cw + f32(layer) * 41.0);
-        if h.w < 1.0 - 0.32 * amount {
-            continue;
-        }
-        let tw = params.ambient3.y;
-        let sway = vec2<f32>(sin(tw * 0.21 + h.z * 6.28), cos(tw * 0.17 + h.x * 6.28)) * 0.07;
-        let centre = 0.25 + 0.5 * h.xy + sway;
-        // Its distance in device pixels.
-        let d = length(fract(g) - centre) * cell * s;
-        // One in fifteen a little larger.
-        let big = select(1.0, 1.5, h.z > 0.93);
-        let r = max(mix(params.ambient.y, params.ambient.z, near) * big, 0.5);
-        let soft = exp(-(d * d) / (r * r));
-        let hard = clamp(r - d + 0.5, 0.0, 1.0);
-        let core = mix(hard, soft, params.ambient.w);
-        // A slow fade in and out, seconds long, never a blink.
-        let phase = tw * (0.5 + 0.6 * h.y) + h.w * 40.0;
-        let twinkle = mix(1.0, 0.2 + 0.8 * smoothstep(-1.0, 1.0, sin(phase)), params.ambient3.x);
-        let at = ((c + centre) * cell + heading * params.ambient2.y * drift) * s / size;
-        let gather = mix(0.3, 1.0, near_wave(at.x, at.y));
-        let bright = (0.28 + 0.4 * near) * twinkle * gather * lift * params.ambient2.x * boost;
-        let tint = params.ambient3.w * select(0.3, 0.15, light);
-        let color = mix(vec3<f32>(1.0), gradient(h.x), tint);
-        // Never a solid dot, however bright the settings.
-        ink = over(ink, color, min(core * bright, 0.8));
-    }
-    return ink;
-}
-
 // Display space from linear, per channel.
 fn to_display(c: vec3<f32>) -> vec3<f32> {
     let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -542,10 +432,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         ink = ring(p);
     } else if style == 3 {
         ink = line(p);
-    } else if style == 4 {
-        ink = particles(p);
     } else {
-        ink = ambient(p);
+        ink = particles(p);
     }
     // Glows fade out before the frame's edge, so its box never shows:
     // all round for the ring and the particles, at the top for the bands
@@ -555,9 +443,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var edge = p.y;
     if style == 2 || style == 4 {
         edge = min(min(p.x, size.x - p.x), min(p.y, size.y - p.y));
-    } else if style == 5 {
-        // The ambient layer fills its panel.
-        edge = margin;
     }
     let alpha = clamp(ink.alpha * params.look.x, 0.0, 1.0) * smoothstep(0.0, margin, edge);
     return vec4<f32>(to_display(ink.color), alpha);

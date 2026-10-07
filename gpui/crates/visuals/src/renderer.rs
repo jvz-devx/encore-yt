@@ -53,6 +53,12 @@ pub struct Tune {
     pub bloom: f32,
     /// How much colour the tone mapping keeps.
     pub intensity: f32,
+    /// The light wave's strength (0: none), its clock, its ribbons (1..3)
+    /// and the height of its middle (0 top, 1 bottom).
+    pub wave: f32,
+    pub wave_clock: f32,
+    pub ribbons: u32,
+    pub wave_height: f32,
 }
 
 impl Default for Tune {
@@ -61,6 +67,10 @@ impl Default for Tune {
             blur: 1.0,
             bloom: 1.0,
             intensity: 1.0,
+            wave: 1.0,
+            wave_clock: 0.0,
+            ribbons: 3,
+            wave_height: 0.56,
         }
     }
 }
@@ -205,8 +215,8 @@ impl Renderer {
             if p.shadow.is_some() { 1.0 } else { 0.0 },
         ]);
         let t = &p.tune;
-        floats.extend([t.blur, 0.0, 0.0, t.bloom]);
-        floats.extend([t.intensity, 0.0, 0.0, 0.0]);
+        floats.extend([t.blur, t.wave, t.wave_clock, t.bloom]);
+        floats.extend([t.intensity, t.ribbons as f32, t.wave_height, 0.0]);
         let (new, old) = (self.palettes[self.front], self.palettes[1 - self.front]);
         for (n, o) in new.iter().zip(&old) {
             floats.extend((0..4).map(|i| o[i] + (n[i] - o[i]) * mix));
@@ -263,6 +273,10 @@ mod tests {
             blur: 2.0,
             bloom: 2.0,
             intensity: 2.0,
+            wave: 2.0,
+            wave_clock: 3.0,
+            ribbons: 3,
+            wave_height: 0.5,
         }
     }
 

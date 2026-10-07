@@ -630,6 +630,9 @@ impl super::Worker {
     /// Adds the current song to the account's history, with the tracking
     /// URL of the player response fetched when it started if there is one.
     fn report_play(&self) {
+        if crate::resolver::fake_stream().is_some() {
+            return;
+        }
         let Some(track) = self.current() else { return };
         let client = self.client.clone();
         let id = track.video_id.clone();

@@ -13,6 +13,7 @@ This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `up
 - Verify UI work visually: run the app on the Wayland session and capture it with `spectacle` (see PLAN.md). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`. Never push to `upstream`.
 - Fast loop: group edits, then `scripts/check.sh gpui|backend|egui|tests|shaders` (cargo check of just what you touched; `cargo check -p ytfast-gpui` from `gpui/`). Use `cargo check`, not `cargo build`, unless you need to run the binary. `scripts/gpui-check.sh` (clippy, tests, release build) runs once before finishing. Shader-only changes: `scripts/check.sh shaders` (naga) instead of rebuilding the app.
+- YouTube rate limits: checks that only need *something* playing (UI, performance, effects) run with `YTFAST_FAKE_STREAM=<audio file>` (e.g. `artifacts/test-audio.opus`), which plays that local file without yt-dlp and doesn't report plays to history. Real streams only where the check is about streaming itself, and as few as possible.
 - Caches: builds go through sccache (`rustc-wrapper` in `~/.cargo/config.toml`). Each worktree keeps its own `target/`; sccache shares compiled dependencies between them. Never `cargo clean` unless a build is genuinely corrupt.
 
 ## Start here

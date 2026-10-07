@@ -1,4 +1,4 @@
-//! Settings → Playback (loudness levelling) and Notifications.
+//! Settings → Loudness levelling and Notifications.
 
 use gpui_kit::*;
 
@@ -16,7 +16,7 @@ pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyEle
     let control = widgets::switch("normalize", on, c)
         .on_click(cx.listener(|this, on: &bool, _, cx| this.set_normalize(*on, cx)));
     super::section(
-        "Playback",
+        "Loudness levelling",
         c,
         [super::row(
             "Even out loudness between songs",

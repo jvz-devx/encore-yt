@@ -17,6 +17,7 @@ mod pages;
 mod playback;
 mod sidebar;
 mod sign_in;
+mod startup;
 mod theme;
 mod update;
 mod views;
@@ -30,6 +31,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 
 fn main() -> anyhow::Result<()> {
+    startup::begin();
     // The update helper runs here and exits; a start after an update keeps
     // its receipt (M16).
     let args = update::intercept();
@@ -46,13 +48,27 @@ fn main() -> anyhow::Result<()> {
         .panic_log(paths.cache.join("panics-gpui.log"))
         .init()
         .map_err(|e| anyhow!("logging: {e}"))?;
+    startup::mark(startup::Milestone::Logging);
+    // Slow parts of the start, on threads of their own while the platform
+    // and the window start (M17): the desktop's look, the cover art client
+    // and the backend.
+    let asking = theme::ask_desktop();
+    let http = std::thread::spawn(|| {
+        reqwest_client::ReqwestClient::user_agent(concat!(
+            "ytfast-gpui/",
+            env!("CARGO_PKG_VERSION")
+        ))
+    });
+    let early = app::Early::start(paths.clone())?;
 
     gpui_kit::application()
         .with_assets(assets::AppAssets)
         .run(move |cx| {
+            startup::mark(startup::Milestone::Platform);
             gpui_kit::init(cx);
             // Fonts, colours and gpui-component's theme (YTFAST_GPUI_THEME=light).
-            theme::init(cx);
+            theme::init(asking, cx);
+            startup::mark(startup::Milestone::Theme);
             // Each area binds its own shortcuts in the "Music" key context
             // and handles them in its `on_actions`.
             pages::bind_keys(cx);
@@ -61,15 +77,15 @@ fn main() -> anyhow::Result<()> {
             desktop::bind_keys(cx);
             extras::bind_keys(cx);
             // img("https://...") fetches cover art through this client.
-            match reqwest_client::ReqwestClient::user_agent(concat!(
-                "ytfast-gpui/",
-                env!("CARGO_PKG_VERSION")
-            )) {
+            match http
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            {
                 Ok(http) => cx.set_http_client(Arc::new(http)),
                 Err(e) => log::warn!("no HTTP client for cover art: {e}"),
             }
             // The window, and the app living on without it (M4).
-            desktop::start(paths, launch.link, cx);
+            desktop::start(paths, early, launch.link, cx);
         });
     Ok(())
 }

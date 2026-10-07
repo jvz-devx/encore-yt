@@ -27,6 +27,7 @@ pub use crate::link::Link;
 use crate::account::AccountUi;
 use crate::desktop::Desktop;
 use crate::extras::Extras;
+use crate::nav::View;
 use crate::pages::Pages;
 use crate::playback::Player;
 use crate::sidebar::Sidebar;
@@ -65,31 +66,33 @@ pub struct MusicApp {
 }
 
 impl MusicApp {
-    pub fn new(paths: Paths, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let (wake_tx, wake_rx) = smol::channel::bounded::<()>(1);
-        let backend = match Backend::start(paths.clone(), move || {
-            // Full means a wake is pending already; that drain catches up.
-            let _ = wake_tx.try_send(());
-        }) {
-            Ok(backend) => backend,
-            Err(e) => panic!("starting the backend: {e:#}"),
-        };
+    pub fn new(paths: Paths, early: Early, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let Started { backend, wake } = early.join();
+        crate::startup::mark(crate::startup::Milestone::Backend);
         // Not tied to a window: the app outlives its window (desktop).
         let events = cx.spawn(async move |this, cx| {
-            while wake_rx.recv().await.is_ok() {
+            while wake.recv().await.is_ok() {
                 let Some(app) = this.upgrade() else { break };
                 cx.update(|cx| drain_events(&app, cx));
             }
         });
-        Self::with_link(Link::Live(backend), events, paths, window, cx)
+        Self::with_link(
+            Link::Live(backend),
+            events,
+            paths,
+            Some(HOME_SEQ),
+            window,
+            cx,
+        )
     }
 
     /// The app on `backend`; `events` drains what it reports (the UI tests
-    /// drain by hand).
+    /// drain by hand). `home_asked` is the request for Home sent already.
     pub(crate) fn with_link(
         backend: Link,
         events: Task<()>,
         paths: Paths,
+        home_asked: Option<u64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -149,8 +152,12 @@ impl MusicApp {
             _events: events,
             _clock: clock,
         };
-        app.ensure_page(app.pages.view.target(), false);
+        match home_asked {
+            Some(seq) => app.page_requested(View::Home.target(), seq),
+            None => app.ensure_page(app.pages.view.target(), false),
+        }
         app.start_update_checks(cx);
+        crate::startup::mark(crate::startup::Milestone::AppBuilt);
         app
     }
 
@@ -235,6 +242,50 @@ impl MusicApp {
     }
 }
 
+/// The backend, started on a thread of its own from `main` before the
+/// platform (M17), so restoring the session, reading the cookies, checking
+/// the account and loading Home (its saved copy, then a fresh one) overlap
+/// the start of the platform and the window. The window's first frame then
+/// shows the saved Home.
+pub struct Early(std::thread::JoinHandle<anyhow::Result<Started>>);
+
+struct Started {
+    backend: Backend,
+    /// Poked each time the backend has events.
+    wake: smol::channel::Receiver<()>,
+}
+
+/// The request number of the first Home request, sent by [`Early`].
+const HOME_SEQ: u64 = 1;
+
+impl Early {
+    pub fn start(paths: Paths) -> std::io::Result<Self> {
+        let thread = std::thread::Builder::new().name("ytfast-start".into());
+        thread
+            .spawn(move || {
+                let (wake_tx, wake) = smol::channel::bounded::<()>(1);
+                let backend = Backend::start(paths, move || {
+                    // Full means a wake is pending already; that drain catches up.
+                    let _ = wake_tx.try_send(());
+                })?;
+                backend.send(Command::Page {
+                    target: View::Home.target(),
+                    seq: HOME_SEQ,
+                });
+                Ok(Started { backend, wake })
+            })
+            .map(Self)
+    }
+
+    fn join(self) -> Started {
+        match self.0.join() {
+            Ok(Ok(started)) => started,
+            Ok(Err(e)) => panic!("starting the backend: {e:#}"),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+}
+
 /// Drains in the window that shows the app, or without one while it's closed.
 fn drain_events(app: &Entity<MusicApp>, cx: &mut App) {
     let drained = cx.with_window(app.entity_id(), |window, cx| {
@@ -247,6 +298,7 @@ fn drain_events(app: &Entity<MusicApp>, cx: &mut App) {
 
 impl Render for MusicApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::startup::rendered(self, window);
         // The app's views sit in a cached view between the effects layers
         // (see `visuals`), so an effects frame doesn't re-render them.
         crate::visuals::shell(self, window, cx)

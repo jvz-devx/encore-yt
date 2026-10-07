@@ -78,6 +78,8 @@ pub struct Effects {
     /// Set on input while the app view is cached (see `super::Layers`).
     input_flag: Rc<Cell<bool>>,
     gpu: Option<Result<Gpu, String>>,
+    /// Waits for the device while it is being made.
+    gpu_wait: Option<Task<()>>,
     tap: Option<AudioTap>,
     bands: Bands,
     art: Option<Art>,
@@ -115,6 +117,7 @@ impl Effects {
             input: Input::default(),
             input_flag,
             gpu: None,
+            gpu_wait: None,
             tap: None,
             bands: Bands::default(),
             art: None,
@@ -178,21 +181,28 @@ impl Effects {
         }));
     }
 
-    fn gpu(&mut self) -> Option<Gpu> {
-        let gpu = self.gpu.get_or_insert_with(|| {
-            let started = Instant::now();
-            let made = Gpu::new().map_err(|e| format!("{e:#}"));
-            match &made {
-                Ok(gpu) => log::info!(
-                    "visuals: GPU {} (set up in {:.0} ms)",
-                    gpu.adapter(),
-                    started.elapsed().as_secs_f64() * 1000.0
-                ),
-                Err(e) => log::warn!("visuals: no GPU, effects fall back: {e}"),
+    /// The GPU device, once [`device`](super::device) has made it; until
+    /// then the effects are off and the app paints its plain bar.
+    fn gpu(&mut self, cx: &mut Context<Self>) -> Option<Gpu> {
+        match &self.gpu {
+            Some(made) => made.as_ref().ok().cloned(),
+            None => {
+                if self.gpu_wait.is_none() {
+                    let made = super::device::start();
+                    self.gpu_wait = Some(cx.spawn(async move |this, cx| {
+                        let made = made
+                            .recv()
+                            .await
+                            .unwrap_or_else(|_| Err("the GPU thread ended".into()));
+                        let _ = this.update(cx, |this, cx| {
+                            this.gpu = Some(made);
+                            cx.notify();
+                        });
+                    }));
+                }
+                None
             }
-            made
-        });
-        gpu.as_ref().ok().cloned()
+        }
     }
 
     /// Decodes the player bar's cover once GPUI has loaded it, and hands
@@ -437,7 +447,7 @@ impl Render for Effects {
             self.shown_at = Instant::now();
         }
         let gpu = (input.showing || input.bar.is_some() || changing)
-            .then(|| self.gpu())
+            .then(|| self.gpu(cx))
             .flatten();
 
         if let Some(gpu) = &gpu {

@@ -74,7 +74,7 @@ impl Ui {
         let (handle, app) = cx
             .update(|cx| {
                 gpui_kit::open_window(options, cx, move |window, cx| {
-                    cx.new(|cx| MusicApp::with_link(link, Task::ready(()), paths, window, cx))
+                    cx.new(|cx| MusicApp::with_link(link, Task::ready(()), paths, None, window, cx))
                 })
             })
             .expect("open the test window");

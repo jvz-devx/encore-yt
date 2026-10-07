@@ -124,7 +124,7 @@ fn song(track: Option<&Track>, side: Pixels, shadow: bool, c: &Colors) -> impl I
             v_flex()
                 .relative()
                 .child(visuals::slot(Slot::Title))
-                .w(side * 1.6)
+                .max_w(side * 1.6)
                 .mt(below)
                 .items_center()
                 .gap(space::XS)

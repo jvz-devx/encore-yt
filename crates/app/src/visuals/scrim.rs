@@ -29,32 +29,75 @@ pub(super) fn scene_scrim(place: Place, region: Bounds<Pixels>, look: Look, cx: 
         surface: [surface.r, surface.g, surface.b],
         ..Scrim::default()
     };
-    for block in text_blocks(place, cx) {
+    for (block, feather) in text_blocks(place, cx) {
         let b = block.intersect(&region);
+        if b.size.width <= px(0.) || b.size.height <= px(0.) {
+            continue;
+        }
         let o = b.origin - region.origin;
-        scrim.add([
-            f32::from(o.x),
-            f32::from(o.y),
-            f32::from(o.x + b.size.width),
-            f32::from(o.y + b.size.height),
-        ]);
+        scrim.add(
+            to_edges(
+                [
+                    f32::from(o.x),
+                    f32::from(o.y),
+                    f32::from(o.x + b.size.width),
+                    f32::from(o.y + b.size.height),
+                ],
+                scrim.size,
+            ),
+            feather,
+        );
     }
     scrim
 }
 
-/// Where text sits over the scene at `place`, in window coordinates.
-fn text_blocks(place: Place, cx: &App) -> Vec<Bounds<Pixels>> {
+/// A block this close to the scene's edge (points) reaches past it ...
+const EDGE: f32 = 64.;
+/// ... by this much, past the mask's fall: the top bar, the corner
+/// buttons and the transport then get light from the edge, like a
+/// vignette, instead of a cloud standing in the scene.
+const PAST_EDGE: f32 = 400.;
+
+fn to_edges(mut b: [f32; 4], size: [f32; 2]) -> [f32; 4] {
+    if b[0] < EDGE {
+        b[0] = -PAST_EDGE;
+    }
+    if b[1] < EDGE {
+        b[1] = -PAST_EDGE;
+    }
+    if b[2] > size[0] - EDGE {
+        b[2] = size[0] + PAST_EDGE;
+    }
+    if b[3] > size[1] - EDGE {
+        b[3] = size[1] + PAST_EDGE;
+    }
+    b
+}
+
+/// How far the light falls off round a block, in points.
+/// A lone title or song: wide, so it reads as light round the words.
+const LONE: f32 = 200.;
+/// Lyrics, the top bar, the transport: a band of text.
+const BAND: f32 = 120.;
+/// Now Playing's tab column draws its own glass panel: the light keeps
+/// close to its edge.
+const PANEL: f32 = 36.;
+
+/// Where text sits over the scene at `place`, in window coordinates, with
+/// how far its light falls off.
+fn text_blocks(place: Place, cx: &App) -> Vec<(Bounds<Pixels>, f32)> {
     let get = |slot| Slots::get(cx, slot);
-    match place {
+    let blocks: Vec<(Option<Bounds<Pixels>>, f32)> = match place {
         Place::NowPlaying => {
             // The top bar (Back, search, the account) over the panel's top.
             let top = slots::panel(cx).zip(get(Slot::Page)).map(|(panel, page)| {
                 Bounds::from_corners(panel.origin, point(panel.right(), page.top()))
             });
-            [get(Slot::SongText), get(Slot::Tabs), top]
-                .into_iter()
-                .flatten()
-                .collect()
+            vec![
+                (get(Slot::SongText), LONE),
+                (get(Slot::Tabs), PANEL),
+                (top, BAND),
+            ]
         }
         Place::Stage => {
             // The transport along the bottom, under the body.
@@ -63,19 +106,17 @@ fn text_blocks(place: Place, cx: &App) -> Vec<Bounds<Pixels>> {
                 .map(|(stage, body)| {
                     Bounds::from_corners(point(stage.left(), body.bottom()), stage.bottom_right())
                 });
-            [
-                get(Slot::Title),
-                get(Slot::Lyrics),
-                get(Slot::Corner),
-                transport,
+            vec![
+                (get(Slot::Title), LONE),
+                (get(Slot::Lyrics), BAND),
+                (get(Slot::Corner), LONE),
+                (transport, BAND),
             ]
-            .into_iter()
-            .flatten()
-            .collect()
         }
-        Place::Full => [get(Slot::Title), get(Slot::Corner)]
-            .into_iter()
-            .flatten()
-            .collect(),
-    }
+        Place::Full => vec![(get(Slot::Title), LONE), (get(Slot::Corner), BAND)],
+    };
+    blocks
+        .into_iter()
+        .filter_map(|(b, feather)| b.map(|b| (b, feather)))
+        .collect()
 }

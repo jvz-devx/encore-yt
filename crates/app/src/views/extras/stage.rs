@@ -164,7 +164,7 @@ fn song_column(
             v_flex()
                 .relative()
                 .child(visuals::slot(Slot::Title))
-                .w(room * 1.2)
+                .max_w(room * 1.2)
                 .mt(space::XL)
                 .items_center()
                 .gap(space::XS)

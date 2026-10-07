@@ -70,13 +70,13 @@ fn motion_rows(m: &Config, c: &Colors, cx: &mut Context<MusicApp>) -> Vec<AnyEle
         cx,
     );
     let mut rows = vec![
-        stacked(
+        super::row(
             "Page transitions",
-            "Forward arrives from the right, Back from the left",
+            Some("Forward from the right, Back from the left".into()),
             pages,
             c,
         ),
-        stacked("Speed", speed_detail(m.speed), speed, c),
+        super::row("Speed", Some(speed_detail(m.speed)), speed, c),
         super::row("Reduce motion", Some(reduce_detail(m).into()), reduce, c),
     ];
     let switches: [Switch; 5] = [
@@ -206,21 +206,6 @@ fn reduce_detail(m: &Config) -> &'static str {
         (Reduce::Always, _) => "Nothing moves, whatever the desktop asks",
         (Reduce::Never, _) => "Motion stays on, whatever the desktop asks",
     }
-}
-
-/// A setting with its choices on a line of their own under it.
-fn stacked(
-    label: &'static str,
-    detail: impl Into<SharedString>,
-    control: impl IntoElement,
-    c: &Colors,
-) -> AnyElement {
-    v_flex()
-        .pb(space::SM)
-        .gap(space::SM)
-        .child(super::row(label, Some(detail.into()), div(), c))
-        .child(h_flex().mt(-space::XS).child(control))
-        .into_any_element()
 }
 
 /// A switch row; `set` changes the setting.

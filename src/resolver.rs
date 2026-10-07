@@ -12,9 +12,10 @@
 //! Results are cached until ten minutes before the URL expires, in memory
 //! and in the runtime directory (0600), so a relaunch can start at once.
 //! The iOS client's direct URLs were tried and dropped: they stop after the
-//! first bytes. With `YTFAST_RESOLVER=rust` each run tries `crate::streams`
-//! (InnerTube and an embedded JS engine, no yt-dlp) first and falls back to
-//! yt-dlp when it fails, or when a stream it gave failed to play.
+//! first bytes. With the Rust resolver on (`crate::streams::enabled`) each
+//! run tries `crate::streams` (InnerTube and an embedded JS engine, no
+//! yt-dlp) first and falls back to yt-dlp when it fails, or when a stream it
+//! gave failed to play.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
@@ -104,7 +105,7 @@ pub struct Resolver {
     /// Serialises writes of the saved cache.
     saving: Mutex<()>,
     runs: AtomicU64,
-    /// The Rust resolver, when `YTFAST_RESOLVER=rust`.
+    /// The Rust resolver, when `crate::streams::enabled`.
     native: OnceLock<crate::streams::Native>,
     /// Songs whose Rust-resolved stream failed to play: yt-dlp's turn.
     native_failed: Mutex<HashSet<String>>,
@@ -257,14 +258,14 @@ impl Resolver {
     }
 
     /// Resolves through InnerTube in Rust first (`crate::streams`), with
-    /// yt-dlp as the fallback, when `YTFAST_RESOLVER=rust`.
+    /// yt-dlp as the fallback, when `crate::streams::enabled`.
     pub fn use_innertube(
         &self,
         client: Arc<crate::innertube::Client>,
         paths: &crate::paths::Paths,
     ) {
         if crate::streams::enabled() {
-            log::info!("resolving streams in Rust first (YTFAST_RESOLVER=rust)");
+            log::info!("resolving streams in Rust first, yt-dlp as the fallback");
             let native = crate::streams::Native::new(client, &paths.cache, &paths.config);
             let _ = self.native.set(native);
         }

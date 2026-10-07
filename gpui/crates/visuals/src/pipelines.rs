@@ -175,14 +175,19 @@ impl DiskCache {
         self.loaded.as_ref().map_or(0, Vec::len)
     }
 
-    /// Writes the cache back if it changed (to a temporary file renamed
-    /// over the old one), and drops other drivers' caches for this GPU.
+    /// Writes the cache back unless it holds what was loaded (to a
+    /// temporary file renamed over the old one), and drops other drivers'
+    /// caches for this GPU.
     pub fn save(&self) {
         let started = Instant::now();
         let Some(data) = self.cache.get_data() else {
             return;
         };
-        if self.loaded.as_ref() == Some(&data) {
+        if self
+            .loaded
+            .as_deref()
+            .is_some_and(|loaded| same_cache(loaded, &data))
+        {
             return;
         }
         let Some(dir) = self.file.parent() else {
@@ -224,6 +229,17 @@ impl DiskCache {
             }
         }
     }
+}
+
+/// Whether a cache read back holds what was loaded. The driver writes its
+/// entries in a different order from run to run, so the bytes differ even
+/// when nothing new was compiled; the length and wgpu's 64-byte header
+/// (format, GPU, the driver's cache UUID, data size) are compared instead.
+/// A driver update changes the UUID, and a new pipeline the length.
+fn same_cache(loaded: &[u8], data: &[u8]) -> bool {
+    const HEADER: usize = 64;
+    loaded.len() == data.len()
+        && loaded[..HEADER.min(loaded.len())] == data[..HEADER.min(data.len())]
 }
 
 /// A stable 64-bit hash (FNV-1a) of `parts`, for file names.

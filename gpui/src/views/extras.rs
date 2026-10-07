@@ -15,8 +15,9 @@ use gpui_kit::*;
 
 use crate::app::MusicApp;
 
-pub use controls::{controls, mini_button};
+pub use controls::{controls, mini_button, time_left};
 pub use ridge::ridge;
+pub use sleep::CHOICES as SLEEP_CHOICES;
 
 /// Stage (F): the cover and large lyrics fill the window. `None` while it's
 /// closed. Called first on every frame of the main window, so it also runs

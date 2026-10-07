@@ -14,7 +14,8 @@ use crate::theme::{Colors, Type, elevation, motion, radius, size, space};
 
 const WIDTH: Pixels = px(232.);
 
-const CHOICES: [(&str, Sleep); 5] = [
+/// The timers offered, here and in Settings → Sleep timer.
+pub const CHOICES: [(&str, Sleep); 5] = [
     ("15 minutes", Sleep::Minutes(15)),
     ("30 minutes", Sleep::Minutes(30)),
     ("45 minutes", Sleep::Minutes(45)),

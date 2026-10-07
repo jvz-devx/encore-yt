@@ -12,6 +12,7 @@ This repository is jvz-devx/ytfast-gpui, a fork of MayberryDT/ytfast (remote `up
 - Fixture-based parser tests (saved signed-out InnerTube responses) are allowed in this fork, as an exception to the "no unit tests" rule below.
 - Verify UI work visually: run the app on the Wayland session and capture it with `spectacle` (see PLAN.md). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`. Never push to `upstream`.
+- After each release, the release workflow commits the updated Homebrew cask (`Casks/ytfast-gpui.rb`) to `main`, so pull before pushing once a release is out.
 - Build speed numbers and the reasoning behind these rules: docs/gpui/BUILD-SPEED.md.
 - Startup time, how to measure it and what the first second goes to: docs/gpui/STARTUP.md.
 - Build loop (see "Rust builds" below): `just check gpui` while iterating, `just verify <crate>` before finishing, `just verify-workspace` / `just gate` once at the end.

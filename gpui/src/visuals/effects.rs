@@ -7,7 +7,8 @@
 //! notifies `MusicApp`. Frames stop when the window isn't visible
 //! (minimised), playback is paused, or motion is reduced (then a still
 //! frame is drawn when something changes). One `ytfast_visuals::Gpu` serves
-//! every effect; it is dropped once nothing has drawn for `KEEP`.
+//! every effect, made in the background ([`Device`]); it is dropped once
+//! nothing has drawn for `KEEP`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -18,6 +19,7 @@ use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
 use super::backdrop::{self, Backdrop};
 use super::bar::{self, Bar};
+use super::device::Device;
 use super::dissolve::{self, Change};
 use super::slots::{self, Slot, Slots};
 use super::waveform;
@@ -77,7 +79,7 @@ pub struct Effects {
     pub input: Input,
     /// Set on input while the app view is cached (see `super::Layers`).
     input_flag: Rc<Cell<bool>>,
-    gpu: Option<Result<Gpu, String>>,
+    device: Device,
     tap: Option<AudioTap>,
     bands: Bands,
     art: Option<Art>,
@@ -110,11 +112,13 @@ pub struct Effects {
 }
 
 impl Effects {
-    pub fn new(input_flag: Rc<Cell<bool>>) -> Self {
+    /// The layer; `cache` is the app's cache directory (for the pipeline
+    /// cache).
+    pub fn new(input_flag: Rc<Cell<bool>>, cache: &std::path::Path) -> Self {
         Self {
             input: Input::default(),
             input_flag,
-            gpu: None,
+            device: Device::new(cache),
             tap: None,
             bands: Bands::default(),
             art: None,
@@ -178,22 +182,30 @@ impl Effects {
         }));
     }
 
-    fn gpu(&mut self) -> Option<Gpu> {
-        let gpu = self.gpu.get_or_insert_with(|| {
-            let started = Instant::now();
-            let made = Gpu::new().map_err(|e| format!("{e:#}"));
-            super::timing::setup(started);
-            match &made {
-                Ok(gpu) => log::info!(
-                    "visuals: GPU {} (set up in {:.0} ms)",
-                    gpu.adapter(),
-                    started.elapsed().as_secs_f64() * 1000.0
-                ),
-                Err(e) => log::warn!("visuals: no GPU, effects fall back: {e}"),
-            }
-            made
-        });
-        gpu.as_ref().ok().cloned()
+    /// The device, once made. Asks for it after this frame when `need`
+    /// (an effect would draw) or, once, as the warm-up after the first
+    /// frame; nothing waits for it.
+    fn gpu(&mut self, need: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<Gpu> {
+        let gpu = self.device.gpu().filter(|_| need).cloned();
+        let warm_up = !need && window.is_visible() && super::enabled();
+        if gpu.is_none() && (need || warm_up) && self.device.schedule(!need) {
+            cx.on_next_frame(window, |this, _, cx| this.device.start(cx));
+        }
+        gpu
+    }
+
+    /// The device made in the background ([`Device::start`]) is ready:
+    /// kept for `KEEP` from now, and the effects draw.
+    pub fn device_made(
+        &mut self,
+        made: anyhow::Result<Gpu>,
+        started: Instant,
+        cx: &mut Context<Self>,
+    ) {
+        self.device.finish(made, started);
+        self.drew_at = Instant::now();
+        self.keep_reaping(cx);
+        cx.notify();
     }
 
     /// Decodes the player bar's cover once GPUI has loaded it, and hands
@@ -318,7 +330,7 @@ impl Effects {
 
     /// Checks every `KEEP` whether the backdrop or the GPU can go.
     fn keep_reaping(&mut self, cx: &mut Context<Self>) {
-        if self.reaper.is_some() || self.gpu.is_none() {
+        if self.reaper.is_some() || !self.device.held() {
             return;
         }
         self.reaper = Some(cx.spawn(async move |this, cx| {
@@ -344,11 +356,9 @@ impl Effects {
             for change in self.changes.borrow_mut().iter_mut() {
                 change.release(cx);
             }
-            if matches!(self.gpu, Some(Ok(_))) {
-                self.gpu = None;
-            }
+            self.device.release();
         }
-        self.gpu.is_some()
+        self.device.held()
     }
 
     /// The tap runs while something on screen moves with the music.
@@ -437,9 +447,7 @@ impl Render for Effects {
         if input.showing {
             self.shown_at = Instant::now();
         }
-        let gpu = (input.showing || input.bar.is_some() || changing)
-            .then(|| self.gpu())
-            .flatten();
+        let gpu = self.gpu(input.showing || input.bar.is_some() || changing, window, cx);
 
         if let Some(gpu) = &gpu {
             let tick = Tick {

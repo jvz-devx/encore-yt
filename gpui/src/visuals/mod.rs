@@ -42,6 +42,7 @@
 mod backdrop;
 mod bar;
 mod content;
+mod device;
 mod dissolve;
 mod effects;
 mod flight;
@@ -260,10 +261,11 @@ fn layers(app: &MusicApp, cx: &mut Context<MusicApp>) -> Handles {
         cx.set_global(slots::Slots::default());
         let input = Rc::new(Cell::new(false));
         let clock = app.player.clock.clone();
+        let cache = app.paths.cache.clone();
         let app = cx.entity();
         let content = cx.new(|cx| content::Content::new(app.clone(), cx));
         let bar = cx.new(|cx| crate::views::PlayerBar::new(app, clock, cx));
-        let effects = cx.new(|_| effects::Effects::new(input.clone()));
+        let effects = cx.new(|_| effects::Effects::new(input.clone(), &cache));
         let flight = cx.new(|_| flight::Flight::new(content.clone()));
         let keys_input = input.clone();
         let keys = cx.observe_keystrokes(move |_, _, _, _| keys_input.set(true));

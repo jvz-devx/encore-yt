@@ -24,7 +24,13 @@ pub struct Gpu {
     pub(crate) queue: wgpu::Queue,
     pub(crate) pipelines: Arc<Pipelines>,
     adapter: Arc<str>,
+    /// A GPU that gets less work by default: Adreno (Snapdragon laptops),
+    /// or anything on the GL fallback.
+    modest: bool,
 }
+
+/// The scenes' default detail on a modest GPU (1 elsewhere).
+const MODEST_DETAIL: f32 = 0.7;
 
 impl Gpu {
     /// A low-power Vulkan (or GL) device without a surface, its pipelines
@@ -40,14 +46,31 @@ impl Gpu {
     }
 
     fn create(cache_dir: Option<&Path>) -> Result<Self> {
+        // Vulkan on Linux, Metal on macOS, DX12 or Vulkan on Windows; GL
+        // where none of them is there. Vulkan and GL alone left the
+        // effects off on every Mac. `WGPU_BACKEND` (e.g. `gl`) picks one,
+        // for checks.
+        let backends =
+            wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
+        Self::with_backends(backends, cache_dir)
+    }
+
+    pub(crate) fn with_backends(
+        backends: wgpu::Backends,
+        cache_dir: Option<&Path>,
+    ) -> Result<Self> {
         let started = Instant::now();
+        let dx12 = dx12_compiler();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            // Vulkan on Linux, Metal on macOS, DX12 or Vulkan on Windows;
-            // GL where none of them is there. Vulkan and GL alone left the
-            // effects off on every Mac.
-            backends: wgpu::Backends::PRIMARY | wgpu::Backends::GL,
+            backends,
             flags: wgpu::InstanceFlags::default(),
-            backend_options: wgpu::BackendOptions::default(),
+            backend_options: wgpu::BackendOptions {
+                dx12: wgpu::Dx12BackendOptions {
+                    shader_compiler: dx12.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
             display: None,
         });
@@ -60,6 +83,9 @@ impl Gpu {
         }))
         .map_err(|e| anyhow!("no GPU adapter: {e}"))?;
         let info = adapter.get_info();
+        if info.backend == wgpu::Backend::Dx12 {
+            log::info!("visuals: DX12 shaders through {dx12:?}");
+        }
         let adapter_ms = ms(started);
         let started = Instant::now();
         let cache_dir =
@@ -100,17 +126,34 @@ impl Gpu {
         if let Some(disk) = &disk {
             disk.save();
         }
+        let modest = info.name.contains("Adreno") || info.backend == wgpu::Backend::Gl;
+        if modest {
+            log::info!("visuals: {} gets the scenes' lower detail", info.name);
+        }
         Ok(Self {
             device,
             queue,
             pipelines: Arc::new(pipelines),
             adapter: format!("{} ({:?})", info.name, info.backend).into(),
+            modest,
         })
     }
 
     /// The GPU and API in use, for the log.
     pub fn adapter(&self) -> &str {
         &self.adapter
+    }
+
+    /// Adreno, or the GL fallback: the scenes draw less by default
+    /// ([`Self::scene_detail`]) and Aurora's lake mirrors fewer curtains.
+    pub fn modest(&self) -> bool {
+        self.modest
+    }
+
+    /// What the scenes' detail setting is relative to: their default step
+    /// count here.
+    pub fn scene_detail(&self) -> f32 {
+        if self.modest { MODEST_DETAIL } else { 1.0 }
     }
 
     pub(crate) fn uniforms(&self, label: &str, size: u64) -> wgpu::Buffer {
@@ -200,6 +243,26 @@ impl Gpu {
             entries: &entries,
         })
     }
+}
+
+/// DX12's shader compiler: DXC from a `dxcompiler.dll` next to the app
+/// when there is one, else FXC (old and slow, but part of Windows). Named
+/// here instead of wgpu's default (`Auto`), which also takes a
+/// `dxcompiler.dll` from anywhere on the PATH, whatever its version. DXC
+/// linked in (`static-dxc`) would add 22.5 MB to the app. `WGPU_DX12_COMPILER`
+/// (`fxc`, `dxc`) overrides the choice, for comparing.
+fn dx12_compiler() -> wgpu::Dx12Compiler {
+    let beside_app = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join("dxcompiler.dll")))
+        .filter(|dll| cfg!(windows) && dll.is_file());
+    let compiler = match beside_app {
+        Some(dll) => wgpu::Dx12Compiler::DynamicDxc {
+            dxc_path: dll.to_string_lossy().into_owned(),
+        },
+        None => wgpu::Dx12Compiler::Fxc,
+    };
+    compiler.with_env()
 }
 
 pub(crate) fn extent(width: u32, height: u32) -> wgpu::Extent3d {

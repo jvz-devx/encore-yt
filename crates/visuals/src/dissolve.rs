@@ -152,4 +152,40 @@ mod tests {
         let half = mean(&mut dissolve, 0.5);
         assert!(half > 90.0 && half < 230.0, "half way: {half}");
     }
+
+    /// Covers go up as BGRA and frames come back as BGRA on every backend:
+    /// wgpu's GL backend stores `Bgra8Unorm` as RGBA8 and converts on
+    /// upload and readback (`glReadPixels` with `GL_BGRA`), so red stays
+    /// red there too. Run where the backend exists (Vulkan and Mesa's GL
+    /// here); skipped where it doesn't.
+    #[test]
+    fn colours_keep_their_order_on_every_backend() {
+        let _one = crate::gpu_test_lock();
+        for backends in [wgpu::Backends::PRIMARY, wgpu::Backends::GL] {
+            let gpu = match Gpu::with_backends(backends, None) {
+                Ok(gpu) => gpu,
+                Err(e) => {
+                    eprintln!("{backends:?} skipped: {e:#}");
+                    continue;
+                }
+            };
+            let mut dissolve = Dissolve::new(&gpu, 32, 32);
+            // BGRA: red, then blue.
+            let red = [0u8, 0, 255, 255].repeat(16 * 16);
+            let blue = [255u8, 0, 0, 255].repeat(16 * 16);
+            dissolve.set_covers((16, 16, &red), (16, 16, &blue));
+            for (t, want) in [(0.0, [0, 0, 255]), (1.0, [255, 0, 0])] {
+                dissolve.frame(t, Look::Dark, [0.0; 3]).expect("frame");
+                let frame = dissolve
+                    .frame(t, Look::Dark, [0.0; 3])
+                    .expect("frame")
+                    .expect("a frame");
+                let i = (16 * 32 + 16) * 4;
+                let got = &frame.bgra[i..i + 3];
+                let near = got.iter().zip(want).all(|(&g, w)| g.abs_diff(w) < 40);
+                assert!(near, "{}: {got:?} for {want:?} at {t}", gpu.adapter());
+            }
+            eprintln!("{}: colours in order", gpu.adapter());
+        }
+    }
 }

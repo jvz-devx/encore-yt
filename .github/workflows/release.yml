@@ -275,3 +275,36 @@ jobs:
           files: dist/*
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
+
+  # Points the Homebrew cask (Casks/ytfast-gpui.rb, tapped straight from
+  # this repository) at the new release and commits that to main. The only
+  # job that writes to the repository's branches.
+  cask:
+    name: Homebrew cask
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - name: Update the cask
+        run: |
+          gh release download "$TAG" --pattern checksums.txt --dir "$RUNNER_TEMP"
+          scripts/update-cask.sh "$TAG" "$RUNNER_TEMP/checksums.txt"
+      - name: Commit
+        run: |
+          if git diff --quiet -- Casks; then
+            echo "The cask is already at $TAG"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Cask: ${TAG#v}" -- Casks
+          # main may have moved since the checkout.
+          git pull --rebase origin main
+          git push origin HEAD:main

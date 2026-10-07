@@ -10,13 +10,39 @@ It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music
 
 [Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing: the AppImage, the macOS app and the Windows installer include mpv (which plays the audio) and yt-dlp and deno (which find the streams). The app looks next to itself for them before your `PATH`, and says so under the top bar if one is missing.
 
-- **Linux** (x86_64, glibc 2.35 or newer): the `.AppImage` (`chmod +x` it and run), or the `.deb` / `.rpm` (`sudo apt install ./ytfast-gpui-*.deb`, `sudo dnf install ./ytfast-gpui-*.rpm`). The packages use your distribution's mpv, which apt or dnf installs along with them, and add a "Music" menu entry and a `ytfast-gpui` command.
-- **Windows** (x86_64): `…-setup.exe` installs for your user with a Start menu entry; `…-portable.zip` holds the same files. SmartScreen warns about the unsigned installer: More info, Run anyway.
-- **macOS** (Apple silicon `macos-arm64` on macOS 14 or newer, Intel `macos-x86_64` on macOS 15 or newer): open the `.dmg` and drag ytfast to Applications. The app isn't notarized, so clear the quarantine once: `xattr -dr com.apple.quarantine /Applications/ytfast.app` (or right-click, Open).
+**macOS** (Apple silicon on macOS 14 or newer, Intel on macOS 15 or newer). With Homebrew:
+
+```sh
+brew tap jvz-devx/ytfast-gpui https://github.com/jvz-devx/ytfast-gpui
+brew install --cask jvz-devx/ytfast-gpui/ytfast-gpui
+```
+
+Without Homebrew:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/scripts/install-macos.sh | bash
+```
+
+Both pick the build for your Mac and clear the quarantine flag, so the app opens without the Gatekeeper dialog even though it isn't notarized. The script checks the download against the release's `checksums.txt`, and Homebrew checks the SHA-256 in the cask. The script installs to /Applications, or to ~/Applications if you can't write to /Applications.
+
+**Windows** (x86_64). In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/scripts/install-windows.ps1 | iex
+```
+
+The script downloads the setup program, checks it against `checksums.txt` and installs it for your user. A file downloaded this way doesn't get the browser's "downloaded from the internet" mark, so SmartScreen doesn't stop the unsigned setup. Once the package is accepted into winget, `winget install jvz-devx.ytfast` works too.
+
+**Linux** (x86_64, glibc 2.35 or newer): the `.AppImage` (`chmod +x` it and run), or the `.deb` / `.rpm` (`sudo apt install ./ytfast-gpui-*.deb`, `sudo dnf install ./ytfast-gpui-*.rpm`). The packages use your distribution's mpv, which apt or dnf installs along with them, and add a "Music" menu entry and a `ytfast-gpui` command.
+
+**By hand**, from [Releases](https://github.com/jvz-devx/ytfast-gpui/releases), checked against its `checksums.txt` if you like (`shasum -a 256` on macOS, `Get-FileHash` on Windows):
+
+- macOS: open the `macos-arm64` or `macos-x86_64` `.dmg` and drag ytfast to Applications. The first time, macOS refuses to open it. On macOS 14, right-click the app and choose Open; on macOS 15 and later, try to open it once, then choose Open Anyway in System Settings → Privacy & Security. `xattr -dr com.apple.quarantine /Applications/ytfast.app` does the same in a terminal.
+- Windows: `…-setup.exe` installs for your user with a Start menu entry; SmartScreen warns about the unsigned installer: More info, Run anyway. `…-portable.zip` holds the same files.
 
 On Windows and macOS the tray, MPRIS, notifications and following the system's light/dark setting are Linux-only for now, and closing the window quits.
 
-**Updates:** once a day Music looks at Releases for a newer version and shows "Update available" in the top bar; Settings → Updates has Check now and the release notes. The AppImage, the Windows installer and the macOS app update themselves with Update and restart: the download must match the release's `checksums.txt`, and if the new version doesn't open its window within a minute, the previous one comes back. The `.deb`, `.rpm` and portable zip only say a new version is out, so update those the way you installed them. Pre-releases are offered while you run one (every release so far is one); Settings can turn that and the daily check off.
+**Updates:** once a day Music looks at Releases for a newer version and shows "Update available" in the top bar; Settings → Updates has Check now and the release notes. The AppImage, the Windows installer and the macOS app update themselves with Update and restart, however you installed them (Homebrew, winget, the scripts or by hand): the download must match the release's `checksums.txt`, and if the new version doesn't open its window within a minute, the previous one comes back. The `.deb`, `.rpm` and portable zip only say a new version is out, so update those the way you installed them. Pre-releases are offered while you run one (every release so far is one); Settings can turn that and the daily check off.
 
 ## What it does
 

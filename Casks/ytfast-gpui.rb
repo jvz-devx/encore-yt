@@ -1,9 +1,9 @@
 cask "ytfast-gpui" do
   arch arm: "arm64", intel: "x86_64"
 
-  version "0.1.0-alpha.2"
-  sha256 arm:   "7bdd217fa310773494fe481aa0dce12afb99f4ae38a44787e3cbb64de56ff92b",
-         intel: "d1c2c61369bdaadf11cdcff875bb618c58ece6c3d45e303c9eaefe31d9c20e01"
+  version "0.1.1-alpha.1"
+  sha256 arm:   "bba1801c36fde2aecb552e93e4d831be8f1d434166272351462c68d8e4d93cca",
+         intel: "ec8793b614483c6fb535bee8a6eb410c6a6361e78f7fde015358018b25392375"
 
   depends_on macos: ">= :big_sur"
 

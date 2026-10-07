@@ -8,7 +8,7 @@
 #                                           (default gpui/target/debug/ytfast-gpui,
 #                                           log in artifacts/gpui/run.log) and
 #                                           place its window at 0,0 1280x1000
-#   scripts/gpui-input.sh stop              stop the app and the mpv it started
+#   scripts/gpui-input.sh stop              stop the app (its audio stops with it)
 #   scripts/gpui-input.sh locked CMD...     run CMD holding the desktop lock, so
 #                                           only one agent drives the screen
 #   scripts/gpui-input.sh move X Y          put the pointer at X,Y
@@ -103,15 +103,6 @@ stop() {
     pids="$(app_pids)"
     [ -n "$pids" ] && kill $pids 2>/dev/null || true
     for _ in $(seq 20); do [ -z "$(app_pids)" ] && break; sleep 0.2; done
-    # The backend's mpv names itself "ytfast" to PulseAudio/PipeWire. Match
-    # only processes called mpv: `pkill -f` would also hit any shell whose
-    # command line happens to contain the pattern.
-    local pid
-    for pid in $(pgrep -x mpv); do
-        if tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'audio-client-name=ytfast'; then
-            kill "$pid" 2>/dev/null || true
-        fi
-    done
 }
 
 launch() {

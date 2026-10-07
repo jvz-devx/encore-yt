@@ -20,9 +20,9 @@ path = "src/main.rs"
 members = [".", "crates/visuals", "crates/audio"]
 
 [dependencies]
-# The backend (InnerTube, yt-dlp resolver, mpv, sign-in, MPRIS) without the
-# egui interface, with the pure Rust audio engine next to mpv (PLAN M19).
-ytfast = { path = "..", default-features = false, features = ["rust-audio", "rust-resolver"] }
+# The backend (InnerTube, stream resolver, audio engine, sign-in, MPRIS)
+# without the egui interface.
+ytfast = { path = "..", default-features = false }
 # GPUI with gpui-component, pinned as one set: gpui-kit pins gpui-pre and
 # gpui-pre-platform (wayland, x11). Move these together.
 gpui-kit = "=0.7.1"
@@ -39,8 +39,8 @@ log = "0.4"
 serde_json = "1"
 # Same log file and panic log setup as the egui app.
 fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
-# M8 effects behind Now Playing (wgpu backdrop, PipeWire spectrum, ffmpeg
-# waveform), without GPUI; gpui/src/visuals wraps it in views.
+# M8 effects behind Now Playing (wgpu backdrop, the spectrum and waveform
+# from the audio engine), without GPUI; gpui/src/visuals wraps it in views.
 ytfast-visuals = { path = "crates/visuals" }
 # M16 auto-update (src/update): the release feed and downloads (the
 # backend's reqwest, on its runtime, with a client of our own so no YouTube
@@ -76,22 +76,18 @@ souvlaki = { version = "0.8.3", default-features = false }
 raw-window-handle = "0.6"
 
 # Linux packages (cargo-deb, cargo-generate-rpm), built by
-# .github/workflows/release.yml after it fetches yt-dlp and deno into
-# target/tools. The app lives in /usr/lib/ytfast-gpui with those two in bin/;
-# mpv comes from the distribution: both packages depend on it, so apt and
-# dnf install it with the app.
+# .github/workflows/release.yml. The app lives in /usr/lib/ytfast-gpui and
+# needs no other programs: it plays and resolves streams itself.
 [package.metadata.deb]
 name = "ytfast-gpui"
 maintainer = "jvz-devx <jvz-devx@users.noreply.github.com>"
 copyright = "Tyler Mayberry and the ytfast-gpui contributors"
-extended-description = "Music: a native YouTube Music client (GPUI interface on ytfast). Bundles yt-dlp and deno; plays through the system's mpv."
+extended-description = "Music: a native YouTube Music client (GPUI interface on ytfast). Plays and resolves streams itself."
 section = "sound"
 priority = "optional"
-depends = "$auto, mpv"
+depends = "$auto"
 assets = [
     ["target/release/ytfast-gpui", "usr/lib/ytfast-gpui/ytfast-gpui", "755"],
-    ["target/tools/yt-dlp", "usr/lib/ytfast-gpui/bin/yt-dlp", "755"],
-    ["target/tools/deno", "usr/lib/ytfast-gpui/bin/deno", "755"],
     ["packaging/linux/ytfast-gpui.sh", "usr/bin/ytfast-gpui", "755"],
     ["packaging/linux/ytfast-gpui.desktop", "usr/share/applications/ytfast-gpui.desktop", "644"],
     ["packaging/icons/ytfast-gpui.svg", "usr/share/icons/hicolor/scalable/apps/ytfast-gpui.svg", "644"],
@@ -105,17 +101,12 @@ summary = "Music: a native YouTube Music client"
 auto-req = "builtin"
 assets = [
     { source = "target/release/ytfast-gpui", dest = "/usr/lib/ytfast-gpui/ytfast-gpui", mode = "755" },
-    { source = "target/tools/yt-dlp", dest = "/usr/lib/ytfast-gpui/bin/yt-dlp", mode = "755" },
-    { source = "target/tools/deno", dest = "/usr/lib/ytfast-gpui/bin/deno", mode = "755" },
     { source = "packaging/linux/ytfast-gpui.sh", dest = "/usr/bin/ytfast-gpui", mode = "755" },
     { source = "packaging/linux/ytfast-gpui.desktop", dest = "/usr/share/applications/ytfast-gpui.desktop", mode = "644" },
     { source = "packaging/icons/ytfast-gpui.svg", dest = "/usr/share/icons/hicolor/scalable/apps/ytfast-gpui.svg", mode = "644" },
     { source = "packaging/icons/ytfast-gpui.png", dest = "/usr/share/icons/hicolor/512x512/apps/ytfast-gpui.png", mode = "644" },
     { source = "packaging/THIRD-PARTY.txt", dest = "/usr/share/doc/ytfast-gpui/THIRD-PARTY.txt", mode = "644", doc = true },
 ]
-
-[package.metadata.generate-rpm.requires]
-mpv = "*"
 
 [profile.dev.package."*"]
 opt-level = 2

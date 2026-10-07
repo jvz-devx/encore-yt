@@ -341,10 +341,6 @@ pub struct Playback {
     pub audition: Option<Audition>,
     /// Smooth mixes: radios and mixes crossfade between songs.
     pub mixes: Mixes,
-    /// The audio engine new songs start on (the setting).
-    pub player: crate::player::Kind,
-    /// The engine of the main deck, which plays the current song.
-    pub engine: Option<crate::player::Kind>,
 }
 
 /// A song held under the pointer and previewed (Audition).

@@ -242,7 +242,7 @@ fn uncached() -> bool {
 }
 
 /// Effects are on unless `YTFAST_GPUI_VISUALS=0`, and off in the UI tests
-/// (they need a GPU device and PipeWire).
+/// (they need a GPU device and the audio engine).
 fn enabled() -> bool {
     !cfg!(test) && std::env::var_os("YTFAST_GPUI_VISUALS").is_none_or(|v| v != "0")
 }

@@ -11,8 +11,8 @@ pub struct Paths {
     pub config: PathBuf,
     /// `~/.cache/ytfast`: pages and covers (personal data, 0700).
     pub cache: PathBuf,
-    /// `$XDG_RUNTIME_DIR/ytfast` (0700): the cookie file for yt-dlp, the
-    /// mpv and single-instance sockets. Gone at logout.
+    /// `$XDG_RUNTIME_DIR/ytfast` (0700): resolved streams and the
+    /// single-instance socket. Gone at logout.
     pub runtime: PathBuf,
 }
 
@@ -38,10 +38,6 @@ impl Paths {
             private_dir(dir)?;
         }
         Ok(paths)
-    }
-
-    pub fn cookie_file(&self) -> PathBuf {
-        self.runtime.join("cookies.txt")
     }
 
     pub fn page_file(&self, key: &str) -> PathBuf {

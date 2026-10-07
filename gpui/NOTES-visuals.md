@@ -474,6 +474,15 @@ Rejected:
 
 ## 2. Audio samples for analysis
 
+**Since M22 (2026-10-07): the audio engine's own tap, in process, on every
+OS.** mpv and the PipeWire tap below are gone (M23). The output callback of
+`ytfast-audio` copies its mix (after the equalizer and the decks' volumes)
+as mono into a lock-free ring of atomics (`audio/src/tap.rs`) while an
+`AudioTap` is open, and skips the copy otherwise; the spectrum thread takes
+1/60 s of it per frame and drops anything more than 0.2 s behind. The
+callback hands over ~43 ms at a time, so the bands trail the device by
+about one period. What follows is the history.
+
 **Chosen: a PipeWire tap on mpv's playback stream**, through the PipeWire
 command line tools (`visuals/pipewire.rs`, `visuals/spectrum.rs`).
 
@@ -523,6 +532,11 @@ Rejected:
   microphone icon.
 
 ### Whole-song waveform
+
+**Since M23 (2026-10-07): decoded with the audio engine's own decoder**
+(`ytfast_audio::decode_mono`: range requests, symphonia and libopus, to
+~8 kHz mono by block averages), from the URL the resolver cached, in the
+background and cached per video id. No ffmpeg, no mpv IPC. History below.
 
 **Chosen: decode the stream URL with ffmpeg at 8 kHz mono** in the
 background and keep 400 peaks (`visuals/waveform.rs`). The spike asks mpv
@@ -614,8 +628,8 @@ Rejected or not working:
 
 Code pointers: `gpui/crates/visuals/src/renderer.rs` (device, pipeline,
 readback ring, cross-fade), `shaders/backdrop.wgsl`, `cover.rs`,
-`pipewire.rs` (tap and linking), `spectrum.rs` (FFT and bands),
-`waveform.rs` (mpv IPC, ffmpeg, cache); app side `gpui/src/visuals/mod.rs`
+`spectrum.rs` (the engine's tap, FFT and bands), `waveform.rs` (the
+engine's decoder, cache), `audio/src/tap.rs` (the ring); app side `gpui/src/visuals/mod.rs`
 (shell, settings), `effects.rs`, `content.rs`, `flight.rs`, `slots.rs`,
 `waveform.rs`.
 

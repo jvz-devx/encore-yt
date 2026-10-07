@@ -38,7 +38,7 @@ crate_args() {
         gpui) echo "-p ytfast-gpui" ;;
         visuals) echo "-p ytfast-visuals" ;;
         audio) echo "-p ytfast-audio" ;;
-        backend) echo "--lib --no-default-features --features rust-audio" ;;
+        backend) echo "--lib --no-default-features" ;;
         egui) echo "--features e2e" ;;
     esac
 }
@@ -67,7 +67,7 @@ test_crate() {
         backend | egui)
             # The parser fixture tests (tests/) and unit tests, without egui.
             step "test backend"
-            cargo test -j "$jobs" --lib --tests --no-default-features --features rust-audio -- $filter
+            cargo test -j "$jobs" --lib --tests --no-default-features -- $filter
             ;;
     esac
 }
@@ -76,7 +76,7 @@ lint() {
     step "clippy $1"
     case "$1" in
         egui) cargo clippy -j "$jobs" --all-targets --features e2e -- -D warnings ;;
-        backend) cargo clippy -j "$jobs" --lib --tests --examples --no-default-features --features rust-audio -- -D warnings ;;
+        backend) cargo clippy -j "$jobs" --lib --tests --examples --no-default-features -- -D warnings ;;
         *) in_crate "$1" cargo clippy -j "$jobs" $(crate_args "$1") --all-targets -- -D warnings ;;
     esac
 }

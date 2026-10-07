@@ -39,7 +39,6 @@ pub fn settings(
         equalizer::section(app, &c, cx),
         sleep::section(app, &c, cx),
         playback::section(app, &c, cx),
-        playback::player(app, &c, cx),
         mixes::section(app, &c, window, cx),
         playback::notifications(app, &c, cx),
         motion::section(&c, cx),

@@ -259,7 +259,7 @@ impl Session {
         })
     }
 
-    /// Writes the cookies as a Netscape cookie file (mode 0600) for yt-dlp.
+    /// Writes the cookies as a Netscape cookie file (mode 0600).
     pub fn write_netscape(&self, path: &Path) -> Result<()> {
         let mut text = String::from("# Netscape HTTP Cookie File\n");
         for c in &self.cookies {

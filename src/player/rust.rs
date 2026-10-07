@@ -1,13 +1,13 @@
 //! The Rust engine (`ytfast-audio`, docs/gpui/AUDIO.md) behind the player
-//! interface, with mpv's playlist model kept here.
+//! interface, with the playlist model kept here.
 //!
 //! One engine per process owns the audio output; each [`Deck`] is one of its
 //! decks. The engine plays the current track and, queued behind it, the
 //! next one, and switches in the same buffer (gapless); this side keeps the
 //! playlist entries, their ids and options, and turns the engine's events
-//! and a 100 ms poll of its counters into the [`PlayerEvent`]s mpv would
-//! send: start and end of a file with its reason, the playlist moving on,
-//! position, duration, waiting for data, pause and idle.
+//! and a 100 ms poll of its counters into [`PlayerEvent`]s: start and end
+//! of a file with its reason, the playlist moving on, position, duration,
+//! waiting for data, pause and idle.
 
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
@@ -24,7 +24,7 @@ use crate::equalizer::Equalizer;
 /// How often positions and buffering are read from the engine.
 const POLL: Duration = Duration::from_millis(100);
 /// A playing track whose position hasn't moved for this many polls is
-/// waiting for data (mpv's `paused-for-cache`).
+/// waiting for data.
 const STALLED_POLLS: u32 = 3;
 
 /// The process's engine and which deck each [`Deck`] holds.
@@ -155,7 +155,7 @@ struct State {
     next_id: i64,
     current: Option<Entry>,
     next: Option<Entry>,
-    /// mpv's playlist position of the current entry: 1 after a gapless
+    /// The playlist position of the current entry: 1 after a gapless
     /// change until the backend removes the entry before it.
     pos: i64,
     idle: bool,
@@ -213,7 +213,7 @@ impl Deck {
         engine.stop(inner.deck);
         engine.pause(inner.deck, false);
         engine.set_volume(inner.deck, amplitude(volume));
-        // What mpv reports for its observed properties when it starts.
+        // The state a new deck reports.
         for event in [
             PlayerEvent::Position(None),
             PlayerEvent::Duration(None),
@@ -293,7 +293,7 @@ impl Deck {
         inner.went_idle(&mut st);
     }
 
-    /// mpv's `playlist-next force`.
+    /// Moves on to the next entry now.
     pub fn skip(&self) {
         let inner = &self.inner;
         let mut st = inner.state();
@@ -337,7 +337,7 @@ impl Deck {
         } else if index == st.pos + 1 && st.next.take().is_some() {
             inner.engine().clear_next(inner.deck);
         } else if index == st.pos && st.current.is_some() {
-            // The current entry goes and the next one plays, as in mpv.
+            // The current entry goes and the next one plays.
             drop(st);
             self.skip();
         }
@@ -531,7 +531,7 @@ impl Inner {
         self.update_buffering(st);
     }
 
-    /// mpv's `paused-for-cache` and `seeking` as one flag: loaded and not
+    /// Waiting for data and seeking as one flag: loaded and not
     /// yet playing, a seek under way, or stalled. Never while paused: the
     /// engine starts tracks and lands seeks only once it plays.
     fn update_buffering(&self, st: &mut State) {
@@ -662,7 +662,7 @@ fn end(reason: EndReason, entry: i64, error: Option<String>) -> PlayerEvent {
     }
 }
 
-/// mpv's volume scale: amplitude is the cube of `volume / 100`.
+/// The volume scale: amplitude is the cube of `volume / 100`.
 fn amplitude(volume: f64) -> f32 {
     (volume.max(0.0) / 100.0).powi(3) as f32
 }

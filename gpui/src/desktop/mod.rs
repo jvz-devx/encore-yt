@@ -18,7 +18,6 @@ mod media;
 pub mod menu;
 pub mod palette;
 mod signals;
-pub mod tools;
 mod window;
 
 use std::sync::Arc;

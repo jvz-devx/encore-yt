@@ -1,24 +1,17 @@
 //! A whole song's loudness outline, for the waveform under Now Playing.
 //!
-//! ffmpeg decodes the stream URL that mpv plays (asked over mpv's IPC
-//! socket) to 8 kHz mono; [`BUCKETS`] RMS values, scaled for display, are
+//! The audio engine's decoder (`ytfast_audio::decode_mono`: range requests,
+//! the same demuxers and decoders as playback) reads the resolved stream to
+//! mono at about 8 kHz; [`BUCKETS`] RMS values, scaled for display, are
 //! cached per video id in the cache directory, so a song is decoded once.
 //! Everything here blocks: call [`load`] off the UI thread.
 //!
-//! Decoding downloads the song a second time (~4 MB for itag 251) and takes
-//! about 1.5 s for a 4-minute song (NOTES-visuals.md). mpv's `dump-cache`
-//! would avoid the download but came out truncated when tested.
+//! Decoding downloads the song a second time (~4 MB for itag 251).
 
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use anyhow::{Context as _, Result, bail};
-use serde_json::Value;
-
-use crate::mpv::Ipc;
+use anyhow::Result;
 
 /// Values per song.
 pub const BUCKETS: usize = 160;
@@ -38,28 +31,19 @@ pub fn cached(cache_dir: &Path, video_id: &str) -> Option<Vec<f32>> {
     (values.len() == BUCKETS).then_some(values)
 }
 
-/// The outline of what plays now (`video_id`): from the cache, or decoded
-/// from `url` (or, without one, the URL mpv at `socket` plays) and then
-/// cached. Blocks for a few seconds.
-pub fn load(
-    url: Option<String>,
-    socket: &Path,
-    cache_dir: &Path,
-    video_id: &str,
-) -> Result<Vec<f32>> {
+/// The outline of `video_id`, whose stream is `url` (a resolved stream or
+/// a local file): from the cache, or decoded and then cached. Blocks for a
+/// few seconds.
+pub fn load(url: &str, cache_dir: &Path, video_id: &str) -> Result<Vec<f32>> {
     if let Some(values) = cached(cache_dir, video_id) {
         return Ok(values);
     }
     let started = Instant::now();
-    let url = match url {
-        Some(url) => url,
-        None => stream_url(socket)?,
-    };
-    let samples = decode(&url)?;
-    let values = outline(&samples);
+    let decoded = ytfast_audio::decode_mono(url, DECODE_RATE)?;
+    let values = outline(&decoded.samples);
     log::info!(
         "visuals: waveform of {video_id}: {} s of audio in {:.0} ms",
-        samples.len() / DECODE_RATE as usize,
+        decoded.samples.len() / decoded.rate.max(1) as usize,
         started.elapsed().as_secs_f64() * 1000.0
     );
     let file = cache_file(cache_dir, video_id);
@@ -80,47 +64,6 @@ fn cache_file(cache_dir: &Path, video_id: &str) -> PathBuf {
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
     cache_dir.join("waveforms").join(format!("{name}.f32"))
-}
-
-/// mpv's `path`: the resolved stream URL. mpv may still be opening it.
-fn stream_url(socket: &Path) -> Result<String> {
-    let mut ipc = Ipc::connect(socket)?;
-    for _ in 0..20 {
-        if let Ok(Value::String(path)) = ipc.get("path") {
-            return Ok(path);
-        }
-        thread::sleep(Duration::from_millis(500));
-    }
-    bail!("mpv has no song open")
-}
-
-/// ffmpeg decodes to 8 kHz mono f32 on stdout.
-fn decode(input: &str) -> Result<Vec<f32>> {
-    let mut child = Command::new("ffmpeg")
-        .args(["-nostdin", "-loglevel", "error", "-i", input])
-        .args(["-vn", "-ac", "1", "-ar", &DECODE_RATE.to_string()])
-        .args(["-f", "f32le", "-"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("starting ffmpeg")?;
-    let mut bytes = Vec::new();
-    child
-        .stdout
-        .take()
-        .context("ffmpeg stdout")?
-        .read_to_end(&mut bytes)?;
-    let status = child.wait()?;
-    if !status.success() {
-        bail!("ffmpeg exited with {status}");
-    }
-    Ok(bytes
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect())
 }
 
 /// RMS per bucket, stretched between a quiet reference (half the 10th

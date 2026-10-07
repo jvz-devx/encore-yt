@@ -1,12 +1,9 @@
-//! Resolves a song's audio stream without yt-dlp: an InnerTube `player`
-//! request as a client that still gets plain URLs, the best audio format,
-//! and, for clients whose URLs carry them, the player script's signature
-//! and `n` challenges solved in the embedded JS engine (`crate::jsc`).
-//!
-//! On by default in the GPUI app (the `rust-resolver` feature), opt-in
-//! elsewhere with `YTFAST_RESOLVER=rust`; `crate::resolver` falls back to
-//! yt-dlp on any failure. What works and what doesn't (PO tokens, SABR) is
-//! in docs/gpui/RESOLVER.md.
+//! Resolves a song's audio stream: an InnerTube `player` request as a
+//! client that still gets plain URLs, the best audio format the engine
+//! plays, and, for clients whose URLs carry them, the player script's
+//! signature and `n` challenges solved in the embedded JS engine
+//! (`crate::jsc`). What works and what doesn't (PO tokens, SABR), and what
+//! happens when YouTube changes its player, is in docs/gpui/RESOLVER.md.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -18,8 +15,10 @@ use serde_json::Value;
 use crate::innertube::{Client, PlayerClient, Stream};
 use crate::jsc::{Challenges, Player, Solver, Status, decipher, scripts};
 
-/// The audio formats wanted, best first (the same list yt-dlp gets).
-const ITAGS: [u64; 7] = [774, 141, 251, 140, 250, 249, 139];
+/// The audio formats wanted, best first: Opus (WebM) and AAC-LC (MP4),
+/// which the engine decodes. Never HE-AAC (139, 599): it has no decoder
+/// for it.
+const ITAGS: [u64; 7] = [774, 141, 251, 140, 250, 249, 600];
 
 /// How long a player version is trusted before asking which is current.
 const PLAYER_CHECK: Duration = Duration::from_secs(6 * 3600);
@@ -71,7 +70,7 @@ const PINS_URL: &str =
 const EJS_RELEASES: &str = "https://github.com/yt-dlp/ejs/releases/download";
 
 /// A failure that holds for every song until the player version or the
-/// solver changes: `crate::resolver` logs it once per player version.
+/// solver changes: logged once per player version.
 #[derive(Debug)]
 pub struct PlayerFailure {
     pub player: String,
@@ -94,17 +93,6 @@ impl std::fmt::Display for PlayerFailure {
 
 impl std::error::Error for PlayerFailure {}
 
-/// Whether this resolver runs first: by default with the `rust-resolver`
-/// feature (the GPUI app), otherwise when `YTFAST_RESOLVER=rust` asks for
-/// it; `YTFAST_RESOLVER=ytdlp` leaves it to yt-dlp.
-pub fn enabled() -> bool {
-    match std::env::var("YTFAST_RESOLVER").as_deref() {
-        Ok("rust") => true,
-        Ok("ytdlp" | "yt-dlp") => false,
-        _ => cfg!(feature = "rust-resolver"),
-    }
-}
-
 /// The current player script, as last checked.
 #[derive(Clone)]
 struct Current {
@@ -124,8 +112,9 @@ pub struct Native {
     /// Players a newer solver was looked for, at most once each.
     refreshed: Mutex<std::collections::HashSet<String>>,
     current: tokio::sync::Mutex<Option<Current>>,
-    /// The last player response's client, for the log.
-    last: Mutex<&'static str>,
+    /// Player-wide failures already logged, so each is logged once per
+    /// player version instead of once per song.
+    logged: Mutex<std::collections::HashSet<String>>,
     /// Where to save each player response (for the live check example).
     dump: Option<PathBuf>,
 }
@@ -145,9 +134,14 @@ impl Native {
             solver: Arc::new(solver),
             refreshed: Mutex::default(),
             current: tokio::sync::Mutex::default(),
-            last: Mutex::new(""),
+            logged: Mutex::default(),
             dump: None,
         }
+    }
+
+    /// Whether the InnerTube session is signed in.
+    pub fn signed_in(&self) -> bool {
+        self.innertube.signed_in()
     }
 
     /// Saves every player response to `dir` as `<client>-<video id>.json`.
@@ -155,13 +149,8 @@ impl Native {
         self.dump = Some(dir);
     }
 
-    /// The client the last stream came from.
-    pub fn last_client(&self) -> &'static str {
-        *self.last.lock().expect("last lock")
-    }
-
     /// Downloads and prepares the current player script now, so the first
-    /// song that needs its challenges doesn't fall back to yt-dlp.
+    /// song that needs its challenges doesn't wait for it.
     pub async fn prepare(&self) -> Result<String> {
         let current = self.player().await?;
         self.solver.load(&current.player).await?;
@@ -178,28 +167,53 @@ impl Native {
         self.solver.version()
     }
 
-    /// The best audio stream: signed out through VISIONOS, signed in
+    /// The best audio stream and the client it came from: with `account`
     /// through WEB_CREATOR with the session's cookies (Premium needs no PO
-    /// token there; other accounts' URLs fail and yt-dlp takes over). The
-    /// TV client answered "The page needs to be reloaded" on 2026-10-07
-    /// both ways, so it isn't asked.
-    pub async fn resolve(&self, video_id: &str, signed_in: bool) -> Result<Stream> {
-        let clients: &[&PlayerClient] = if signed_in {
-            &[&WEB_CREATOR]
-        } else {
-            &[&VISIONOS]
-        };
+    /// token there), else, or when that fails, signed out through VISIONOS,
+    /// which needs no JS. The TV client answered "The page needs to be
+    /// reloaded" on 2026-10-07 both ways, so it isn't asked.
+    pub async fn resolve(&self, video_id: &str, account: bool) -> Result<(Stream, &'static str)> {
         let mut errors = Vec::new();
-        for client in clients {
-            match self.resolve_as(client, video_id, signed_in).await {
-                Ok(stream) => {
-                    *self.last.lock().expect("last lock") = client.name;
-                    return Ok(stream);
+        if account {
+            match self.resolve_as(&WEB_CREATOR, video_id, true).await {
+                Ok(stream) => return Ok((stream, WEB_CREATOR.name)),
+                Err(error) => {
+                    self.log_failure(video_id, &error);
+                    errors.push(format!("{}: {error:#}", WEB_CREATOR.name));
                 }
-                Err(error) => errors.push(format!("{}: {error:#}", client.name)),
             }
         }
-        bail!("{}", errors.join("; "))
+        match self.resolve_as(&VISIONOS, video_id, false).await {
+            Ok(stream) => Ok((stream, VISIONOS.name)),
+            Err(error) => {
+                self.log_failure(video_id, &error);
+                errors.push(format!("{}: {error:#}", VISIONOS.name));
+                bail!("{}", errors.join("; "))
+            }
+        }
+    }
+
+    /// A failure of one song is logged for that song; one that holds for
+    /// the whole player version (the solver can't use it, or it is being
+    /// prepared) once per version and kind.
+    fn log_failure(&self, video_id: &str, error: &anyhow::Error) {
+        let Some(failure) = error.downcast_ref::<PlayerFailure>() else {
+            log::warn!("resolving {video_id} failed: {error:#}");
+            return;
+        };
+        let key = format!("{}:{}", failure.player, failure.preparing);
+        let first = {
+            let mut logged = self.logged.lock().expect("logged lock");
+            if logged.len() > 64 {
+                logged.clear();
+            }
+            logged.insert(key)
+        };
+        if first {
+            log::warn!("{failure}; songs play signed out until that changes");
+        } else {
+            log::debug!("{video_id}: {failure}");
+        }
     }
 
     /// One client's best stream.
@@ -209,8 +223,21 @@ impl Native {
         video_id: &str,
         authed: bool,
     ) -> Result<Stream> {
+        let mut streams = self.streams_as(client, video_id, authed, 1).await?;
+        Ok(streams.remove(0))
+    }
+
+    /// Up to `limit` of one client's wanted audio formats, best first,
+    /// from one player request (`examples/stream_check.rs` plays each).
+    pub async fn streams_as(
+        &self,
+        client: &PlayerClient,
+        video_id: &str,
+        authed: bool,
+        limit: usize,
+    ) -> Result<Vec<Stream>> {
         let needs_js = client.name != VISIONOS.name;
-        let current = if needs_js {
+        let mut current = if needs_js {
             Some(self.player().await?)
         } else {
             None
@@ -224,23 +251,26 @@ impl Native {
             let path = dir.join(format!("{}-{video_id}.json", client.name));
             let _ = std::fs::write(path, response.to_string());
         }
-        let format = best_audio(&response)?;
-        let url = match (format.url, format.cipher) {
-            (Some(url), _) if !needs_challenges(&url) => url,
-            (url, cipher) => {
-                let current = match current {
-                    Some(current) => current,
-                    None => self.player().await?,
-                };
-                self.solve(&current.player, url, cipher).await?
-            }
-        };
-        Ok(Stream {
-            itag: format.itag,
-            expires: crate::innertube::expiry(&url),
-            url,
-            user_agent: None,
-        })
+        let mut streams = Vec::new();
+        for format in audio_formats(&response)?.into_iter().take(limit) {
+            let url = match (format.url, format.cipher) {
+                (Some(url), _) if !needs_challenges(&url) => url,
+                (url, cipher) => {
+                    let current = match &current {
+                        Some(current) => current.clone(),
+                        None => current.insert(self.player().await?).clone(),
+                    };
+                    self.solve(&current.player, url, cipher).await?
+                }
+            };
+            streams.push(Stream {
+                itag: format.itag,
+                expires: crate::innertube::expiry(&url),
+                url,
+                user_agent: None,
+            });
+        }
+        Ok(streams)
     }
 
     /// Deciphers the signature and transforms `n` into a playable URL.
@@ -484,6 +514,11 @@ pub struct Format {
 
 /// The best wanted audio format of a playable response.
 pub fn best_audio(response: &Value) -> Result<Format> {
+    Ok(audio_formats(response)?.remove(0))
+}
+
+/// The wanted audio formats of a playable response, best first; at least one.
+pub fn audio_formats(response: &Value) -> Result<Vec<Format>> {
     let status = crate::parse::at(response, &["playabilityStatus", "status"])
         .and_then(Value::as_str)
         .unwrap_or("none");
@@ -502,25 +537,33 @@ pub fn best_audio(response: &Value) -> Result<Format> {
         f.get("isDrc").and_then(Value::as_bool) != Some(true)
             && (f.get("url").is_some() || f.get("signatureCipher").is_some())
     };
-    let chosen = ITAGS
+    let chosen: Vec<&Value> = ITAGS
         .iter()
-        .find_map(|itag| {
+        .filter_map(|itag| {
             formats
                 .iter()
                 .filter(usable)
                 .find(|f| f.get("itag").and_then(Value::as_u64) == Some(*itag))
         })
-        .context(if formats.is_empty() {
+        .collect();
+    if chosen.is_empty() {
+        bail!(if formats.is_empty() {
             "no formats (SABR only?)"
         } else {
-            "no audio format with a URL"
-        })?;
-    let text = |key: &str| chosen.get(key).and_then(Value::as_str).map(str::to_owned);
-    Ok(Format {
-        itag: chosen.get("itag").and_then(Value::as_u64).unwrap_or(0) as u32,
-        url: text("url"),
-        cipher: text("signatureCipher"),
-    })
+            "no audio format with a URL that Music plays"
+        });
+    }
+    Ok(chosen
+        .into_iter()
+        .map(|f| {
+            let text = |key: &str| f.get(key).and_then(Value::as_str).map(str::to_owned);
+            Format {
+                itag: f.get("itag").and_then(Value::as_u64).unwrap_or(0) as u32,
+                url: text("url"),
+                cipher: text("signatureCipher"),
+            }
+        })
+        .collect())
 }
 
 /// Whether a direct URL still carries an `n` challenge.
@@ -579,4 +622,31 @@ fn set_param(url: &str, name: &str, value: &str) -> Result<String> {
     }
     parsed.query_pairs_mut().clear().extend_pairs(pairs);
     Ok(parsed.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn response(itags: &[u64]) -> Value {
+        let formats: Vec<Value> = itags
+            .iter()
+            .map(|itag| json!({"itag": itag, "url": format!("https://example.invalid/{itag}")}))
+            .collect();
+        json!({
+            "playabilityStatus": {"status": "OK"},
+            "streamingData": {"adaptiveFormats": formats},
+        })
+    }
+
+    /// HE-AAC (139, 599) has no decoder in the engine: never picked, even
+    /// when it is all there is.
+    #[test]
+    fn never_picks_he_aac() {
+        let picked = audio_formats(&response(&[139, 599, 140, 249])).expect("formats");
+        let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
+        assert_eq!(itags, [140, 249]);
+        assert!(audio_formats(&response(&[139, 599])).is_err());
+    }
 }

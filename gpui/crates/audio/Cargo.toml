@@ -3,12 +3,12 @@ name = "ytfast-audio"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
-description = "Spike: a pure Rust playback pipeline (HTTP range reader, symphonia, libopus, rubato, cpal) that could replace mpv"
+description = "The pure Rust playback engine of ytfast-gpui: HTTP range reader, symphonia, libopus, rubato, cpal"
 license = "MIT"
 publish = false
 
-# No GPUI and nothing in the app uses this yet (PLAN M11). See
-# docs/gpui/AUDIO.md for the decision record.
+# No GPUI: the backend (src/player/rust.rs) plays through it and the
+# visuals crate reads its tap and decoder. See docs/gpui/AUDIO.md.
 [dependencies]
 # Demux WebM/Matroska (Opus) and MP4 (AAC), decode AAC; Ogg for local
 # Opus test files (YTFAST_FAKE_STREAM).

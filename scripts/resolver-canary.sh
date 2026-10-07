@@ -4,14 +4,15 @@
 #   1. the solver: fetches the current player script and checks that the
 #      embedded QuickJS solves its challenges exactly like yt-dlp's EJS in
 #      deno (tests/resolver_offline.rs);
-#   2. live (unless --solver-only): resolves each song with
-#      YTFAST_RESOLVER=rust (examples/resolve_rust.rs) and fetches its first
+#   2. live (unless --solver-only): resolves each song with the app's
+#      resolver (examples/resolve_rust.rs) and fetches its first
 #      KB, expecting 200 or 206. A song that meets YouTube's bot check
 #      (datacenter IPs do) doesn't count; if every song does, the live part
 #      is inconclusive and only warns.
 #   scripts/resolver-canary.sh [--solver-only] [VIDEO_ID...]
 # YouTube requests: 2 for the player (none with CANARY_PLAYER=<saved .js>),
-# then 1 visitor id call and 2 per song. Needs deno, jq and cargo. Work files
+# then 1 visitor id call and 2 per song. Needs deno (yt-dlp's EJS as the
+# reference, never at runtime), jq and cargo. Work files
 # go to CANARY_DIR (default artifacts/canary); the resolver runs with a
 # fresh, signed-out config and cache there.
 set -euo pipefail
@@ -67,7 +68,7 @@ if [[ $live == 1 ]]; then
   # Only the resolver gets the fresh home (cargo and sccache keep theirs).
   status=0
   env -u YTFAST_FAKE_STREAM XDG_CONFIG_HOME="$dir/home/config" \
-    XDG_CACHE_HOME="$dir/home/cache" YTFAST_RESOLVER=rust \
+    XDG_CACHE_HOME="$dir/home/cache" \
     "$root/target/debug/examples/resolve_rust" "${songs[@]}" || status=$?
   case $status in
     0) ;;

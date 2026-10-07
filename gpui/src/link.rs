@@ -1,7 +1,7 @@
 //! What the window talks to: the backend, or in the UI tests
 //! (`crate::ui_tests`) a pair of channels standing in for it, so a test
 //! hands the app events and reads the commands it sent without a network,
-//! mpv or D-Bus.
+//! audio or D-Bus.
 
 use ytfast::backend::{Backend, Command, Event};
 use ytfast::desktop::Now;

@@ -88,7 +88,7 @@ fn windows(exe: &Path) -> Install {
     let dir = exe.parent().unwrap_or(exe);
     if dir.join("unins000.exe").is_file() {
         Install::Windows(exe.to_path_buf())
-    } else if dir.join("bin").join("mpv.exe").is_file() {
+    } else if dir.join("THIRD-PARTY.txt").is_file() {
         Install::Manual(Manual::Portable)
     } else {
         Install::Manual(Manual::Source)

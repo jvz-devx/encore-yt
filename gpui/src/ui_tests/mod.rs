@@ -1,5 +1,5 @@
 //! Headless UI tests (PLAN M13): the real `MusicApp` in a window of GPUI's
-//! test platform, with no desktop, network, mpv or D-Bus. The backend is a
+//! test platform, with no desktop, network, audio or D-Bus. The backend is a
 //! pair of channels (`Link::Fake`): a test hands the app events, often a
 //! page parsed from a saved InnerTube response, clicks and types through
 //! GPUI's simulated input, and checks the commands the app sent and what

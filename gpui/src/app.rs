@@ -111,7 +111,7 @@ impl MusicApp {
         });
 
         let mut subscriptions = vec![
-            // Save the session and stop mpv before the process ends; the
+            // Save the session and stop playback before the process ends; the
             // backend's Drop may not run on quit.
             cx.on_app_quit(|this, _| {
                 this.backend.shutdown();
@@ -144,8 +144,7 @@ impl MusicApp {
             extras,
             sidebar,
             updates,
-            // A missing mpv, yt-dlp or deno, from the start.
-            error: crate::desktop::tools::missing_notice(),
+            error: None,
             focus,
             pending_playback: None,
             _subscriptions: subscriptions,

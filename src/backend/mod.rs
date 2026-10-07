@@ -1,5 +1,5 @@
 //! The interface's handle to a tokio runtime that does all I/O: InnerTube,
-//! the browser session, yt-dlp and mpv. The two sides talk only through
+//! the browser session, stream resolving and the audio engine. The two sides talk only through
 //! [`Command`] (interface → backend) and [`Event`] (backend → interface);
 //! every event wakes the window.
 //!
@@ -8,15 +8,13 @@
 //! state: `generation` changes with the current track, `epoch` with the
 //! queue (each play request), and the player's playlist entry ids tell the
 //! current file's events from those of replaced or queued ones. Several
-//! players (decks: an mpv process each, or decks of the Rust engine, see
-//! [`crate::player`]) can run at once (Smooth mixes, Audition: see
+//! players (decks of the audio engine, see [`crate::player`]) can run at once (Smooth mixes, Audition: see
 //! [`deck`]); their events carry the deck's serial and reach its current
 //! role.
 
 mod account;
 mod audition;
 mod deck;
-mod engines;
 mod pages;
 mod playback;
 mod queue;
@@ -24,7 +22,7 @@ mod resume;
 mod session;
 mod sound;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -38,7 +36,7 @@ use crate::innertube::{ApiError, Client, Stream};
 use crate::model::{Account, Lyrics, Page, Playback, Repeat, Sleep, Target, Track, WatchNext};
 use crate::parse::{self, More};
 use crate::paths::Paths;
-use crate::player::{EndReason, Events, FileOptions, Kind, LoadMode, Player, PlayerEvent, Start};
+use crate::player::{EndReason, Events, FileOptions, LoadMode, Player, PlayerEvent, Start};
 use crate::resolver::{self, Resolver};
 
 pub enum Command {
@@ -157,8 +155,6 @@ pub enum Command {
     /// Search YouTube Music for Play anything (Ctrl+K): answered with
     /// [`Event::QuickResults`], never saved to disk.
     QuickSearch(String),
-    /// Settings: the audio engine new songs start on (saved for next time).
-    Player(crate::player::Kind),
 }
 
 pub enum Event {
@@ -275,6 +271,8 @@ impl Backend {
         let http = client.http().clone();
         let resolver = Arc::new(Resolver::new(paths.runtime.clone()));
         resolver.use_innertube(client.clone(), &paths);
+        // The cookie copy that versions with yt-dlp kept here.
+        let _ = std::fs::remove_file(paths.runtime.join("cookies.txt"));
         let worker = Worker::new(client, resolver.clone(), paths, sink);
         runtime.spawn(worker.run(command_rx, shutdown_rx));
         Ok(Self {
@@ -390,13 +388,13 @@ enum Internal {
     Deck(deck::Message),
 }
 
-/// The track queued in mpv behind the current one.
+/// The track queued in the player behind the current one.
 #[derive(Clone)]
 struct Appended {
     /// Its queue entry.
     id: u64,
     itag: u32,
-    /// mpv's playlist entry id.
+    /// The player's playlist entry id.
     entry: i64,
     /// The loudness gain it was queued with.
     gain: Option<f64>,
@@ -410,28 +408,26 @@ struct Worker {
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
     /// Events of every player (deck), tagged with its serial.
-    mpv_tx: Events,
-    mpv_rx: Option<mpsc::UnboundedReceiver<(u64, PlayerEvent)>>,
+    player_tx: Events,
+    player_rx: Option<mpsc::UnboundedReceiver<(u64, PlayerEvent)>>,
     /// The main deck: the current song plays on it.
-    mpv: Option<Arc<Player>>,
-    /// The audio engine new songs start on.
-    player: Kind,
-    /// Songs that play on mpv although the Rust engine is chosen.
-    fallbacks: HashSet<String>,
+    main: Option<Arc<Player>>,
     last_connect: Option<Instant>,
-    last_death: Option<Instant>,
 
     queue: queue::Queue,
     /// Position in the play order of the current track.
     pos: Option<usize>,
     appended: Option<Appended>,
-    /// mpv's playlist entry id of the current track.
+    /// The player's playlist entry id of the current track.
     current_entry: Option<i64>,
     /// Bumped whenever the current track changes.
     generation: u64,
     /// Bumped whenever a play request replaces the queue.
     epoch: u64,
     retried: bool,
+    /// Songs that failed one after the other; at three
+    /// playback stops instead of skipping on through the queue.
+    failed_in_row: u32,
     reported: bool,
     /// An autoplay radio fetch for the current epoch is in flight.
     extending: bool,
@@ -443,7 +439,7 @@ struct Worker {
     account_writes: Option<mpsc::UnboundedSender<account::Write>>,
     state: Playback,
     last_emit: Instant,
-    /// mpv's `pause` and `idle-active`: playing means neither.
+    /// The player's pause and idle states: playing means neither.
     paused: bool,
     idle: bool,
     /// Where the current song starts when it next loads: a restored
@@ -457,8 +453,8 @@ struct Worker {
     asked: Instant,
     /// Loudness and play tracking from player responses, by video id.
     players: HashMap<String, sound::PlayerInfo>,
-    /// The equalizer every deck was set to as a whole (mpv's `af`); band
-    /// edits since then went to the running graphs.
+    /// The equalizer every deck was set to as a whole; band edits since
+    /// then went to the running decks.
     af: Option<Equalizer>,
     /// Bumped by every equalizer change.
     eq_stamp: u64,
@@ -474,10 +470,8 @@ struct Worker {
 impl Worker {
     fn new(client: Arc<Client>, resolver: Arc<Resolver>, paths: Paths, sink: Sink) -> Self {
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
-        let (mpv_tx, mpv_rx) = mpsc::unbounded_channel();
+        let (player_tx, player_rx) = mpsc::unbounded_channel();
         let settings = crate::settings::Settings::load(&paths);
-        let player = Kind::choose(settings.player);
-        log::info!("audio player: {}", player.label());
         Self {
             client,
             resolver,
@@ -485,13 +479,10 @@ impl Worker {
             sink,
             internal_tx,
             internal_rx: Some(internal_rx),
-            mpv_tx,
-            mpv_rx: Some(mpv_rx),
-            mpv: None,
-            player,
-            fallbacks: HashSet::new(),
+            player_tx,
+            player_rx: Some(player_rx),
+            main: None,
             last_connect: None,
-            last_death: None,
             queue: queue::Queue::default(),
             pos: None,
             appended: None,
@@ -499,6 +490,7 @@ impl Worker {
             generation: 0,
             epoch: 0,
             retried: false,
+            failed_in_row: 0,
             reported: false,
             extending: false,
             advance_pending: false,
@@ -510,7 +502,6 @@ impl Worker {
                 normalize: settings.normalizes(),
                 equalizer: settings.equalizer,
                 mixes: settings.mixes,
-                player,
                 ..Playback::default()
             },
             last_emit: Instant::now(),
@@ -536,7 +527,7 @@ impl Worker {
         mut shutdown: mpsc::UnboundedReceiver<std::sync::mpsc::Sender<()>>,
     ) {
         let mut internal = self.internal_rx.take().expect("internal receiver");
-        let mut mpv_events = self.mpv_rx.take().expect("mpv receiver");
+        let mut player_events = self.player_rx.take().expect("player receiver");
         self.restore_session();
         self.connect();
         loop {
@@ -546,7 +537,7 @@ impl Worker {
                     None => break,
                 },
                 Some(message) = internal.recv() => self.internal(message).await,
-                Some((serial, event)) = mpv_events.recv() => self.deck_event(serial, event).await,
+                Some((serial, event)) = player_events.recv() => self.deck_event(serial, event).await,
                 Some(done) = shutdown.recv() => {
                     self.save_session(true);
                     let _ = done.send(());
@@ -687,15 +678,15 @@ impl Worker {
             Command::TogglePause => {
                 if self.state.loading {
                     // Resolving: nothing to pause yet.
-                } else if let (Some(mpv), false) = (self.mpv.clone(), self.idle) {
+                } else if let (Some(player), false) = (self.main.clone(), self.idle) {
                     if self.state.playing {
                         // Pausing in a blend ends it: the new song pauses alone.
                         self.finish_blend().await;
                     }
-                    let _ = mpv.set_pause(self.state.playing).await;
+                    let _ = player.set_pause(self.state.playing).await;
                 } else if let Some(pos) = self.pos {
-                    // Nothing loaded (a restored session, the queue ended, or
-                    // mpv restarted): play, from where a restored song was.
+                    // Nothing loaded (a restored session, or the queue
+                    // ended): play, from where a restored song was.
                     let at = self.resume_at.take();
                     self.start_at(pos, at).await;
                 }
@@ -863,7 +854,6 @@ impl Worker {
                     sink.send(Event::QuickResults { query, result });
                 });
             }
-            Command::Player(kind) => self.set_player(kind),
         }
     }
 
@@ -874,7 +864,6 @@ impl Worker {
         }
         self.last_emit = Instant::now();
         self.state.next_ready = self.appended.is_some() || self.decks.cued.is_some();
-        self.state.engine = self.mpv.as_ref().map(|m| m.kind());
         self.sink.send(Event::Playback(self.state.clone()));
     }
 }

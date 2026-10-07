@@ -191,7 +191,7 @@ fn set_metadata(controls: &mut MediaControls, shown: &Shown) {
 struct Shown {
     track: Option<Track>,
     playing: bool,
-    /// Seconds; mpv's figure once it knows, else YouTube's.
+    /// Seconds; the decoder's figure once it knows, else YouTube's.
     duration: f64,
     /// Seconds, as last reported.
     position: f64,
@@ -221,7 +221,7 @@ impl Shown {
         self.track.as_ref().map(|t| t.video_id.as_str())
     }
 
-    /// Whole seconds, so mpv refining the duration doesn't republish.
+    /// Whole seconds, so the decoder refining the duration doesn't republish.
     fn length(&self) -> i64 {
         self.duration.round() as i64
     }

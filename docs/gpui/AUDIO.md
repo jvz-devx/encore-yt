@@ -144,6 +144,8 @@ Replace mpv with `ytfast-audio`, in the five tasks above, behind a cargo feature
 
 ## M19: the Rust engine in the backend (2026-10-07)
 
+Superseded by M23 below: mpv, the engine choice and the fallback are gone. Kept as the record of how the engine got there.
+
 The backend now plays through `src/player/` (`Player`, one deck). mpv is one engine, unchanged in behaviour; `ytfast-audio` is the other, behind the root crate's `rust-audio` feature, which the GPUI app turns on. There it is the default; `YTFAST_PLAYER=rust|mpv` and Settings' Audio player (Built-in or mpv, from the next song) choose. The egui app builds without the feature and stays on mpv.
 
 `src/player/rust.rs` keeps mpv's playlist model on top of the engine, so `playback.rs`, `deck.rs`, `audition.rs` and `sound.rs` work unchanged on either engine:
@@ -180,7 +182,7 @@ Real streams, signed out, one public music video resolved with yt-dlp (`examples
 | 249 Opus | 132 ms | 86 ms | 29 ms | −16.4 ms | 0 frames |
 | 140 AAC | 49 ms | 344 ms (fragment scan) | 32 ms | ±0 | 0 frames |
 
-Premium 774 and 141 need a signed-in resolve: `cargo run --example stream_check --no-default-features --features rust-audio -- --signed-in --formats 774,141 VIDEO_ID`.
+Premium 774 and 141 need a signed-in resolve: `cargo run --example stream_check --no-default-features -- --signed-in --formats 774,141 VIDEO_ID`.
 
 CPU and memory in the app (profiling build, Home showing, a song playing, load average ~1): mpv 6.0 % (app) + 1.6 % (mpv) of a core, 234 + 86 MB PSS; Rust engine 7.3 % and 209 MB PSS, the engine included.
 
@@ -189,3 +191,19 @@ CPU and memory in the app (profiling build, Home showing, a song playing, load a
 - The engine's output stream stays open while the app runs (silence when nothing plays); mpv's closes when idle.
 - A seek ahead of the download can fetch some bytes twice (itag 251 downloaded 4.25 MB of a 3.43 MB file after an early seek).
 - From the engine hardening list above: no allocation or free in the callback, device loss, a memory cap for long mixes, swapping an expired URL in place. Windows and macOS output untested.
+
+## M23: the only player (2026-10-07)
+
+mpv is gone from the code (`src/mpv.rs`, `src/backend/engines.rs`, the `rust-audio` feature, `YTFAST_PLAYER`, Settings' Audio player) and from every installer. `player::Player` is one deck of the engine. The resolver never picks HE-AAC (139, 599), so every format it hands over has a decoder. A stream or decode error ends the file with an error: the song is resolved once more without the account, then skipped with "Couldn't play “…”, skipped it" (the decoder's words behind Copy details); three failures in a row stop playback with a plain message instead of running through the queue.
+
+M22 came with it: the spectrum reads the engine's tap (`src/tap.rs`: the output callback copies the mix as mono into a ring of atomics while a reader is open; no lock, no allocation, nothing it waits on) and the waveform decodes the cached stream URL with the engine's reader and decoders (`src/whole.rs`, `decode_mono`), so neither PipeWire's tools nor ffmpeg are needed, on any OS.
+
+### Checked
+
+- In the GPUI app (debug build, fresh signed-out config and cache, `YTFAST_FAKE_STREAM`): play, Next, seeks (landed at 9.96 s for 10.06 s, 15.98 s for 16.08 s), the spectrum at 60 hops per second from the tap (601 hops in 10 s) and the waveform decoded in 1.27 s for 180 s of audio, both visible in Now Playing; the Bass boost equalizer from settings at start; Audition (a second deck from a third in, let go after 3 s); a smooth mix on a radio (blend over 5.6 s after a seek to 174 s, the cued deck taking over).
+- Real streams, signed out, one public song through `examples/stream_check.rs` (resolved by `src/streams.rs` as VISIONOS in 0.2 s): itag 251 first audio 42 ms, seeks 28–86 ms, played 213.045 of 213.061 s, join 0 frames; itag 140 first audio 44 ms, seeks 30–259 ms, played to the frame, join 0 frames.
+- Premium 774 and 141 need the signed-in check above (not run here).
+
+### Size
+
+The installers lose mpv and its libraries (Windows: a 34 MB `.7z`; the AppImage's mpv, FFmpeg and libplacebo build; macOS: mpv.app's libraries), yt-dlp (18–40 MB per platform) and deno (~42 MB zipped, ~138 MB unpacked): on the order of 100 MB compressed per installer, leaving the app's own executable.

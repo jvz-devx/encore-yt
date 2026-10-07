@@ -1,6 +1,4 @@
 #!/bin/sh
-# mpv, yt-dlp and deno sit next to the app in usr/bin (mpv's libraries in
-# usr/lib); the app puts its own directory first on PATH, so it plays
-# through this mpv even when the system has one.
+# The app plays and resolves streams itself; nothing else is bundled.
 HERE="$(dirname "$(readlink -f "$0")")"
 exec "$HERE/usr/bin/ytfast-gpui" "$@"

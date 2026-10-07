@@ -148,6 +148,7 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(rate: u32, commands: Consumer<Command>, events: Producer<MixEvent>) -> Self {
+        crate::tap::set_rate(rate);
         let mut voices: [Voice; DECKS] = Default::default();
         for voice in &mut voices {
             voice.volume = 1.0;
@@ -183,6 +184,7 @@ impl Mixer {
             voice.mix(deck, mix, clock, &mut self.events);
         }
         self.eq.process(mix);
+        crate::tap::write(mix);
         for (frame, stereo) in out.chunks_exact_mut(channels).zip(mix.as_chunks::<2>().0) {
             match channels {
                 1 => frame[0] = (stereo[0] + stereo[1]) * 0.5,

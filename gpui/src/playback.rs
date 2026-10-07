@@ -16,7 +16,7 @@ use crate::nav::View;
 pub const SEEK_SCALE: f32 = 1000.0;
 
 /// A seek is trusted over playback reports this long, or until a report
-/// lands near it, so the handle doesn't jump back while mpv catches up.
+/// lands near it, so the handle doesn't jump back while the player catches up.
 const SEEK_GRACE: Duration = Duration::from_millis(1500);
 
 /// How long a hand scroll of the lyrics holds the view before it follows
@@ -456,8 +456,6 @@ fn same_but_position(a: &Playback, b: &Playback) -> bool {
         equalizer,
         audition,
         mixes,
-        player,
-        engine,
     } = a;
     *index == b.index
         && *playing == b.playing
@@ -477,8 +475,6 @@ fn same_but_position(a: &Playback, b: &Playback) -> bool {
         && *equalizer == b.equalizer
         && *audition == b.audition
         && *mixes == b.mixes
-        && *player == b.player
-        && *engine == b.engine
 }
 
 /// A queue edit, for the log.
@@ -502,7 +498,8 @@ fn moved_index(c: usize, from: usize, to: usize) -> usize {
 }
 
 /// An error as the strip shows it: the plain sentence, and the technical
-/// detail behind Copy details (yt-dlp's or mpv's own words), if any.
+/// detail behind Copy details (the resolver's or the decoder's own words),
+/// if any.
 pub fn split_error(error: &str) -> (String, Option<String>) {
     // "Couldn't play “Title”, skipped it. ERROR: …"
     if let Some(end) = error.find("skipped it.") {

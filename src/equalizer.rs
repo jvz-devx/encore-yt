@@ -1,7 +1,6 @@
 //! The equalizer: ten ISO octave bands from 31 Hz to 16 kHz, ±12 dB, with
-//! presets. In mpv it is one labelled lavfi graph in `af` (a headroom
-//! `volume` and ten peaking `equalizer`s), so a band changes live with
-//! `af-command` instead of rebuilding the chain; Flat or off removes it.
+//! presets, with headroom so boosted bands don't clip; Flat or off
+//! bypasses it. The audio engine runs it (`ytfast_audio`'s `eq`).
 
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub const BANDS: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 /// The largest cut or boost of a band, in dB.
 pub const RANGE: f32 = 12.0;
-/// The filter's label in mpv's `af`.
+/// The filter's label in [`Equalizer::filter`].
 pub const LABEL: &str = "ytfast-eq";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,7 +127,9 @@ impl Equalizer {
         -self.gains.iter().fold(0.0_f32, |m, g| m.max(*g))
     }
 
-    /// mpv's `af` value: empty when bypassed or flat.
+    /// The settings as an FFmpeg lavfi graph (the form the engine's
+    /// filters follow), for comparing and the log: empty when bypassed or
+    /// flat.
     pub fn filter(&self) -> String {
         if !self.active() {
             return String::new();

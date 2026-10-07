@@ -5,7 +5,7 @@
 //! structure the interface relies on, not the catalogue's current content.
 
 use serde_json::Value;
-use ytfast::model::{Item, ItemKind, Page, Shelf, ShelfStyle, Target, Track};
+use ytfast::model::{Item, ItemKind, LikeStatus, Page, Shelf, ShelfStyle, Target, Track};
 use ytfast::parse;
 
 fn fixture(name: &str) -> Value {
@@ -278,4 +278,111 @@ fn lyrics() {
     assert!(!timed.lines.is_empty());
     assert!(timed.lines.windows(2).all(|w| w[0].start <= w[1].start));
     assert!(timed.lines.iter().any(|l| !l.text.is_empty()));
+}
+
+/// Gives every other song row in `v` (`musicResponsiveListItemRenderer`
+/// with a like button) the rating LIKE, the rest INDIFFERENT, as a
+/// signed-in response would; returns each row's video id and rating.
+fn rate_rows(v: &mut Value, out: &mut Vec<(String, LikeStatus)>) {
+    match v {
+        Value::Object(map) => {
+            if let Some(row) = map.get_mut("musicResponsiveListItemRenderer") {
+                let id = row
+                    .pointer("/playlistItemData/videoId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let button =
+                    row.pointer_mut("/menu/menuRenderer/topLevelButtons/0/likeButtonRenderer");
+                if let (Some(id), Some(Value::Object(button))) = (id, button) {
+                    let status = if out.len().is_multiple_of(2) {
+                        LikeStatus::Like
+                    } else {
+                        LikeStatus::Indifferent
+                    };
+                    let name = if status == LikeStatus::Like {
+                        "LIKE"
+                    } else {
+                        "INDIFFERENT"
+                    };
+                    button.insert("likeStatus".into(), Value::from(name));
+                    out.push((id, status));
+                }
+            }
+            map.values_mut().for_each(|x| rate_rows(x, out));
+        }
+        Value::Array(items) => items.iter_mut().for_each(|x| rate_rows(x, out)),
+        _ => {}
+    }
+}
+
+/// Song rows carry the account's rating from their menu's like button:
+/// INDIFFERENT signed out, and whatever a signed-in response says.
+#[test]
+fn row_ratings() {
+    for name in ["playlist", "album", "search", "artist"] {
+        let tracks = |page: &Page| -> Vec<Track> {
+            page.shelves
+                .iter()
+                .flat_map(|s| &s.items)
+                .filter_map(|i| i.track.clone())
+                .collect()
+        };
+        let signed_out = tracks(&page(name));
+        assert!(
+            signed_out
+                .iter()
+                .any(|t| t.like == Some(LikeStatus::Indifferent)),
+            "{name}: no rated rows"
+        );
+        assert!(signed_out.iter().all(|t| t.like != Some(LikeStatus::Like)));
+
+        let mut v = fixture(name);
+        let mut rated = Vec::new();
+        rate_rows(&mut v, &mut rated);
+        assert!(
+            rated.len() >= 2,
+            "{name}: {} rows with a like button",
+            rated.len()
+        );
+        let parsed = tracks(&parse::page(&v));
+        for (id, status) in &rated {
+            if let Some(track) = parsed.iter().find(|t| &t.video_id == id) {
+                assert_eq!(track.like, Some(*status), "{name}: {id}");
+            }
+        }
+        assert!(
+            parsed.iter().any(|t| t.like == Some(LikeStatus::Like)),
+            "{name}: no liked row parsed"
+        );
+    }
+}
+
+/// Up next's rows: a hand-written `next` panel, one row liked, one with no
+/// like button (as signed out).
+#[test]
+fn queue_ratings() {
+    let row = |id: &str, like: Option<&str>| {
+        let mut r = serde_json::json!({
+            "videoId": id,
+            "title": {"runs": [{"text": "Song"}]},
+            "longBylineText": {"runs": [{"text": "Artist"}]},
+            "lengthText": {"runs": [{"text": "3:21"}]},
+        });
+        if let Some(status) = like {
+            r["menu"] = serde_json::json!({"menuRenderer": {"topLevelButtons": [
+                {"likeButtonRenderer": {"target": {"videoId": id}, "likeStatus": status}}
+            ]}});
+        }
+        serde_json::json!({"playlistPanelVideoRenderer": r})
+    };
+    let next = serde_json::json!({"contents": {"singleColumnMusicWatchNextResultsRenderer": {
+        "tabbedRenderer": {"watchNextTabbedResultsRenderer": {"tabs": [{"tabRenderer": {
+            "content": {"musicQueueRenderer": {"content": {"playlistPanelRenderer": {
+                "contents": [row("aaaaaaaaaaa", Some("LIKE")), row("bbbbbbbbbbb", None)]
+            }}}}
+        }}]}}
+    }}});
+    let next = parse::watch_next(&next);
+    let likes: Vec<_> = next.tracks.iter().map(|t| t.like).collect();
+    assert_eq!(likes, [Some(LikeStatus::Like), None]);
 }

@@ -1,53 +1,73 @@
-Music (ytfast-gpui) and the programs it bundles
-===============================================
+Music (ytfast-gpui): third-party notices
+========================================
 
 ytfast-gpui is MIT licensed: https://github.com/jvz-devx/ytfast-gpui
 It is built on ytfast by Tyler Mayberry (MIT,
 https://github.com/MayberryDT/ytfast) and on Rust crates under MIT,
 Apache-2.0 and similar licenses; see each crate's own license.
 
-The installers ship these programs unchanged, as separate executables that
-Music starts. Each keeps its own license.
+The installers ship one executable and no other programs: it plays audio
+and finds streams itself. These parts of it come with their own terms.
 
-yt-dlp (all installers)
-  Downloads stream information from YouTube.
-  License: The Unlicense (public domain).
-  Source: https://github.com/yt-dlp/yt-dlp
-  The release binaries also contain Python and other components under
-  their own licenses (PSF, MIT, BSD, ...); see the yt-dlp repository.
+Symphonia (demuxing WebM, MP4 and Ogg; decoding AAC)
+  License: MPL-2.0 (https://mozilla.org/MPL/2.0/). Used unmodified; its
+  source is at https://github.com/pdeljanov/Symphonia and on crates.io
+  (symphonia 0.6.1 and its symphonia-* crates).
 
-deno (all installers)
-  The JavaScript runtime yt-dlp uses to solve YouTube's challenges.
-  License: MIT. Source: https://github.com/denoland/deno
+QuickJS (through rquickjs; runs YouTube's challenge solver)
+  License: MIT. Source: https://bellard.org/quickjs/ and
+  https://github.com/DelSkayn/rquickjs
 
-mpv (AppImage, macOS app, Windows installer)
-  Plays the audio. The .deb and .rpm use the distribution's mpv instead
-  (a package dependency). mpv is GPL-2.0-or-later as a whole, and
-  LGPL-2.1-or-later when built without its GPL parts.
-  Source: https://github.com/mpv-player/mpv
-  License: https://github.com/mpv-player/mpv/blob/master/Copyright
+yt-dlp-ejs (the challenge solver scripts, embedded and updated as data)
+  License: The Unlicense (public domain). Source:
+  https://github.com/yt-dlp/ejs. The scripts bundle meriyah (ISC,
+  https://github.com/meriyah/meriyah) and astring (MIT,
+  https://github.com/davidbonnet/astring).
 
-  Each build contains FFmpeg (https://ffmpeg.org, source
-  https://ffmpeg.org/download.html and https://git.ffmpeg.org/ffmpeg.git;
-  LGPL-2.1-or-later, GPL-2.0-or-later when built with GPL parts, see
-  https://ffmpeg.org/legal.html) and libplacebo (LGPL-2.1-or-later,
-  https://code.videolan.org/videolan/libplacebo), plus other libraries
-  under their own licenses.
+libopus 1.6.1 (decoding Opus; linked in, through opusic-sys)
+  Source: https://opus-codec.org, https://github.com/xiph/opus
 
-  AppImage: mpv 0.41.0, FFmpeg 7.1.2 and libplacebo 7.351.0, built from
-    the release sources by gpui/packaging/linux/build-mpv.sh in this
-    repository, without GPL parts (mpv -Dgpl=false, FFmpeg without
-    --enable-gpl), so this copy is LGPL-2.1-or-later. Its other shared
-    libraries (in usr/lib: libass, GnuTLS, LuaJIT (MIT), PulseAudio's
-    client library and their dependencies) are Ubuntu 22.04's packages, whose sources are at
-    https://packages.ubuntu.com/source/jammy/<package>.
-  macOS app: mpv's own release build, unchanged (mpv-v0.41.0-macos-14-arm
-    or -macos-15-intel from https://github.com/mpv-player/mpv/releases/tag/v0.41.0),
-    GPL-2.0-or-later, with the libraries it bundles in Contents/MacOS/lib
-    (FFmpeg 8 and others, built by Homebrew; mpv's CI scripts in
-    https://github.com/mpv-player/mpv/tree/v0.41.0/ci name them).
-  Windows: https://github.com/shinchiro/mpv-winbuild-cmake (the release
-    named in the installer's bin\mpv-version.txt), GPL-2.0-or-later. Its
-    build scripts name every library it contains and where its source is.
+  Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
+                      Jean-Marc Valin, Timothy B. Terriberry,
+                      CSIRO, Gregory Maxwell, Mark Borgerding,
+                      Erik de Castro Lopo, Mozilla, Amazon
 
-  The complete source of each of these builds is at the links above.
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions
+  are met:
+
+  - Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+
+  - Redistributions in binary form must reproduce the above copyright
+  notice, this list of conditions and the following disclaimer in the
+  documentation and/or other materials provided with the distribution.
+
+  - Neither the name of Internet Society, IETF or IETF Trust, nor the
+  names of specific contributors, may be used to endorse or promote
+  products derived from this software without specific prior written
+  permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+  OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+  Opus is subject to the royalty-free patent licenses which are
+  specified at:
+
+  Xiph.Org Foundation:
+  https://datatracker.ietf.org/ipr/1524/
+
+  Microsoft Corporation:
+  https://datatracker.ietf.org/ipr/1914/
+
+  Broadcom Corporation:
+  https://datatracker.ietf.org/ipr/1526/

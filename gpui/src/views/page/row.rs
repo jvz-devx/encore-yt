@@ -1,5 +1,5 @@
 //! The song row (DESIGN.md "Song row"): thumb or track number, title,
-//! linked subtitle, duration.
+//! linked subtitle, the like mark (M25), duration.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
@@ -12,7 +12,7 @@ use super::{Ctx, on_activate};
 use crate::app::MusicApp;
 use crate::assets::Glyph;
 use crate::theme::{Colors, Type, radius, size, space};
-use crate::views::{clock, menu, widgets};
+use crate::views::{account, clock, menu, widgets};
 
 /// How a list numbers its rows.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -96,6 +96,9 @@ pub fn row(
                     cx,
                 ))),
         )
+        .when(ctx.likes.shown(), |r| {
+            r.child(like_slot(shelf, i, item, ctx, cx))
+        })
         .map(|r| {
             if !menu::has_menu(item) {
                 return r.children(duration.map(|d| {
@@ -125,6 +128,27 @@ pub fn row(
         .on_click(on_activate(ctx, shelf, i, cx))
         .map(|el| crate::views::extras::audition::hook(el, item.track.as_ref(), radius::MD, cx))
         .into_any_element()
+}
+
+/// The like mark of a song's row; the same room left empty in other rows.
+fn like_slot(
+    shelf: usize,
+    i: usize,
+    item: &Item,
+    ctx: &Ctx,
+    cx: &mut Context<MusicApp>,
+) -> AnyElement {
+    match &item.track {
+        Some(track) => account::row_like(
+            ctx.id(format!("row-like:{shelf}:{i}")),
+            track,
+            &ctx.likes,
+            "row",
+            &ctx.c,
+            cx,
+        ),
+        None => account::row_like_space(),
+    }
 }
 
 /// The 40 px thumb, with a play glyph on hover and the live mark while it

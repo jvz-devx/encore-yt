@@ -5,8 +5,7 @@
 //! `cargo run --example sign_in --no-default-features [-- <profile id> [<video id>]]`
 //!
 //! Signed in, it also browses Home and, given a video id, resolves that song
-//! through yt-dlp with a private copy of the session's cookies and prints
-//! the format it got.
+//! with the session and prints the format it got.
 
 use ytfast::model::Account;
 
@@ -56,9 +55,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
     let source = session.source.clone();
-    let cookie_file = scratch.join("cookies.txt");
-    session.write_netscape(&cookie_file)?;
-    let client = ytfast::innertube::Client::new();
+    let client = std::sync::Arc::new(ytfast::innertube::Client::new());
     client.set_session(Some(session));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -81,7 +78,10 @@ fn main() -> anyhow::Result<()> {
         }
         if let Some(video_id) = &video_id {
             let resolver = std::sync::Arc::new(ytfast::resolver::Resolver::new(scratch.clone()));
-            resolver.set_cookie_file(Some(cookie_file.clone()));
+            match ytfast::paths::Paths::new() {
+                Ok(paths) => resolver.use_innertube(client.clone(), &paths),
+                Err(error) => return println!("No directories: {error:#}"),
+            }
             match resolver.resolve(video_id).await {
                 Ok(stream) => println!(
                     "Resolved {video_id}: itag {} ({})",

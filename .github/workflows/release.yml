@@ -32,20 +32,12 @@ jobs:
           - name: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-          # mpv's own macOS builds (self-contained mpv.app, GPL), pinned.
           - name: macos-arm64
             os: macos-latest
             target: aarch64-apple-darwin
-            deno: deno-aarch64-apple-darwin.zip
-            mpv: mpv-v0.41.0-macos-14-arm.zip
-            mpv_sha256: 5c96f9b21355fc0a11d2e2161ad65f33031070e9fb3f6bd9865fb459b94587e6
-          # On an Intel runner, so the x86_64 mpv runs in the smoke check.
           - name: macos-x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
-            deno: deno-x86_64-apple-darwin.zip
-            mpv: mpv-v0.41.0-macos-15-intel.zip
-            mpv_sha256: 41003617ab4f7784394b5ddea7ce51b3e0838e8cfc8166ad1a378b2eda3b583c
     defaults:
       run:
         shell: bash
@@ -81,23 +73,7 @@ jobs:
             pkg-config clang libsqlite3-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxcb1-dev libx11-xcb-dev libwayland-dev libvulkan-dev \
             libfontconfig-dev libfreetype-dev libasound2-dev libssl-dev \
-            desktop-file-utils file \
-            nasm libass-dev libgnutls28-dev zlib1g-dev libpulse-dev libluajit-5.1-dev
-          python3 -m pip install --user meson ninja jinja2
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      # Linux: mpv for the AppImage, built from source (see the script).
-      - name: Cache mpv (Linux)
-        if: runner.os == 'Linux'
-        id: mpv-cache
-        uses: actions/cache@v4
-        with:
-          path: mpv-prefix
-          key: mpv-${{ matrix.target }}-${{ hashFiles('gpui/packaging/linux/build-mpv.sh') }}
-
-      - name: Build mpv (Linux)
-        if: runner.os == 'Linux' && steps.mpv-cache.outputs.cache-hit != 'true'
-        run: gpui/packaging/linux/build-mpv.sh mpv-prefix
+            cmake desktop-file-utils file
 
       # YTFAST_VERSION is the version the app reports (`--version`, the
       # update check, M16); the crate's own version has no pre-release part.
@@ -107,15 +83,11 @@ jobs:
           YTFAST_VERSION: ${{ env.VERSION }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p ytfast-gpui
 
-      # Linux: AppImage (with mpv), .deb and .rpm, each with yt-dlp and deno.
-      - name: Fetch yt-dlp and deno (Linux)
+      # Linux: AppImage, .deb and .rpm. The app plays and resolves streams
+      # itself (Rust audio engine and resolver), so nothing else is bundled.
+      - name: Stage the binary (Linux)
         if: runner.os == 'Linux'
         run: |
-          mkdir -p gpui/target/tools
-          curl -fsSL -o gpui/target/tools/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
-          curl -fsSL -o deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip
-          unzip -o deno.zip -d gpui/target/tools
-          chmod +x gpui/target/tools/*
           # cargo-deb and cargo-generate-rpm read target/release.
           mkdir -p gpui/target/release
           cp gpui/target/${{ matrix.target }}/release/ytfast-gpui gpui/target/release/ytfast-gpui
@@ -124,15 +96,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           app=AppDir
-          # mpv and the shared libraries it needs (all but the base system's)
-          # go to usr/bin and usr/lib, with an rpath to them.
-          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy
-          LD_LIBRARY_PATH="$PWD/mpv-prefix/lib" APPIMAGE_EXTRACT_AND_RUN=1 \
-            ./linuxdeploy --appdir $app --executable mpv-prefix/bin/mpv
-          gpui/packaging/smoke-mpv.sh $app/usr/bin/mpv $app
           mkdir -p $app/usr/bin $app/usr/share/applications $app/usr/share/icons/hicolor/512x512/apps $app/usr/share/doc/ytfast-gpui
-          cp gpui/target/release/ytfast-gpui gpui/target/tools/yt-dlp gpui/target/tools/deno $app/usr/bin/
+          cp gpui/target/release/ytfast-gpui $app/usr/bin/
           cp gpui/packaging/linux/AppRun $app/AppRun
           cp gpui/packaging/linux/ytfast-gpui.desktop $app/ytfast-gpui.desktop
           cp gpui/packaging/linux/ytfast-gpui.desktop $app/usr/share/applications/
@@ -160,29 +125,16 @@ jobs:
           cargo generate-rpm -o "../dist/ytfast-gpui-$VERSION-linux-x86_64.rpm"
           ls -la ../dist
 
-      # Windows: an Inno Setup installer and a portable zip, with mpv, yt-dlp
-      # and deno in bin\.
+      # Windows: an Inno Setup installer and a portable zip: the executable,
+      # its icon and the third-party notices.
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           src=dist/windows
-          mkdir -p $src/bin
+          mkdir -p $src
           cp gpui/target/${{ matrix.target }}/release/ytfast-gpui.exe $src/
           cp gpui/packaging/icons/ytfast-gpui.ico gpui/packaging/THIRD-PARTY.txt $src/
-          mpv=$(gh release view --repo shinchiro/mpv-winbuild-cmake --json tagName,assets \
-            --jq '.tagName as $t | .assets[] | select(.name | test("^mpv-x86_64-[0-9]{8}-git-[0-9a-f]+\\.7z$")) | "\($t) \(.name)"' | head -1)
-          read -r mpv_tag mpv_file <<< "$mpv"
-          echo "mpv: $mpv_tag $mpv_file"
-          gh release download "$mpv_tag" --repo shinchiro/mpv-winbuild-cmake --pattern "$mpv_file" --dir mpv-download
-          7z x -ompv-extract "mpv-download/$mpv_file" > /dev/null
-          cp mpv-extract/mpv.exe $src/bin/
-          cp mpv-extract/*.dll $src/bin/ 2>/dev/null || true
-          echo "shinchiro/mpv-winbuild-cmake $mpv_tag $mpv_file" > $src/bin/mpv-version.txt
-          gpui/packaging/smoke-mpv.sh $src/bin/mpv.exe $src
-          curl -fsSL -o $src/bin/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
-          curl -fsSL -o deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip
-          7z x -o$src/bin deno.zip > /dev/null
-          ls -la $src $src/bin
+          ls -la $src
           (cd $src && 7z a -tzip "../ytfast-gpui-$VERSION-windows-x86_64-portable.zip" . > /dev/null)
 
       - name: Installer (Windows)
@@ -198,26 +150,17 @@ jobs:
           Remove-Item -Recurse dist\windows
           Get-ChildItem dist
 
-      # macOS: ytfast.app (unsigned, ad-hoc) with mpv, yt-dlp and deno, in a
-      # .dmg. mpv and its libraries sit in Contents/MacOS as in mpv.app
-      # (mpv finds them at @executable_path/lib).
+      # macOS: ytfast.app (unsigned, ad-hoc) in a .dmg.
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
           app="dmg/ytfast.app"
-          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp gpui/target/${{ matrix.target }}/release/ytfast-gpui "$app/Contents/MacOS/"
-          gh release download v0.41.0 --repo mpv-player/mpv --pattern "${{ matrix.mpv }}" --dir mpv-download
-          echo "${{ matrix.mpv_sha256 }}  mpv-download/${{ matrix.mpv }}" | shasum -a 256 -c
-          unzip -q "mpv-download/${{ matrix.mpv }}" -d mpv-download
-          tar xzf mpv-download/mpv.tar.gz -C mpv-download
-          cp mpv-download/mpv.app/Contents/MacOS/mpv "$app/Contents/MacOS/"
-          cp -R mpv-download/mpv.app/Contents/MacOS/lib "$app/Contents/MacOS/lib"
-          echo "mpv-player/mpv v0.41.0 ${{ matrix.mpv }}" > "$app/Contents/Resources/mpv-version.txt"
-          # The app can't play without mpv, so it needs the macOS mpv needs.
-          minos=$(otool -l "$app/Contents/MacOS/mpv" | awk '/LC_BUILD_VERSION/{b=1} b && $1=="minos"{print $2; exit}')
+          # The macOS the executable was built for (Rust's default target).
+          minos=$(otool -l "$app/Contents/MacOS/ytfast-gpui" | awk '/LC_BUILD_VERSION/{b=1} b && $1=="minos"{print $2; exit}')
           minos=${minos:-11.0}
-          echo "mpv needs macOS $minos"
+          echo "ytfast-gpui needs macOS $minos"
           sed -e "s/@VERSION@/$VERSION/g" -e "s/@MINOS@/$minos/g" gpui/packaging/macos/Info.plist > "$app/Contents/Info.plist"
           cp gpui/packaging/THIRD-PARTY.txt "$app/Contents/Resources/"
           iconset=ytfast-gpui.iconset
@@ -228,14 +171,8 @@ jobs:
             sips -z $double $double gpui/packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}@2x.png > /dev/null
           done
           iconutil -c icns $iconset -o "$app/Contents/Resources/ytfast-gpui.icns"
-          curl -fsSL -o "$app/Contents/Resources/bin/yt-dlp" https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
-          curl -fsSL -o deno.zip "https://github.com/denoland/deno/releases/latest/download/${{ matrix.deno }}"
-          unzip -o deno.zip -d "$app/Contents/Resources/bin"
-          chmod +x "$app/Contents/Resources/bin/"*
-          codesign --force --sign - "$app/Contents/MacOS/lib/"*.dylib "$app/Contents/MacOS/mpv"
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
-          gpui/packaging/smoke-mpv.sh "$app/Contents/MacOS/mpv" "$app"
           ln -s /Applications dmg/Applications
           mkdir -p dist
           arch=${{ matrix.name }}

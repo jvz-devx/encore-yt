@@ -24,13 +24,11 @@ pub mod links;
 pub mod lyrics;
 pub mod model;
 pub mod mpris;
-pub mod mpv;
 pub mod notify;
 #[cfg(feature = "egui")]
 pub mod palette;
 pub mod parse;
 pub mod paths;
-pub mod platform;
 pub mod player;
 pub mod resolver;
 pub mod searches;

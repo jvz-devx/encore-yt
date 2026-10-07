@@ -394,7 +394,7 @@ fn uncached() -> bool {
 
 /// Effects are on unless Settings → Visuals has them off (the Off preset)
 /// or `YTFAST_GPUI_VISUALS=0`, and off in the UI tests (they need a GPU
-/// device and PipeWire).
+/// device and the audio engine).
 pub fn enabled() -> bool {
     !cfg!(test) && config::get().on
 }

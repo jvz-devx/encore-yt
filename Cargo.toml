@@ -14,11 +14,6 @@ name = "ytfast"
 path = "src/main.rs"
 required-features = ["egui"]
 
-# Real-stream check of the Rust audio engine (PLAN M19).
-[[example]]
-name = "stream_check"
-required-features = ["rust-audio"]
-
 [dependencies]
 # UI framework, as in ZapFast and Spotifast. glow avoids the larger wgpu stack.
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11", "persistence"], optional = true }
@@ -42,8 +37,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 directories = "6"
 fastrand = "2"
-# The backend runtime: InnerTube requests, cover downloads, mpv IPC and yt-dlp.
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "process", "net", "io-util", "fs"] }
+# The backend runtime: InnerTube requests, cover downloads and stream resolving.
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "brotli"] }
 # MPRIS and desktop notifications over the session bus, served from the
 # backend's tokio runtime. The same zbus AccessKit already brings in, with the
@@ -63,9 +58,8 @@ pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 sha1 = "0.10"
 sha2 = "0.10"
 rquickjs = "0.14"
-# The pure Rust audio engine (docs/gpui/AUDIO.md) in place of mpv, for
-# frontends that turn on `rust-audio` (the GPUI app); the egui app keeps mpv.
-ytfast-audio = { path = "gpui/crates/audio", optional = true }
+# The audio engine (docs/gpui/AUDIO.md).
+ytfast-audio = { path = "gpui/crates/audio" }
 
 # Windows has no system SQLite to link; build it in.
 [target.'cfg(windows)'.dependencies]
@@ -78,13 +72,6 @@ default = ["egui"]
 egui = ["dep:eframe", "dep:egui", "dep:egui_extras", "dep:image", "dep:fastframe-fonts", "dep:fastframe-icons", "dep:fastframe-text", "dep:fastframe-theme", "dep:fastframe-shell"]
 # The scripted end-to-end run (src/e2e.rs, scripts/e2e.sh). Never in a normal build.
 e2e = ["egui"]
-# Playback on ytfast-audio (src/player/rust.rs) as well as mpv; chosen with
-# YTFAST_PLAYER=rust|mpv or the player setting.
-rust-audio = ["dep:ytfast-audio"]
-# Resolve streams in Rust first by default (src/streams.rs), with yt-dlp as
-# the fallback; YTFAST_RESOLVER=ytdlp turns it off. Without the feature it
-# stays opt-in with YTFAST_RESOLVER=rust.
-rust-resolver = []
 
 [patch.crates-io]
 # crmne/egui apps-0.36 and crmne/winit apps-0.30, the revisions ZapFast 0.18.2

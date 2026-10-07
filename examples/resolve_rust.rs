@@ -87,13 +87,16 @@ async fn main() -> Result<()> {
     for id in ids {
         let started = Instant::now();
         let stream = match only {
-            Some(client) => native.resolve_as(client, &id, signed_in).await,
+            Some(client) => native
+                .resolve_as(client, &id, signed_in)
+                .await
+                .map(|s| (s, client.name)),
             None => native.resolve(&id, signed_in).await,
         };
         requests += 1;
         let elapsed = started.elapsed().as_secs_f64();
-        let stream = match stream {
-            Ok(stream) => stream,
+        let (stream, from) = match stream {
+            Ok(resolved) => resolved,
             Err(error) if format!("{error:#}").contains("LOGIN_REQUIRED") => {
                 println!("{id}: bot check after {elapsed:.2}s: {error:#}");
                 bot_checks += 1;
@@ -109,7 +112,7 @@ async fn main() -> Result<()> {
         println!(
             "{id}: itag {} from {} in {elapsed:.2}s, expires in {} min",
             stream.itag,
-            only.map_or(native.last_client(), |c| c.name),
+            from,
             stream.expires.saturating_sub(ytfast::resolver::now()) / 60
         );
         if let (Some(dir), Some(client)) = (&dump, only) {

@@ -1,7 +1,7 @@
-# Checks every day, from GitHub's IPs and signed out, that the Rust stream
+# Checks every day, from GitHub's IPs and signed out, that the stream
 # resolver still works: QuickJS solves the current player's challenges like
-# yt-dlp's EJS, and public songs resolve with YTFAST_RESOLVER=rust and answer
-# a range request (scripts/resolver-canary.sh). Never uses cookies or
+# yt-dlp's EJS (run in deno here as the reference), and public songs resolve
+# and answer a range request (scripts/resolver-canary.sh). Never uses cookies or
 # secrets. A failing scheduled or manual run on the default branch opens an
 # issue labelled resolver-canary, or comments on the open one. It also runs
 # on pull requests that touch the resolver, and the EJS bump workflow
@@ -80,7 +80,7 @@ jobs:
 
       - name: Keep the log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: resolver-canary-log
           path: canary.log
@@ -99,7 +99,7 @@ jobs:
           {
             echo "The resolver canary failed on $(date -u +%Y-%m-%d) at ${GITHUB_SHA::7}: $RUN_URL"
             echo
-            echo "Until it is fixed, \`YTFAST_RESOLVER=rust\` falls back to yt-dlp. If yt-dlp-ejs has a newer release, run the EJS bump workflow."
+            echo "Until it is fixed, signed-in songs play signed out (VISIONOS needs no solver; no Premium formats), and if VISIONOS itself failed nothing plays: the app has no fallback (docs/gpui/RESOLVER.md, M23). If yt-dlp-ejs has a newer release, run the EJS bump workflow; running apps pick up a newly pinned solver without a release."
             echo
             echo '```'
             if [[ -f canary.log ]]; then

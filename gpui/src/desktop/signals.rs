@@ -1,5 +1,5 @@
 //! SIGTERM, SIGINT and SIGHUP quit the way Ctrl+Q does, so the session is
-//! saved and mpv stops (the backend's Drop doesn't run on a plain kill). A
+//! saved (the backend's Drop doesn't run on a plain kill). A
 //! second signal ends the process at once. Unix only; on Windows closing the
 //! window or the tray's Quit is the way out.
 
@@ -20,7 +20,7 @@ pub fn watch(runtime: &tokio::runtime::Handle, remote: Remote) {
             signal(SignalKind::interrupt()),
             signal(SignalKind::hangup()),
         ) else {
-            log::warn!("no signal handlers: a kill leaves mpv playing");
+            log::warn!("no signal handlers: a kill doesn't save the session");
             return;
         };
         let name = next(&mut term, &mut int, &mut hup).await;

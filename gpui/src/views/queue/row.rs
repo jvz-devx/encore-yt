@@ -74,6 +74,17 @@ pub fn row(
     };
     let line = c.text_muted;
     let group = SharedString::from(format!("queue-row-{}", place.name()));
+    let likes = crate::likes::Likes::of(app);
+    let like = likes.shown().then(|| {
+        super::super::account::row_like(
+            SharedString::from(format!("like-{}-{i}", place.name())),
+            track,
+            &likes,
+            group.clone(),
+            c,
+            cx,
+        )
+    });
     Some(
         h_flex()
             .id(SharedString::from(format!("queue-{}-{i}", place.name())))
@@ -101,7 +112,16 @@ pub fn row(
                     )
                     .child(widgets::muted_line(subtitle, c)),
             )
-            .child(trailing(place, i, track.duration, current, &group, c, cx))
+            // The like mark hugs the length column: the panel is narrow.
+            .child(h_flex().flex_none().children(like).child(trailing(
+                place,
+                i,
+                track.duration,
+                current,
+                &group,
+                c,
+                cx,
+            )))
             // Drag to reorder: the row lands where it is dropped, and a line
             // shows on the side it will take.
             .on_drag(dragged, |song, _, _, cx| cx.new(|_| song.clone()))

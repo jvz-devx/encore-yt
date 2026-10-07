@@ -40,7 +40,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\ytfast-gpui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\ytfast-gpui.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\THIRD-PARTY.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\bin\*"; DestDir: "{app}\bin"; Flags: ignoreversion recursesubdirs
+
+[InstallDelete]
+; mpv, yt-dlp and deno, bundled by versions before 0.2.
+Type: filesandordirs; Name: "{app}\bin"
 
 [Icons]
 Name: "{autoprograms}\Music (ytfast)"; Filename: "{app}\ytfast-gpui.exe"; IconFilename: "{app}\ytfast-gpui.ico"

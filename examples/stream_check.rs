@@ -1,25 +1,26 @@
-//! Real-stream check of the Rust audio engine (PLAN M19): resolves one song
-//! with yt-dlp in several formats at once (one resolve), then plays each
+//! Real-stream check of the audio engine (PLAN M19, M23): resolves one song
+//! with the stream resolver in several formats at once (one search
+//! suggestion for the visitor id, the player script only when it isn't
+//! cached, and one `player` request), then plays each
 //! format through `ytfast-audio`: first audio, a seek to the middle, a seek
 //! to 3 s before the end with the same stream queued behind it, and the
 //! join between the two (the played length against the container's, and
 //! the frames between one track's end and the next one's start).
 //!
-//! Nothing is reported to the account's history: yt-dlp only resolves, and
-//! nothing here sends YouTube's playback tracking. Signed out by default;
-//! `--signed-in` gives yt-dlp the account's cookies (as the app does) for
-//! the Premium formats, so use it only when that is wanted.
+//! Nothing is reported to the account's history: nothing here sends
+//! YouTube's playback tracking. Signed out by default (VISIONOS);
+//! `--signed-in` asks as the account (WEB_CREATOR, as the app does) for the
+//! Premium formats, so use it only when that is wanted.
 //!
-//! cargo run --example stream_check --no-default-features --features rust-audio --
+//! cargo run --example stream_check --no-default-features --
 //!     [--signed-in] [--formats 251,250,249,140] VIDEO_ID
 //!
 //! (Premium: `--signed-in --formats 774,141`.) The resolved formats are kept
 //! for an hour in the runtime directory (0600), so running it again plays
 //! them without resolving the song again.
 
-use std::process::Command;
-use std::sync::OnceLock;
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -49,7 +50,7 @@ impl log::Log for Logger {
     fn flush(&self) {}
 }
 
-/// One format of the song, as yt-dlp resolved it.
+/// One format of the song, as the resolver gave it.
 struct Format {
     itag: String,
     url: String,
@@ -90,7 +91,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// One yt-dlp run for every format in `list` (comma-separated), or the
+/// One resolve for every format in `list` (comma-separated), or the
 /// formats an earlier run saved within the hour.
 fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
     let who = if signed_in { "signed-in" } else { "signed-out" };
@@ -115,31 +116,15 @@ fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
                 .collect());
         }
     }
-    let cookies = signed_in.then(cookie_file).transpose()?;
-    let mut command = Command::new("yt-dlp");
-    command.args(["--ignore-config", "--no-warnings", "--no-playlist"]);
-    command.args(["-f", list]);
-    command.args([
-        "--print",
-        "%(format_id)s\t%(http_headers.User-Agent)s\t%(url)s",
-    ]);
-    if let Some(file) = &cookies {
-        command.arg("--cookies").arg(file);
-    }
-    command.arg(format!("https://music.youtube.com/watch?v={video}"));
     let started = Instant::now();
-    let output = command.output().context("running yt-dlp")?;
-    if let Some(file) = &cookies {
-        let _ = std::fs::remove_file(file);
-    }
-    if !output.status.success() {
-        bail!("yt-dlp: {}", String::from_utf8_lossy(&output.stderr).trim());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    save(&saved, &stdout)?;
-    let formats = parse(&stdout);
+    let text = tokio::runtime::Runtime::new()?.block_on(resolve_now(video, signed_in))?;
+    save(&saved, &text)?;
+    let formats: Vec<Format> = parse(&text)
+        .into_iter()
+        .filter(|f| list.split(',').any(|l| l == f.itag))
+        .collect();
     step!(
-        "yt-dlp resolved {} formats in {:.1} s ({})",
+        "resolved {} of the wanted formats in {:.1} s ({})",
         formats.len(),
         started.elapsed().as_secs_f64(),
         if signed_in { "signed in" } else { "signed out" }
@@ -147,7 +132,37 @@ fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
     Ok(formats)
 }
 
-/// yt-dlp's lines: format id, user agent, URL.
+/// Every audio format the app would pick from, one per line: itag, user
+/// agent (`NA`), URL.
+async fn resolve_now(video: &str, signed_in: bool) -> Result<String> {
+    let paths = ytfast::paths::Paths::new()?;
+    let client = Arc::new(ytfast::innertube::Client::new());
+    if signed_in {
+        let preferred = ytfast::settings::Settings::load(&paths).browser_profile;
+        let session = ytfast::auth::load(&paths.runtime, preferred.as_deref())?;
+        client.set_session(Some(session));
+    }
+    // The visitor id the stream requests need, as the app has it from
+    // YouTube Music's answers.
+    client
+        .suggestions("a")
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let native = ytfast::streams::Native::new(client, &paths.cache, &paths.config);
+    let (who, authed) = if signed_in {
+        native.prepare().await?;
+        (&ytfast::streams::WEB_CREATOR, true)
+    } else {
+        (&ytfast::streams::VISIONOS, false)
+    };
+    let streams = native.streams_as(who, video, authed, usize::MAX).await?;
+    Ok(streams
+        .iter()
+        .map(|s| format!("{}\tNA\t{}\n", s.itag, s.url))
+        .collect())
+}
+
+/// The saved lines: format id, user agent, URL.
 fn parse(text: &str) -> Vec<Format> {
     text.lines()
         .filter_map(|line| {
@@ -170,17 +185,6 @@ fn save(path: &std::path::Path, text: &str) -> Result<()> {
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     std::io::Write::write_all(&mut options.open(path)?, text.as_bytes())?;
     Ok(())
-}
-
-/// The account's cookies for yt-dlp, as the app writes them (0600; removed
-/// after the run).
-fn cookie_file() -> Result<std::path::PathBuf> {
-    let paths = ytfast::paths::Paths::new()?;
-    let preferred = ytfast::settings::Settings::load(&paths).browser_profile;
-    let session = ytfast::auth::load(&paths.runtime, preferred.as_deref())?;
-    let file = paths.runtime.join("stream-check-cookies.txt");
-    session.write_netscape(&file)?;
-    Ok(file)
 }
 
 fn check(engine: &Engine, events: &Receiver<Event>, format: &Format) -> Result<String> {

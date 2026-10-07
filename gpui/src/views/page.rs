@@ -37,6 +37,8 @@ pub(super) struct Ctx {
     pub playing: Option<String>,
     /// The subtitle link under the pointer.
     pub link: Option<(SharedString, usize)>,
+    /// Which songs are liked (M25).
+    pub likes: crate::likes::Likes,
     pub c: Colors,
 }
 
@@ -46,6 +48,7 @@ impl Ctx {
             key: key.to_string(),
             playing: app.player.current().map(|t| t.video_id.clone()),
             link: app.pages.link_hover.clone(),
+            likes: crate::likes::Likes::of(app),
             c: theme::colors(cx),
         }
     }

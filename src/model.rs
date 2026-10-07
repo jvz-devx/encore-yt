@@ -194,8 +194,8 @@ pub struct Track {
     pub album: Option<Run>,
     pub thumbnail: Option<String>,
     pub duration: Option<u32>,
-    /// The account's rating, where the response gave it (playlist, album and
-    /// library rows).
+    /// The account's rating, where the response gave it (the like button of
+    /// list rows and Up next's rows); `None` where it didn't.
     #[serde(default)]
     pub like: Option<LikeStatus>,
     /// This entry's id in its playlist (`playlistSetVideoId`), for removing
@@ -341,10 +341,6 @@ pub struct Playback {
     pub audition: Option<Audition>,
     /// Smooth mixes: radios and mixes crossfade between songs.
     pub mixes: Mixes,
-    /// The audio engine new songs start on (the setting).
-    pub player: crate::player::Kind,
-    /// The engine of the main deck, which plays the current song.
-    pub engine: Option<crate::player::Kind>,
 }
 
 /// A song held under the pointer and previewed (Audition).

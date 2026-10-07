@@ -7,8 +7,8 @@
 //! app's views.
 //!
 //! The outline comes from `ytfast_visuals::waveform` on a background task
-//! (ffmpeg, cached per video id) once the song plays; until then a faint
-//! line holds its place.
+//! (the audio engine's decoder, cached per video id) once the song plays;
+//! until then a faint line holds its place.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -125,18 +125,17 @@ fn request(app: &MusicApp, id: &str, cx: &mut Context<MusicApp>) {
     if shown || state.loading.as_deref() == Some(id) {
         return;
     }
+    // The stream that plays (resolved, or the fake stream's file).
+    let Some(url) = app.backend.live().and_then(|b| b.stream_url(id)) else {
+        return;
+    };
     state.loading = Some(id.to_owned());
-    let socket = app.paths.runtime.join("mpv.sock");
-    // The resolved stream, whichever engine plays it; mpv's own otherwise.
-    let url = app.backend.live().and_then(|b| b.stream_url(id));
     let cache = app.paths.cache.clone();
     let id = id.to_owned();
     cx.spawn(async move |this, cx| {
         let job = id.clone();
         let result = cx
-            .background_spawn(
-                async move { ytfast_visuals::waveform::load(url, &socket, &cache, &job) },
-            )
+            .background_spawn(async move { ytfast_visuals::waveform::load(&url, &cache, &job) })
             .await;
         let _ = this.update(cx, |_, cx| {
             let state = cx.default_global::<Waveforms>();

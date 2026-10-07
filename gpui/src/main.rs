@@ -11,6 +11,7 @@ mod app;
 mod assets;
 mod desktop;
 mod extras;
+mod likes;
 mod link;
 mod nav;
 mod pages;
@@ -35,8 +36,6 @@ fn main() -> anyhow::Result<()> {
     // The update helper runs here and exits; a start after an update keeps
     // its receipt (M16).
     let args = update::intercept();
-    // Bundled mpv, yt-dlp and deno win over the system's.
-    desktop::tools::add_bundled_to_path();
     let paths = ytfast::paths::Paths::new()?;
     // A running instance takes the message; this process is then done.
     let Some(launch) = desktop::command_line(&paths, args) else {

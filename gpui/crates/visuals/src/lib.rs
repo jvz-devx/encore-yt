@@ -5,17 +5,17 @@
 //!   Each draws offscreen and reads every frame back as BGRA bytes for the
 //!   app to paint.
 //! - [`Renderer`]: the animated cover backdrop behind Now Playing (flowing
-//!   blurred cover, palette gradient, bloom, particles).
+//!   blurred cover, palette gradient, bloom, a light wave).
 //! - [`Strip`]: the player bar's background in one pass (palette glow, the
 //!   seek bar with the song's waveform, beat halos).
 //! - [`Dissolve`]: a cover burning into the next one on a track change.
 //! - [`Visualizer`]: the audio visualiser (bars, mirrored bars, a ring
 //!   round the cover, a line spectrum, a particle field), with alpha, from
 //!   [`Bars`] made of the spectrum.
-//! - [`AudioTap`]: a PipeWire capture of mpv's stream, analysed into
-//!   spectrum bands plus bass and beat levels.
-//! - [`waveform`]: a whole song's loudness outline, decoded with ffmpeg and
-//!   cached per video id.
+//! - [`AudioTap`]: what the audio engine plays (`ytfast_audio::Tap`, in
+//!   process), analysed into spectrum bands plus bass and beat levels.
+//! - [`waveform`]: a whole song's loudness outline, decoded with the audio
+//!   engine's decoder and cached per video id.
 //!
 //! Findings and numbers: `gpui/NOTES-visuals.md`.
 
@@ -23,9 +23,7 @@ pub mod color;
 mod cover;
 mod dissolve;
 mod gpu;
-mod mpv;
 mod pipelines;
-mod pipewire;
 mod renderer;
 mod spectrum;
 mod strip;

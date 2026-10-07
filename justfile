@@ -1,6 +1,7 @@
 # Fast, crate-scoped commands (scripts/dev.sh does the work).
-# Crates: gpui (the GPUI app), visuals (wgpu effects), backend (root crate
-# without egui), egui (root crate with the egui app).
+# Crates: gpui (the GPUI app), visuals (wgpu effects), audio (the playback
+# spike), backend (root crate without egui), egui (root crate with the egui
+# app).
 
 # List the recipes.
 default:

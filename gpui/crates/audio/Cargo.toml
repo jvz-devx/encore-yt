@@ -1,0 +1,26 @@
+[package]
+name = "ytfast-audio"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "Spike: a pure Rust playback pipeline (HTTP range reader, symphonia, libopus, rubato, cpal) that could replace mpv"
+license = "MIT"
+publish = false
+
+# No GPUI and nothing in the app uses this yet (PLAN M11). See
+# docs/gpui/AUDIO.md for the decision record.
+[dependencies]
+# Demux WebM/Matroska (Opus) and MP4 (AAC), decode AAC.
+symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "isomp4", "aac", "opt-simd"] }
+# Opus through libopus, built from source with cmake and linked statically.
+symphonia-adapter-libopus = "0.3"
+# Audio output: ALSA (PipeWire's ALSA plugin) on Linux, WASAPI, CoreAudio.
+cpal = { version = "0.18", features = ["pulseaudio"] }
+# Resampling to the device rate (AAC is usually 44.1 kHz, devices 48 kHz).
+rubato = "5"
+# Lock-free sample queues between the decoder threads and the output callback.
+rtrb = "0.3"
+# Range requests; the same reqwest and rustls the backend already builds.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
+anyhow = "1"
+log = "0.4"

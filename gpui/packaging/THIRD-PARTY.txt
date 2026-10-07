@@ -38,8 +38,8 @@ mpv (AppImage, macOS app, Windows installer)
     the release sources by gpui/packaging/linux/build-mpv.sh in this
     repository, without GPL parts (mpv -Dgpl=false, FFmpeg without
     --enable-gpl), so this copy is LGPL-2.1-or-later. Its other shared
-    libraries (in usr/lib: libass, GnuTLS, PulseAudio's client library and
-    their dependencies) are Ubuntu 22.04's packages, whose sources are at
+    libraries (in usr/lib: libass, GnuTLS, LuaJIT (MIT), PulseAudio's
+    client library and their dependencies) are Ubuntu 22.04's packages, whose sources are at
     https://packages.ubuntu.com/source/jammy/<package>.
   macOS app: mpv's own release build, unchanged (mpv-v0.41.0-macos-14-arm
     or -macos-15-intel from https://github.com/mpv-player/mpv/releases/tag/v0.41.0),

@@ -11,9 +11,12 @@ use super::effects::Tick;
 use super::frames::Frames;
 use crate::theme::Colors;
 
-/// The backdrop renders at most this wide; GPUI scales it to the panel
-/// (a blurred image looks the same at half size).
-const MAX_WIDTH: f32 = 640.;
+/// The backdrop renders at `SCALE` of the panel's size, at most this wide;
+/// GPUI scales it to the panel. A blurred image and soft motes look the
+/// same at 0.4 as at 0.5, for 36% fewer pixels of a costly shader (about
+/// 2% of the GPU at 10 frames a second on the UHD 630).
+const MAX_WIDTH: f32 = 512.;
+const SCALE: f32 = 0.4;
 
 #[derive(Default)]
 pub struct Backdrop {
@@ -179,11 +182,11 @@ impl Shadow {
     }
 }
 
-/// The render size for a panel: half its size, at most `MAX_WIDTH` wide,
+/// The render size for a panel: `SCALE` of its size, at most `MAX_WIDTH` wide,
 /// rounded to 16 px so small resizes don't re-make the targets.
 fn render_size(panel: Bounds<Pixels>) -> (u32, u32) {
     let (w, h) = (f32::from(panel.size.width), f32::from(panel.size.height));
-    let scale = (MAX_WIDTH / w).min(0.5);
+    let scale = (MAX_WIDTH / w).min(SCALE);
     let round = |v: f32| ((v * scale / 16.).round().max(1.) * 16.) as u32;
     (round(w), round(h))
 }

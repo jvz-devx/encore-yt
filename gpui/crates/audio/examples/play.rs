@@ -5,7 +5,8 @@
 //!
 //! Environment: SEEK_AT / SEEK_TO (default 5 / 30 s; SEEK_AT=0 skips the
 //! seek), EQ_AT (default 8 s), TAIL (seconds of the next track, default 5),
-//! GAIN_DB (loudness gain for both tracks, default 0).
+//! GAIN_DB (loudness gain for both tracks, default 0), STOP_AT (stop after
+//! this many seconds whatever happens, for measurements).
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -58,6 +59,7 @@ fn main() -> Result<()> {
     let second = args.next();
     let (seek_at, seek_to) = (env("SEEK_AT", 5.0), env("SEEK_TO", 30.0));
     let (eq_at, tail) = (env("EQ_AT", 8.0), env("TAIL", 5.0));
+    let stop_at = env("STOP_AT", f64::INFINITY);
     let load = Load {
         gain_db: env("GAIN_DB", 0.0) as f32,
         ..Load::default()
@@ -137,7 +139,7 @@ fn main() -> Result<()> {
                 step!("equalizer: Bass boost");
             }
         }
-        if finish_at.is_some_and(|f| now() >= f) {
+        if finish_at.is_some_and(|f| now() >= f) || now() >= stop_at {
             break;
         }
         std::thread::sleep(Duration::from_millis(5));

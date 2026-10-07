@@ -15,6 +15,10 @@ use crate::eq::{EqSettings, Equalizer};
 pub const DECKS: usize = 3;
 /// Volume and pause changes glide over about 5 ms, so they don't click.
 const GLIDE_SECS: f32 = 0.005;
+/// A track starts, and resumes after a seek or running dry, only once this
+/// much is decoded (or it ends sooner), so a slow network gives one wait
+/// instead of stutter.
+const PREBUFFER_SECS: f32 = 0.1;
 
 /// What the decoder thread and the API share about one track.
 #[derive(Debug, Default)]
@@ -40,11 +44,21 @@ pub struct Source {
     pub gain: f32,
     started: bool,
     seeked: bool,
+    /// Filling up to the prebuffer before playing.
+    waiting: bool,
     /// A seek is under way: silent until its samples arrive.
     held: bool,
 }
 
 impl Source {
+    /// Counts silence after the track started, except while a seek lands.
+    fn starve(&self, frames: usize) {
+        if self.started && !self.seeked {
+            let shared = &self.shared;
+            shared.starved.fetch_add(frames as u64, Ordering::Relaxed);
+        }
+    }
+
     pub fn new(
         shared: Arc<TrackShared>,
         ring: Consumer<f32>,
@@ -58,6 +72,7 @@ impl Source {
             gain,
             started: false,
             seeked: false,
+            waiting: true,
             held: false,
         }
     }
@@ -117,6 +132,7 @@ pub struct Mixer {
     eq: Equalizer,
     scratch: Vec<f32>,
     glide: f32,
+    prebuffer: usize,
     /// Output frames rendered so far.
     frames: u64,
 }
@@ -135,6 +151,7 @@ impl Mixer {
             eq: Equalizer::default(),
             scratch: vec![0.0; 8192],
             glide: 1.0 - (-1.0 / (GLIDE_SECS * rate as f32)).exp(),
+            prebuffer: (PREBUFFER_SECS * rate as f32) as usize,
             frames: 0,
         }
     }
@@ -149,7 +166,12 @@ impl Mixer {
         let mix = &mut self.scratch[..frames * 2];
         mix.fill(0.0);
         for (deck, voice) in self.voices.iter_mut().enumerate() {
-            voice.mix(deck, mix, self.frames, self.glide, &mut self.events);
+            let clock = Clock {
+                frame0: self.frames,
+                glide: self.glide,
+                prebuffer: self.prebuffer,
+            };
+            voice.mix(deck, mix, clock, &mut self.events);
         }
         self.eq.process(mix);
         for (frame, stereo) in out.chunks_exact_mut(channels).zip(mix.as_chunks::<2>().0) {
@@ -198,6 +220,7 @@ impl Mixer {
                         source.shared.played.store(0, Ordering::Relaxed);
                         source.seeked = true;
                         source.held = false;
+                        source.waiting = true;
                     }
                 }
                 Command::Stop(deck) => {
@@ -213,15 +236,21 @@ impl Mixer {
     }
 }
 
+/// Per-callback constants for the voices.
+#[derive(Clone, Copy)]
+struct Clock {
+    frame0: u64,
+    glide: f32,
+    prebuffer: usize,
+}
+
 impl Voice {
-    fn mix(
-        &mut self,
-        deck: usize,
-        mix: &mut [f32],
-        frame0: u64,
-        glide: f32,
-        events: &mut Producer<MixEvent>,
-    ) {
+    fn mix(&mut self, deck: usize, mix: &mut [f32], clock: Clock, events: &mut Producer<MixEvent>) {
+        let Clock {
+            frame0,
+            glide,
+            prebuffer,
+        } = clock;
         let frames = mix.len() / 2;
         let target = if self.paused { 0.0 } else { self.volume };
         if self.paused && self.level < 1e-4 {
@@ -248,11 +277,16 @@ impl Voice {
                     self.current = self.next.take();
                     continue;
                 }
-                if source.started {
-                    let short = (frames - i) as u64;
-                    source.shared.starved.fetch_add(short, Ordering::Relaxed);
-                }
+                source.waiting = true;
+                source.starve(frames - i);
                 break;
+            }
+            if source.waiting {
+                if available < prebuffer && !source.done.load(Ordering::Acquire) {
+                    source.starve(frames - i);
+                    break;
+                }
+                source.waiting = false;
             }
             let at = frame0 + i as u64;
             if !source.started {

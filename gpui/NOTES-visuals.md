@@ -72,12 +72,57 @@ core from `top` over 10 s (the machine shared with other agents):
 | paused | 0.0% | 266 MB |
 | minimised, playing | 0.0% | 266 MB |
 
-The 6% budget isn't met: the app alone is 4.1% (it re-renders all its views
-5-6 times a second on playback events and the 500 ms clock), the tap 1.3%,
-and the paced strip about 3% (about 9 window redraws a second on a song
-with a strong beat). The biggest lever left is outside the effects: give the
-player bar's clock and slider their own entity, so a playback event doesn't
-re-render the whole app.
+The 6% budget wasn't met then: the app alone was 4.1% (it re-rendered all
+its views 5-6 times a second on playback events and the 500 ms clock), the
+tap 1.3%, and the paced strip about 3% (about 9 window redraws a second on a
+song with a strong beat).
+
+### Position ticks redraw only the player bar (2026-10-07)
+
+- Playback reports that only move the position (most of them, four a
+  second) and the 500 ms clock no longer notify `MusicApp`; they notify
+  `playback::Clock`, which the player bar and the mini player watch. Stage
+  and Now Playing (its waveform) still redraw the app on each tick.
+- The player bar is its own cached view (`views::PlayerBar`), laid out by
+  the shell under the app's views in the room `player::space` leaves, so
+  dialogs, menus and the Play anything scrim still cover it. GPUI dirties a
+  notified view's ancestors, so a bar inside the app's views would have
+  re-rendered all of them. Both views are cached in every state now (before
+  only while an effect animated), still rendered afresh after input.
+- While the strip draws the seek bar, a tick asks for no frame at all: the
+  shell compares what the bar shows of the position (the elapsed second, the
+  ridge's playhead pixel) with what it last drew and renders the bar afresh
+  in the next effects frame. Under reduced motion the effects layer is
+  woken for that frame. The seek slider is moved as the bar renders (a
+  slider change asks for a frame of its own).
+- The tap's FFT computed `sin_cos` in every butterfly (about a quarter of
+  the app's CPU in a profile); the twiddle factors are now a table.
+- Counted over 5 s on Home, playing: 74-75 window frames, all of them
+  effects frames (before: about 85, of them 10 not), the app's views
+  rendered 0 times, the bar 34-35 times.
+
+Measured with the test audio (`YTFAST_FAKE_STREAM`, the same song for
+both), release builds, 1280x1000 window, Home, % of one core from `top`
+over 10 s, `before` = main at the merge, `after` = this change. The machine
+was shared with other agents' builds, so each pair ran back to back; the
+low-load pairs (load average 1.3-1.8) are the cleanest:
+
+| State | before | after |
+|---|---|---|
+| playing, Now Playing closed, low load (two pairs) | 9.7%, 9.7% | 5.6%, 5.6% |
+| same, load 2-13 (four pairs) | 11.3-13.5% | 5.7-6.8% |
+| effects off (`YTFAST_GPUI_VISUALS=0`), playing | 4.5% | 1.8% |
+| reduced motion, playing | 4.6-7.4% | 1.7-2.5% |
+| paused | 0.0-0.1% | 0.0-0.1% |
+| minimised, playing | 0.2-2.4% | 0.1-1.5% |
+| Now Playing open, playing | 14.7-16.8% | 14.4-17.4% |
+
+Now Playing is unchanged: its waveform shows the position, so each tick
+still re-renders the app; its backdrop runs at a steady 30 fps anyway.
+Captures: `v-bars` (0:05 then 0:08, then a click mid-bar seeked to 1:32 of
+3:00), `v-sheet` (Up next panel, an album page, Play anything's scrim over
+the bar, Now Playing), `ro-bars` (reduced motion and effects off, the
+position moving).
 
 Captures (`artifacts/gpui/`, gitignored): `m9d-sheet` (dark, red then blue
 cover, pairs 1 s apart), `m9l2-sheet` (light), `m9d-diss1-zoom` and

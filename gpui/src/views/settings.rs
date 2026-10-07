@@ -7,6 +7,7 @@
 mod account;
 mod equalizer;
 mod mixes;
+mod motion;
 mod playback;
 mod sleep;
 pub mod updates;
@@ -40,6 +41,7 @@ pub fn settings(
         playback::section(app, &c, cx),
         mixes::section(app, &c, window, cx),
         playback::notifications(app, &c, cx),
+        motion::section(&c, cx),
         updates::section(app, &c, cx),
     ];
     let panel = widgets::floating(&c)

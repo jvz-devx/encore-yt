@@ -52,8 +52,9 @@ pub fn card(
         })
         .when(playable, |cover| {
             let centre = (size::CARD - size::PLAY_BUTTON) / 2.;
+            let button = play_button(ctx.id(format!("card-play:{shelf}:{i}")), c);
             cover.child(
-                play_button(ctx.id(format!("card-play:{shelf}:{i}")), c)
+                super::intent::play(button, item, cx)
                     .absolute()
                     .when(round, |b| b.top(centre).left(centre))
                     .when(!round, |b| b.right(space::SM).bottom(space::SM))
@@ -104,6 +105,7 @@ pub fn card(
             )
         })
         .on_click(on_activate(ctx, shelf, i, cx))
+        .map(|el| super::intent::page(el, item, cx))
         .map(|el| crate::views::extras::audition::listen(el, item.track.as_ref(), cx))
         .into_any_element()
 }
@@ -112,7 +114,8 @@ pub fn card(
 /// same in both looks because it sits on the art.
 pub fn play_button(id: SharedString, c: &Colors) -> Stateful<Div> {
     h_flex()
-        .id(id)
+        .id(id.clone())
+        .debug_selector(|| id.to_string())
         .size(size::PLAY_BUTTON)
         .justify_center()
         .rounded(radius::FULL)

@@ -11,6 +11,7 @@ mod chips;
 pub mod covers;
 mod entries;
 mod header;
+pub mod intent;
 mod row;
 mod runs;
 mod shelf;

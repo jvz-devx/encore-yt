@@ -1,5 +1,6 @@
 //! Settings → Playback: loudness levelling, smooth mixes (`mixes`), the
-//! sleep timer (`sleep`) and notifications, and their Reset.
+//! sleep timer (`sleep`), notifications and loading pages on hover (M28),
+//! and their Reset.
 
 use gpui_kit::*;
 use ytfast::model::Mixes;
@@ -19,6 +20,7 @@ pub fn page(
         super::mixes::section(app, c, window, cx),
         super::sleep::section(app, c, cx),
         notifications(app, c, cx),
+        prefetch(app, c, cx),
     ]
 }
 
@@ -27,12 +29,14 @@ pub fn changed(app: &MusicApp) -> bool {
     !app.player.playback.normalize
         || app.player.playback.mixes != Mixes::default()
         || app.notifications()
+        || !app.pages.prefetch.on
 }
 
 pub fn reset(app: &mut MusicApp, cx: &mut Context<MusicApp>) {
     app.set_normalize(true, cx);
     app.set_mixes(Mixes::default(), cx);
     app.set_notifications(false, cx);
+    app.set_prefetch(true, cx);
 }
 
 fn loudness(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
@@ -65,6 +69,21 @@ fn notifications(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyE
         [super::row(
             "Show a notification when the song changes",
             Some("Only while Music's window isn't in front".into()),
+            control,
+            c,
+        )],
+    )
+}
+
+fn prefetch(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let control = widgets::switch("prefetch", app.pages.prefetch.on, c)
+        .on_click(cx.listener(|this, on: &bool, _, cx| this.set_prefetch(*on, cx)));
+    super::section(
+        "Loading ahead",
+        c,
+        [super::row(
+            "Load pages when you point at them",
+            Some("Albums and playlists open at once, and Play starts sooner".into()),
             control,
             c,
         )],

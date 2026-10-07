@@ -5,18 +5,19 @@
 //! mixes and Audition run more than one process at once ("decks"); every
 //! process has a serial that tags its events, so the worker can tell whose
 //! they are as the decks swap roles.
+//!
+//! The socket is a Unix socket at the given path, or on Windows a named pipe
+//! whose name is derived from that path.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
-use tokio::net::unix::OwnedWriteHalf;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 /// Serials of mpv processes, unique for the run.
@@ -43,7 +44,7 @@ pub enum MpvEvent {
 
 pub struct Mpv {
     serial: u64,
-    writer: Mutex<OwnedWriteHalf>,
+    writer: Mutex<WriteHalf<Stream>>,
     next_id: AtomicU64,
     pending: Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     _child: tokio::process::Child,
@@ -71,7 +72,9 @@ impl Mpv {
     ) -> Result<Arc<Self>> {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
         let _ = std::fs::remove_file(socket);
-        let mut child = tokio::process::Command::new("mpv")
+        let mut command = tokio::process::Command::new("mpv");
+        crate::platform::no_console(&mut command);
+        let mut child = command
             .args([
                 "--idle=yes",
                 "--no-video",
@@ -86,7 +89,7 @@ impl Mpv {
                 "--replaygain=no",
             ])
             .arg(format!("--volume={volume}"))
-            .arg(format!("--input-ipc-server={}", socket.display()))
+            .arg(format!("--input-ipc-server={}", ipc_name(socket)))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -94,7 +97,7 @@ impl Mpv {
             .spawn()
             .context("starting mpv")?;
         let stream = connect(socket, &mut child).await?;
-        let (reader, writer) = stream.into_split();
+        let (reader, writer) = tokio::io::split(stream);
         let pending: Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::default();
         let pending_reader = pending.clone();
         tokio::spawn(async move {
@@ -224,10 +227,40 @@ impl Mpv {
     }
 }
 
-async fn connect(socket: &Path, child: &mut tokio::process::Child) -> Result<UnixStream> {
-    let path = PathBuf::from(socket);
+#[cfg(unix)]
+type Stream = tokio::net::UnixStream;
+#[cfg(windows)]
+type Stream = tokio::net::windows::named_pipe::NamedPipeClient;
+
+/// What mpv's `--input-ipc-server` gets for `socket`.
+#[cfg(unix)]
+fn ipc_name(socket: &Path) -> String {
+    socket.display().to_string()
+}
+
+/// A named pipe per socket path: the path sits in this user's runtime
+/// directory, so the name is this user's too.
+#[cfg(windows)]
+fn ipc_name(socket: &Path) -> String {
+    format!(
+        r"\\.\pipe\ytfast-mpv-{}",
+        crate::paths::hash(&socket.to_string_lossy())
+    )
+}
+
+#[cfg(unix)]
+async fn open(socket: &Path) -> std::io::Result<Stream> {
+    Stream::connect(socket).await
+}
+
+#[cfg(windows)]
+async fn open(socket: &Path) -> std::io::Result<Stream> {
+    tokio::net::windows::named_pipe::ClientOptions::new().open(ipc_name(socket))
+}
+
+async fn connect(socket: &Path, child: &mut tokio::process::Child) -> Result<Stream> {
     for _ in 0..250 {
-        if let Ok(stream) = UnixStream::connect(&path).await {
+        if let Ok(stream) = open(socket).await {
             return Ok(stream);
         }
         if let Ok(Some(status)) = child.try_wait() {

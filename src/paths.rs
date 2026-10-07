@@ -1,6 +1,5 @@
 //! Where ytfast keeps things.
 
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -59,11 +58,23 @@ impl Paths {
 }
 
 fn private_dir(dir: &Path) -> Result<()> {
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder
         .create(dir)
         .with_context(|| format!("creating {}", dir.display()))
+}
+
+/// Options that create (or truncate) a file only this user can read: mode
+/// 0600 on Unix. Windows keeps the profile's own access rules.
+pub fn private_file() -> std::fs::OpenOptions {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
 }
 
 pub fn hash(text: &str) -> String {

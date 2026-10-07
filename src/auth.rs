@@ -9,7 +9,6 @@
 //! that password are secrets: nothing here logs them.
 
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
@@ -163,12 +162,7 @@ impl Session {
             ));
         }
         let temporary = path.with_extension("tmp");
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&temporary)?;
+        let mut file = crate::paths::private_file().open(&temporary)?;
         file.write_all(text.as_bytes())?;
         drop(file);
         std::fs::rename(&temporary, path)?;
@@ -232,7 +226,20 @@ fn candidates() -> Result<Vec<Candidate>> {
     let base = directories::BaseDirs::new().context("no home directory")?;
     let config = base.config_dir().to_path_buf();
     let mut candidates = Vec::new();
-    for browser in BROWSERS {
+    // Browser profiles are read on Linux only for now: Windows and macOS
+    // keep their cookie keys elsewhere (DPAPI, the Keychain). There, sign-in
+    // takes a cookie file.
+    let browsers: &[Browser] = if cfg!(target_os = "linux") {
+        BROWSERS
+    } else {
+        &[]
+    };
+    let geckos: &[Gecko] = if cfg!(target_os = "linux") {
+        GECKOS
+    } else {
+        &[]
+    };
+    for browser in browsers {
         let Ok(entries) = std::fs::read_dir(config.join(browser.dir)) else {
             continue;
         };
@@ -252,7 +259,7 @@ fn candidates() -> Result<Vec<Candidate>> {
             });
         }
     }
-    for gecko in GECKOS {
+    for gecko in geckos {
         firefox_candidates(gecko, &base.home_dir().join(gecko.dir), &mut candidates);
     }
     cookie_file_candidates(&config.join(COOKIE_DIR), &mut candidates);
@@ -724,18 +731,21 @@ fn read_cookie_file(candidate: &Candidate, path: &Path) -> Result<Option<Session
 /// 0600 or 0400), since it holds the session.
 fn cookie_file_cookies(path: &Path) -> Result<Vec<Cookie>> {
     use std::io::Read;
-    use std::os::unix::fs::MetadataExt;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let shown = format!("~/.config/{COOKIE_DIR}/{name}");
     let mut file = std::fs::File::open(path).with_context(|| format!("opening {shown}"))?;
-    // The open file's own metadata: it can't be swapped after the check.
-    let meta = file.metadata()?;
-    let me = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
-    if me.is_some_and(|me| meta.uid() != me) {
-        bail!("{shown} belongs to another user. Copy it again as yourself, then Reconnect.");
-    }
-    if meta.mode() & 0o077 != 0 {
-        bail!("{shown} can be read by other users. Run `chmod 600 {shown}`, then Reconnect.");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // The open file's own metadata: it can't be swapped after the check.
+        let meta = file.metadata()?;
+        let me = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
+        if me.is_some_and(|me| meta.uid() != me) {
+            bail!("{shown} belongs to another user. Copy it again as yourself, then Reconnect.");
+        }
+        if meta.mode() & 0o077 != 0 {
+            bail!("{shown} can be read by other users. Run `chmod 600 {shown}`, then Reconnect.");
+        }
     }
     let mut text = String::new();
     file.read_to_string(&mut text)

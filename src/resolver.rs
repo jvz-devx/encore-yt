@@ -16,7 +16,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -525,11 +524,7 @@ impl Resolver {
         let temporary = self
             .scratch
             .join(format!("streams.json.tmp{}", std::process::id()));
-        let written = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
+        let written = crate::paths::private_file()
             .open(&temporary)
             .and_then(|mut file| file.write_all(&bytes))
             .and_then(|()| std::fs::rename(&temporary, &path));
@@ -550,7 +545,7 @@ impl Resolver {
             std::fs::copy(from, &to.0).context("copying cookies for yt-dlp")?;
         }
         // Guesses yield the CPU to playback's runs.
-        let mut command = if speculative {
+        let mut command = if speculative && cfg!(unix) {
             let mut nice = tokio::process::Command::new("nice");
             nice.args(["-n", "10", "yt-dlp"]);
             nice
@@ -577,6 +572,7 @@ impl Resolver {
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::null());
+        crate::platform::no_console(&mut command);
         let output =
             tokio::time::timeout(std::time::Duration::from_secs(60), command.output()).await;
         drop(copy);

@@ -1,0 +1,30 @@
+Music (ytfast-gpui) and the programs it bundles
+===============================================
+
+ytfast-gpui is MIT licensed: https://github.com/jvz-devx/ytfast-gpui
+It is built on ytfast by Tyler Mayberry (MIT,
+https://github.com/MayberryDT/ytfast) and on Rust crates under MIT,
+Apache-2.0 and similar licenses; see each crate's own license.
+
+The installers ship these programs unchanged, as separate executables that
+Music starts. Each keeps its own license.
+
+yt-dlp (all installers)
+  Downloads stream information from YouTube.
+  License: The Unlicense (public domain).
+  Source: https://github.com/yt-dlp/yt-dlp
+  The release binaries also contain Python and other components under
+  their own licenses (PSF, MIT, BSD, ...); see the yt-dlp repository.
+
+deno (all installers)
+  The JavaScript runtime yt-dlp uses to solve YouTube's challenges.
+  License: MIT. Source: https://github.com/denoland/deno
+
+mpv (Windows installer only)
+  Plays the audio. On Linux and macOS Music uses the system's mpv.
+  License: GPL-2.0-or-later (this build includes GPL components; mpv's own
+  code is mostly LGPL-2.1-or-later).
+  Source: https://github.com/mpv-player/mpv
+  Build: https://github.com/shinchiro/mpv-winbuild-cmake (the release named
+  in the Windows installer's mpv-version.txt). Its build scripts name every
+  library it contains and where its source is.

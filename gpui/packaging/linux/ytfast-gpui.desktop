@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Music
+GenericName=YouTube Music Player
+Comment=YouTube Music, native and fast
+Exec=ytfast-gpui %U
+Icon=ytfast-gpui
+Terminal=false
+StartupWMClass=ytfast-gpui
+Categories=AudioVideo;Audio;Player;
+Keywords=music;youtube;ytm;player;playlist;album;artist;

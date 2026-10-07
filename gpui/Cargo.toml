@@ -52,6 +52,47 @@ image = { version = "0.25", default-features = false }
 # gpui-base with these features, on zbus's `async-io` reactor.
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 
+# Linux packages (cargo-deb, cargo-generate-rpm), built by
+# .github/workflows/release.yml after it fetches yt-dlp and deno into
+# target/tools. The app lives in /usr/lib/ytfast-gpui with those two in bin/;
+# mpv comes from the distribution.
+[package.metadata.deb]
+name = "ytfast-gpui"
+maintainer = "jvz-devx <jvz-devx@users.noreply.github.com>"
+copyright = "Tyler Mayberry and the ytfast-gpui contributors"
+extended-description = "Music: a native YouTube Music client (GPUI interface on ytfast). Bundles yt-dlp and deno; plays through the system's mpv."
+section = "sound"
+priority = "optional"
+depends = "$auto, mpv"
+assets = [
+    ["target/release/ytfast-gpui", "usr/lib/ytfast-gpui/ytfast-gpui", "755"],
+    ["target/tools/yt-dlp", "usr/lib/ytfast-gpui/bin/yt-dlp", "755"],
+    ["target/tools/deno", "usr/lib/ytfast-gpui/bin/deno", "755"],
+    ["packaging/linux/ytfast-gpui.sh", "usr/bin/ytfast-gpui", "755"],
+    ["packaging/linux/ytfast-gpui.desktop", "usr/share/applications/ytfast-gpui.desktop", "644"],
+    ["packaging/icons/ytfast-gpui.svg", "usr/share/icons/hicolor/scalable/apps/ytfast-gpui.svg", "644"],
+    ["packaging/icons/ytfast-gpui.png", "usr/share/icons/hicolor/512x512/apps/ytfast-gpui.png", "644"],
+    ["packaging/THIRD-PARTY.txt", "usr/share/doc/ytfast-gpui/THIRD-PARTY.txt", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "ytfast-gpui"
+summary = "Music: a native YouTube Music client"
+auto-req = "builtin"
+assets = [
+    { source = "target/release/ytfast-gpui", dest = "/usr/lib/ytfast-gpui/ytfast-gpui", mode = "755" },
+    { source = "target/tools/yt-dlp", dest = "/usr/lib/ytfast-gpui/bin/yt-dlp", mode = "755" },
+    { source = "target/tools/deno", dest = "/usr/lib/ytfast-gpui/bin/deno", mode = "755" },
+    { source = "packaging/linux/ytfast-gpui.sh", dest = "/usr/bin/ytfast-gpui", mode = "755" },
+    { source = "packaging/linux/ytfast-gpui.desktop", dest = "/usr/share/applications/ytfast-gpui.desktop", mode = "644" },
+    { source = "packaging/icons/ytfast-gpui.svg", dest = "/usr/share/icons/hicolor/scalable/apps/ytfast-gpui.svg", mode = "644" },
+    { source = "packaging/icons/ytfast-gpui.png", dest = "/usr/share/icons/hicolor/512x512/apps/ytfast-gpui.png", mode = "644" },
+    { source = "packaging/THIRD-PARTY.txt", dest = "/usr/share/doc/ytfast-gpui/THIRD-PARTY.txt", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+mpv = "*"
+
 [profile.dev.package."*"]
 opt-level = 2
 

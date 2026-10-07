@@ -1,0 +1,5 @@
+#!/bin/sh
+# yt-dlp and deno sit next to the app in usr/bin; the app puts its own
+# directory first on PATH. mpv comes from the system.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/ytfast-gpui" "$@"

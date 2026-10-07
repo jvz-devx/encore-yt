@@ -1,5 +1,6 @@
-//! Settings → Account: who is signed in and through what, Reconnect, and
-//! which browser profile or cookie file to take the YouTube session from.
+//! Settings → Account: who is signed in and through what, Reconnect, which
+//! of the account's channels to act as, and which browser profile or cookie
+//! file to take the YouTube session from.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
@@ -14,6 +15,21 @@ use crate::theme::{Colors, Type, radius, size, space};
 
 pub fn section(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     let mut rows = vec![status(app, c, cx)];
+    let channels = super::super::account::channel_rows(app, "settings-channel", c, cx);
+    if !channels.is_empty() {
+        rows.push(
+            div()
+                .pt(space::MD)
+                .type_body()
+                .child("Use YouTube Music as")
+                .into_any_element(),
+        );
+        rows.extend(
+            channels
+                .into_iter()
+                .map(|row| row.mx(-space::SM).px(space::SM).into_any_element()),
+        );
+    }
     rows.push(
         div()
             .pt(space::MD)

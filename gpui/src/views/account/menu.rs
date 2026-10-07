@@ -1,8 +1,10 @@
 //! The account menu under the chip: who is signed in and through which
-//! browser or cookie file (or why nobody is), Reconnect, and Settings.
+//! browser or cookie file (or why nobody is), the account's channels to
+//! switch between, Reconnect, and Settings.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use ytfast::model::Account;
 
@@ -14,6 +16,8 @@ const WIDTH: Pixels = px(300.);
 
 pub fn menu(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let c = theme::colors(cx);
+    let channels = super::channels::rows(app, "menu-channel", &c, cx);
+    let divider = || div().mx(space::MD).my(space::XS).h(px(1.)).bg(c.hairline);
     let panel = widgets::floating(&c)
         .id("account-menu")
         .w(WIDTH)
@@ -21,7 +25,11 @@ pub fn menu(app: &MusicApp, _window: &mut Window, cx: &mut Context<MusicApp>) ->
         .occlude()
         .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_account_menu(cx)))
         .child(identity(&app.account.account, &c, cx))
-        .child(div().mx(space::MD).my(space::XS).h(px(1.)).bg(c.hairline))
+        .when(!channels.is_empty(), |el| {
+            el.child(divider())
+                .children(channels.into_iter().map(|row| row.px(space::MD)))
+        })
+        .child(divider())
         .child(
             widgets::menu_item("menu-reconnect", IconName::RefreshCw, "Reconnect", &c)
                 .on_click(cx.listener(|this, _, _, cx| this.reconnect(cx))),

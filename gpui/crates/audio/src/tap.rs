@@ -1,7 +1,9 @@
 //! A copy of what the engine plays, for the visualiser (PLAN M22).
 //!
-//! The output callback writes every mixed frame, as mono, into one ring of
-//! atomics, after the equalizer and every deck's volume: what is heard.
+//! The output callback writes every mixed frame, both channels in one
+//! 64-bit atomic, into one ring, after the equalizer and every deck's
+//! volume: what is heard. Readers take it as mono ([`Tap::read`]) or as
+//! stereo ([`Tap::read_stereo`], for the oscilloscope).
 //! Readers ([`Tap`]) follow it at their own pace on their own threads. The
 //! callback never waits: with no reader it skips the copy, it never reads
 //! what readers do, and a reader that falls behind by more than the ring
@@ -10,10 +12,11 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
-/// Mono samples the ring holds: ~0.68 s at 48 kHz, many output periods.
+/// Frames the ring holds: ~0.68 s at 48 kHz, many output periods.
 const SIZE: usize = 1 << 15;
 
-static RING: [AtomicU32; SIZE] = [const { AtomicU32::new(0) }; SIZE];
+/// Each frame's left channel in the high 32 bits, its right in the low.
+static RING: [AtomicU64; SIZE] = [const { AtomicU64::new(0) }; SIZE];
 /// Samples written since the process started.
 static WRITTEN: AtomicU64 = AtomicU64::new(0);
 /// The output's sample rate; 0 until the engine has a device.
@@ -33,9 +36,20 @@ pub(crate) fn write(stereo: &[f32]) {
     let frames = stereo.as_chunks::<2>().0;
     for (i, [l, r]) in frames.iter().enumerate() {
         let at = (start as usize).wrapping_add(i) % SIZE;
-        RING[at].store(((l + r) * 0.5).to_bits(), Ordering::Relaxed);
+        RING[at].store(pack(*l, *r), Ordering::Relaxed);
     }
     WRITTEN.store(start + frames.len() as u64, Ordering::Release);
+}
+
+fn pack(l: f32, r: f32) -> u64 {
+    (u64::from(l.to_bits()) << 32) | u64::from(r.to_bits())
+}
+
+fn unpack(bits: u64) -> [f32; 2] {
+    [
+        f32::from_bits((bits >> 32) as u32),
+        f32::from_bits(bits as u32),
+    ]
 }
 
 /// One reader of what the engine plays. While any is open the output
@@ -69,18 +83,29 @@ impl Tap {
         self.read = self.read.max(written.saturating_sub(keep as u64));
     }
 
-    /// Appends up to `n` of the oldest waiting samples to `out`; returns
-    /// how many.
+    /// Appends up to `n` of the oldest waiting samples, as mono, to `out`;
+    /// returns how many.
     pub fn read(&mut self, n: usize, out: &mut Vec<f32>) -> usize {
+        self.take(n, |[l, r]| out.push((l + r) * 0.5))
+    }
+
+    /// Appends up to `n` of the oldest waiting frames, left and right, to
+    /// `out`; returns how many.
+    pub fn read_stereo(&mut self, n: usize, out: &mut Vec<[f32; 2]>) -> usize {
+        self.take(n, |frame| out.push(frame))
+    }
+
+    fn take(&mut self, n: usize, mut each: impl FnMut([f32; 2])) -> usize {
         let written = WRITTEN.load(Ordering::Acquire);
         // Lapped: the oldest half of the ring is being written over.
         self.read = self.read.max(written.saturating_sub(SIZE as u64 / 2));
         let n = n.min(written.saturating_sub(self.read) as usize);
         let from = self.read as usize;
-        out.extend(
-            (0..n)
-                .map(|i| f32::from_bits(RING[from.wrapping_add(i) % SIZE].load(Ordering::Relaxed))),
-        );
+        for i in 0..n {
+            each(unpack(
+                RING[from.wrapping_add(i) % SIZE].load(Ordering::Relaxed),
+            ));
+        }
         self.read += n as u64;
         n
     }
@@ -102,7 +127,7 @@ impl Drop for Tap {
 mod tests {
     use super::*;
 
-    /// A reader gets the mix as mono in order, nothing twice, and skips
+    /// A reader gets the mix as mono or stereo in order, nothing twice, and skips
     /// ahead when it falls a ring behind. (One test: the ring is global.)
     #[test]
     fn readers_follow_the_mix() {
@@ -112,6 +137,10 @@ mod tests {
         assert_eq!(tap.read(16, &mut out), 3);
         assert_eq!(out, [0.5, 0.5, -1.0]);
         assert_eq!(tap.read(16, &mut out), 0);
+        write(&[0.25, -0.75]);
+        let mut frames = Vec::new();
+        assert_eq!(tap.read_stereo(16, &mut frames), 1);
+        assert_eq!(frames, [[0.25, -0.75]]);
 
         let burst: Vec<f32> = (0..SIZE * 2).map(|i| (i / 2) as f32).collect();
         write(&burst);

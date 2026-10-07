@@ -58,9 +58,9 @@ pub const VISIONOS: PlayerClient = PlayerClient {
     host: tv::WWW,
 };
 
-/// An older TV client (yt-dlp's `tv_downgraded`): signed in only (signed
-/// out it answers "The page needs to be reloaded"), needs the JS
-/// challenges, no PO token, and gives a Premium account 774 and 141.
+/// An older TV client (yt-dlp's `tv_downgraded`): no PO token, the JS
+/// challenges of the TV player variant. Not asked by the app (see
+/// `Native::tv_sts`); `examples/resolve_rust.rs --client tv` asks it.
 pub const TV_DOWNGRADED: PlayerClient = PlayerClient {
     name: "TVHTML5",
     version: "5.20260707",
@@ -503,11 +503,12 @@ impl Native {
 
     /// The signature timestamp of the player's TV variant
     /// (`player_ias_tcl`, eight digits where the web player's has five),
-    /// read once per player version and saved beside it. The TV client's
-    /// URLs are solved with the web player's functions, which give the same
-    /// answers (checked against googlevideo on 2026-10-07); the solver
-    /// can't read the TV variant itself. Without it, the web player's
-    /// timestamp.
+    /// read once per player version and saved beside it; without it, the
+    /// web player's. With it the TV client answers, but its URLs are
+    /// ciphered for that variant, which the solver can't read (EJS 0.8.0
+    /// finds no functions in it), and solved with the web player's
+    /// functions they got 403 on 2026-10-07. So the app doesn't ask the
+    /// TV client (docs/gpui/RESOLVER.md, M27).
     async fn tv_sts(&self, current: &Current) -> u32 {
         let id = &current.player.id;
         if let Some((known, sts)) = self.tv_sts.lock().expect("tv sts lock").as_ref()

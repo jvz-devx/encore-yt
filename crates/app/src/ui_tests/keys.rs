@@ -14,8 +14,8 @@ use encore_core::equalizer::Preset;
 use encore_core::model::{Account, Mixes, Page, ShelfStyle, Sleep, Target};
 use gpui_kit::{Modifiers, TestAppContext, point, px};
 
-use super::Ui;
 use super::home::{home_row, on_home, quick_picks};
+use super::{Ui, primary};
 use crate::desktop::menu::entries;
 use crate::nav::LibraryTab;
 use crate::settings::Category;
@@ -343,7 +343,7 @@ fn preset(ui: &mut Ui) -> Preset {
 #[gpui_kit::test]
 fn settings_chips_segments_and_tabs_follow_the_arrows(cx: &mut TestAppContext) {
     let mut ui = Ui::start(cx);
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     ui.click("settings-category:Equalizer");
     ui.click("settings-choice:Rock");
     assert_eq!(preset(&mut ui), Preset::Rock);
@@ -404,7 +404,7 @@ fn settings_sliders_step_and_switches_turn_from_the_keyboard(cx: &mut TestAppCon
             cx,
         )
     });
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     ui.click("settings-category:Playback");
     let seconds = |ui: &mut Ui| {
         ui.app

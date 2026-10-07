@@ -7,7 +7,7 @@ use encore_core::backend::{Command, Event};
 use encore_core::model::Target;
 use gpui_kit::TestAppContext;
 
-use super::Ui;
+use super::{Ui, primary};
 use crate::nav::View;
 
 fn suggested(sent: &[Command]) -> Vec<&str> {
@@ -22,7 +22,7 @@ fn suggested(sent: &[Command]) -> Vec<&str> {
 #[gpui_kit::test]
 fn typing_asks_for_suggestions_and_enter_opens_the_search(cx: &mut TestAppContext) {
     let mut ui = Ui::start(cx);
-    ui.keys("ctrl-f");
+    ui.keys(&primary("f"));
     ui.take_sent();
 
     ui.type_text("daft");

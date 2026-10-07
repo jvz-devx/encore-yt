@@ -94,6 +94,8 @@ pub struct Effects {
     shown: (Option<Instant>, f32, f32),
     /// When the backdrop last drew a paced frame.
     backdrop_at: Option<Instant>,
+    /// When a position tick last woke this layer without the ticker.
+    woke: Option<Instant>,
     counts: Counts,
     /// How fast the playhead moves, in device pixels a second.
     head_speed: f32,
@@ -129,6 +131,7 @@ impl Effects {
             bar_only: false,
             shown: (None, 0.0, 0.0),
             backdrop_at: None,
+            woke: None,
             counts: Counts::default(),
             head_speed: 0.0,
             drew_at: Instant::now(),
@@ -296,10 +299,18 @@ impl Effects {
     }
 
     /// The song's position moved: while the ticker runs, its next frame
-    /// shows it; otherwise this draws one (a still frame if the playhead
-    /// moved).
-    pub fn wake(&mut self, cx: &mut Context<Self>) {
-        if self.ticker.is_none() {
+    /// shows it; otherwise (reduced motion) this draws one when the bar
+    /// shows something new (`bar`: its elapsed time) or the playhead moved
+    /// a device pixel since the last one, rather than on every tick.
+    pub fn wake(&mut self, bar: bool, cx: &mut Context<Self>) {
+        if self.ticker.is_some() {
+            return;
+        }
+        let moved = self
+            .woke
+            .is_none_or(|at| at.elapsed().as_secs_f32() * self.head_speed >= 1.0);
+        if bar || moved {
+            self.woke = Some(Instant::now());
             cx.notify();
         }
     }

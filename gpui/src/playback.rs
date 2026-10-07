@@ -240,9 +240,16 @@ impl MusicApp {
         let in_views = self.player.now_playing && !crate::visuals::paints_waveform(self);
         if in_views || self.extras.stage.open {
             cx.notify();
-        } else if self.extras.mini_open() || !crate::visuals::position_moved(cx) {
+        } else if self.extras.mini_open() || !crate::visuals::position_moved(self.bar_moved(cx), cx)
+        {
             self.player.clock.update(cx, |_, cx| cx.notify());
         }
+    }
+
+    /// Whether the player bar would show the position differently from
+    /// what it last drew.
+    fn bar_moved(&self, cx: &App) -> bool {
+        self.player.bar_shown != Some(self.bar_shows(cx))
     }
 
     /// What the player bar draws of the position itself: the elapsed time's

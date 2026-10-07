@@ -346,7 +346,7 @@ impl Bar {
         let cover = p.cover.map(|c| c.0).unwrap_or_default();
         Still {
             size,
-            head: (head * 2.).round() as i32,
+            head: head.round() as i32,
             known: input.known,
             track: input.track,
             hover: seek.hover > 0.5,

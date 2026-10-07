@@ -193,15 +193,16 @@ fn bar_input(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<bar::Input> {
 /// The position moved: whether the effects layer shows it without the
 /// player bar being notified (it draws the seek bar, and the shell redraws
 /// the bar in its frames when needed). While its ticker runs the next frame
-/// shows it; otherwise (reduced motion) it is woken for a frame.
-pub fn position_moved(cx: &mut App) -> bool {
+/// shows it; otherwise (reduced motion) it is woken for a frame when `bar`
+/// (the bar shows something new) or the playhead moved a pixel.
+pub fn position_moved(bar: bool, cx: &mut App) -> bool {
     if !paints_bar(cx) {
         return false;
     }
     let Some(effects) = cx.try_global::<Layers>().map(|l| l.handles.effects.clone()) else {
         return false;
     };
-    effects.update(cx, |effects, cx| effects.wake(cx));
+    effects.update(cx, |effects, cx| effects.wake(bar, cx));
     true
 }
 

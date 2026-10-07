@@ -14,6 +14,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # gpui/.cargo/config.toml's rustc-wrapper is a shell script for local
+  # sccache; Windows can't run it, and CI has no sccache anyway.
+  RUSTC_WRAPPER: ""
 
 jobs:
   build:

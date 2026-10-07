@@ -99,8 +99,12 @@ jobs:
         if: runner.os == 'Linux' && steps.mpv-cache.outputs.cache-hit != 'true'
         run: gpui/packaging/linux/build-mpv.sh mpv-prefix
 
+      # YTFAST_VERSION is the version the app reports (`--version`, the
+      # update check, M16); the crate's own version has no pre-release part.
       - name: Build
         working-directory: gpui
+        env:
+          YTFAST_VERSION: ${{ env.VERSION }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p ytfast-gpui
 
       # Linux: AppImage (with mpv), .deb and .rpm, each with yt-dlp and deno.
@@ -258,6 +262,13 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # The app's updater (M16) installs an asset only if its SHA-256 is
+      # listed here.
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > checksums.txt
+          cat checksums.txt
       - run: ls -la dist
       - uses: softprops/action-gh-release@v3
         with:

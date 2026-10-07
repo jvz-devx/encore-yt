@@ -8,7 +8,7 @@
 //! Elements are found by the names views give them with `debug_selector`
 //! (recorded only in test builds); GPUI's test platform has no text
 //! shaping or pixels, so a test sees an element's bounds, and its text only
-//! where the view puts that in its name. See docs/gpui/NOTES.md "UI tests".
+//! where the view puts that in its name. See docs/gpui/GPUI.md "UI tests".
 
 mod home;
 mod keys;

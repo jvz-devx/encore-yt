@@ -1,4 +1,4 @@
-//! Context menus (docs/SPEC.md "Control"): right-clicking a song, album,
+//! Context menus: right-clicking a song, album,
 //! playlist or artist (or its ⋮ button) opens its actions. This is the
 //! menu's state and what its entries do; `views::menu` draws it.
 //!

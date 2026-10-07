@@ -1,8 +1,8 @@
 //! M3: the signed-in account, browser profiles, Settings, and changes to
 //! the account; M12: the account's channels.
 //!
-//! The optimistic logic is the backend crate's [`AccountState`] (shared with
-//! the egui app): this module lends it the page cache and the backend
+//! The optimistic logic is the backend crate's [`AccountState`]: this
+//! module lends it the page cache and the backend
 //! through a [`Host`] and carries out the [`Effects`] it returns. Views draw
 //! from [`AccountState::marks`] and open dialogs through the methods here;
 //! `views::account` and `views::settings` draw them.

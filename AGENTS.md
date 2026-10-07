@@ -32,7 +32,7 @@ Crates: `app` (the GPUI app), `core` (the backend library), `visuals` (wgpu effe
 
 1. [docs/gpui/PLAN.md](docs/gpui/PLAN.md): milestones, decisions and the log.
 2. [docs/integration.md](docs/integration.md): verified cookie, InnerTube and stream facts and the chosen design. Read it before touching sign-in, playback or the build.
-3. [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) for the look, and [docs/gpui/NOTES.md](docs/gpui/NOTES.md) for GPUI API notes and pitfalls.
+3. [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) for the look, and [docs/gpui/GPUI.md](docs/gpui/GPUI.md) for GPUI API notes, pitfalls and the UI tests.
 4. If a `notes/` directory exists, it's the maintainer's private notes (gitignored). Read `notes/AGENTS.md` first and follow it as well.
 
 ## Rules

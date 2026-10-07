@@ -1,8 +1,4 @@
 //! Where the app is: the view, and the state of each page it has asked for.
-//!
-//! Mirrors `View` and `PageState` in the egui app (src/app.rs), which live
-//! behind its feature. Keep the two in step until they move into the shared
-//! backend crate.
 
 use std::collections::HashSet;
 use std::time::Instant;

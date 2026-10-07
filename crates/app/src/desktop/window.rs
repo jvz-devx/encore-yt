@@ -3,7 +3,7 @@
 //! plays on in the background, and a relaunch, `encore-yt show` or the
 //! tray opens a new window on the same `MusicApp`, so the page, history and
 //! player come back as they were. Wayland can't hide a window, so it is
-//! closed and made again on demand, like the egui app does.
+//! closed and made again on demand.
 
 use std::sync::atomic::Ordering;
 

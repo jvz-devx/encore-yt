@@ -1,7 +1,7 @@
-//! The keyboard map (docs/SPEC.md "Control", README "Keyboard, menus and
-//! Play anything"). [`SHORTCUTS`] is what the `?` sheet lists, keys other
-//! areas answer included (Stage, the equalizer, the most replayed part,
-//! Audition); [`bind_keys`] binds the ones this area answers.
+//! The keyboard map (README "Keyboard and command line"). [`SHORTCUTS`] is
+//! what the `?` sheet lists, keys other areas answer included (Stage, the
+//! equalizer, the most replayed part, Audition); [`bind_keys`] binds the
+//! ones this area answers.
 //!
 //! Single keys bind in `Music && !Input && !MusicMenu`, so they never fire
 //! while a field or a menu has the keyboard. Esc, Ctrl+K, Ctrl+Q and the

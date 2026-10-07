@@ -145,7 +145,7 @@ Replace mpv with `encore-audio`, in the five tasks above, behind a cargo feature
 
 Superseded by M23 below: mpv, the engine choice and the fallback are gone. Kept as the record of how the engine got there.
 
-The backend now plays through `crates/core/src/player/` (`Player`, one deck). mpv is one engine, unchanged in behaviour; `encore-audio` is the other, behind the root crate's `rust-audio` feature, which the GPUI app turns on. There it is the default; `ENCORE_PLAYER=rust|mpv` and Settings' Audio player (Built-in or mpv, from the next song) choose. The egui app builds without the feature and stays on mpv.
+The backend now plays through `crates/core/src/player/` (`Player`, one deck). mpv is one engine, unchanged in behaviour; `encore-audio` is the other, behind the root crate's `rust-audio` feature, which the GPUI app turns on. There it is the default; `YTFAST_PLAYER=rust|mpv` and Settings' Audio player (Built-in or mpv, from the next song) choose.
 
 `crates/core/src/player/rust.rs` keeps mpv's playlist model on top of the engine, so `playback.rs`, `deck.rs`, `audition.rs` and `sound.rs` work unchanged on either engine:
 
@@ -193,7 +193,7 @@ CPU and memory in the app (profiling build, Home showing, a song playing, load a
 
 ## M23: the only player (2026-10-07)
 
-mpv is gone from the code (`src/mpv.rs`, `src/backend/engines.rs`, the `rust-audio` feature, `ENCORE_PLAYER`, Settings' Audio player) and from every installer. `player::Player` is one deck of the engine. The resolver never picks HE-AAC (139, 599), so every format it hands over has a decoder. A stream or decode error ends the file with an error: the song is resolved once more without the account, then skipped with "Couldn't play “…”, skipped it" (the decoder's words behind Copy details); three failures in a row stop playback with a plain message instead of running through the queue.
+mpv is gone from the code (`src/mpv.rs`, `src/backend/engines.rs`, the `rust-audio` feature, `YTFAST_PLAYER`, Settings' Audio player) and from every installer. `player::Player` is one deck of the engine. The resolver never picks HE-AAC (139, 599), so every format it hands over has a decoder. A stream or decode error ends the file with an error: the song is resolved once more without the account, then skipped with "Couldn't play “…”, skipped it" (the decoder's words behind Copy details); three failures in a row stop playback with a plain message instead of running through the queue.
 
 M22 came with it: the spectrum reads the engine's tap (`crates/audio/src/tap.rs`: the output callback copies the mix as mono into a ring of atomics while a reader is open; no lock, no allocation, nothing it waits on) and the waveform decodes the cached stream URL with the engine's reader and decoders (`crates/audio/src/whole.rs`, `decode_mono`), so neither PipeWire's tools nor ffmpeg are needed, on any OS.
 

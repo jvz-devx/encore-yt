@@ -29,11 +29,11 @@ use crate::theme::{self, radius, size};
 const KEEP: Duration = Duration::from_secs(30);
 /// The player bar's slow drift is drawn at this rate; beats and the
 /// playhead add frames up to `BEAT_FPS`.
-const DRIFT_FPS: f32 = 4.;
+const DRIFT_FPS: f32 = 3.;
 /// A change in the kick or bass that is worth a frame of the bar, and the
 /// rate beats draw at most.
-const BEAT_STEP: f32 = 0.1;
-const BEAT_FPS: f32 = 12.;
+const BEAT_STEP: f32 = 0.12;
+const BEAT_FPS: f32 = 10.;
 /// The backdrop moves slowly: a new picture every other window frame.
 const BACKDROP_FPS: f32 = 10.;
 
@@ -288,8 +288,11 @@ impl Effects {
         if since < 1.0 / BEAT_FPS {
             return false;
         }
+        // The kick moves the halos and the playhead directly; the bass only
+        // feeds the glow's slow breath (at 0.6 of its weight), so it takes
+        // twice the step.
         let bands = self.tap.as_ref().map(AudioTap::bands).unwrap_or_default();
-        (bands.kick - kick).abs() > BEAT_STEP || (bands.bass - bass).abs() > BEAT_STEP
+        (bands.kick - kick).abs() > BEAT_STEP || (bands.bass - bass).abs() > 2. * BEAT_STEP
     }
 
     /// The song's position moved: while the ticker runs, its next frame

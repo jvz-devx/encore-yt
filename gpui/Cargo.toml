@@ -109,12 +109,68 @@ assets = [
 [profile.dev.package."*"]
 opt-level = 2
 
+# Small downloads (M26, docs/gpui/SIZE.md): fat LTO, one codegen unit and
+# opt-level "s" make the binary 43% smaller than thin LTO at opt-level 3, with
+# the app's CPU playing and in Now Playing unchanged. Panics still unwind.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
 strip = true
 
+# Speed-critical crates stay at opt-level 3: audio decoding and resampling,
+# the audio engine, the effects and the GPU path. `profiling` inherits these.
+[profile.release.package.symphonia]
+opt-level = 3
+[profile.release.package.symphonia-core]
+opt-level = 3
+[profile.release.package.symphonia-codec-aac]
+opt-level = 3
+[profile.release.package.symphonia-format-isomp4]
+opt-level = 3
+[profile.release.package.symphonia-format-mkv]
+opt-level = 3
+[profile.release.package.symphonia-format-ogg]
+opt-level = 3
+[profile.release.package.symphonia-adapter-libopus]
+opt-level = 3
+[profile.release.package.opusic-sys]
+opt-level = 3
+[profile.release.package.rubato]
+opt-level = 3
+[profile.release.package.realfft]
+opt-level = 3
+[profile.release.package.rustfft]
+opt-level = 3
+[profile.release.package.audioadapter]
+opt-level = 3
+[profile.release.package.audioadapter-buffers]
+opt-level = 3
+[profile.release.package.audioadapter-sample]
+opt-level = 3
+[profile.release.package.cpal]
+opt-level = 3
+[profile.release.package.ytfast-audio]
+opt-level = 3
+[profile.release.package.ytfast-visuals]
+opt-level = 3
+[profile.release.package.wgpu]
+opt-level = 3
+[profile.release.package.wgpu-core]
+opt-level = 3
+[profile.release.package.wgpu-hal]
+opt-level = 3
+[profile.release.package.wgpu-types]
+opt-level = 3
+[profile.release.package.naga]
+opt-level = 3
+[profile.release.package.gpui-pre-wgpu]
+opt-level = 3
+
 # Release speed without release build times, for CPU/GPU measurements and
-# visual checks of the effects: `cargo build --profile profiling`. Full
+# visual checks of the effects: `cargo build --profile profiling`. It keeps
+# release's opt-levels (the "s" default and the overrides above), so its CPU
+# numbers stand for release; only LTO and codegen units differ. Full
 # release (LTO) is for CI and packaging only; after a one-file change it
 # re-optimises and re-links the whole app, which takes minutes.
 [profile.profiling]

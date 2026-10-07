@@ -9,8 +9,10 @@
 //! asks only that client, so a failure costs no second request; `--no-fetch`
 //! skips the range fetch; `--dump DIR` saves the player responses). Exits
 //! with status 1 if the player can't be prepared, a song doesn't resolve or
-//! a range fetch doesn't answer 200 or 206: the resolver canary
-//! (`scripts/resolver-canary.sh`) runs this signed out.
+//! a range fetch doesn't answer 200 or 206, and with 3 if every song met
+//! YouTube's bot check ("Sign in to confirm you're not a bot", which
+//! datacenter IPs get; that says nothing about the resolver). The resolver
+//! canary (`scripts/resolver-canary.sh`) runs this signed out.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,7 +72,7 @@ async fn main() -> Result<()> {
             started.elapsed().as_secs_f64()
         );
     }
-    let mut failures = 0;
+    let (mut failures, mut bot_checks, mut resolved) = (0, 0, 0);
     let mut native = Native::new(client.clone(), &cache.unwrap_or(paths.cache), &paths.config);
     println!("EJS solver {}", native.solver_version());
     if let Some(dir) = &dump {
@@ -92,12 +94,18 @@ async fn main() -> Result<()> {
         let elapsed = started.elapsed().as_secs_f64();
         let stream = match stream {
             Ok(stream) => stream,
+            Err(error) if format!("{error:#}").contains("LOGIN_REQUIRED") => {
+                println!("{id}: bot check after {elapsed:.2}s: {error:#}");
+                bot_checks += 1;
+                continue;
+            }
             Err(error) => {
                 println!("{id}: failed after {elapsed:.2}s: {error:#}");
                 failures += 1;
                 continue;
             }
         };
+        resolved += 1;
         println!(
             "{id}: itag {} from {} in {elapsed:.2}s, expires in {} min",
             stream.itag,
@@ -157,6 +165,10 @@ async fn main() -> Result<()> {
     println!("YouTube requests: {requests} (plus the player script if it was downloaded)");
     if failures > 0 {
         anyhow::bail!("{failures} of the checks failed");
+    }
+    if resolved == 0 && bot_checks > 0 {
+        println!("every song met the bot check: inconclusive");
+        std::process::exit(3);
     }
     Ok(())
 }

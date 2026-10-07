@@ -53,6 +53,17 @@ fn captures() -> Vec<(Player, Expected)> {
 
 #[test]
 fn quickjs_solves_like_ytdlp() {
+    // The engine's own thread size: meriyah recurses deeply on the player,
+    // deeper than a test thread's 2 MB allow.
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(solve_captures)
+        .expect("solver thread")
+        .join()
+        .expect("solver thread");
+}
+
+fn solve_captures() {
     let captures = captures();
     if captures.is_empty() {
         eprintln!("no player captures under artifacts/resolver; nothing to compare");

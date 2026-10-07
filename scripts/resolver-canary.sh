@@ -6,7 +6,9 @@
 #      deno (tests/resolver_offline.rs);
 #   2. live (unless --solver-only): resolves each song with
 #      YTFAST_RESOLVER=rust (examples/resolve_rust.rs) and fetches its first
-#      KB, expecting 200 or 206.
+#      KB, expecting 200 or 206. A song that meets YouTube's bot check
+#      (datacenter IPs do) doesn't count; if every song does, the live part
+#      is inconclusive and only warns.
 #   scripts/resolver-canary.sh [--solver-only] [VIDEO_ID...]
 # YouTube requests: 2 for the player (none with CANARY_PLAYER=<saved .js>),
 # then 1 visitor id call and 2 per song. Needs deno, jq and cargo. Work files
@@ -63,11 +65,16 @@ if [[ $live == 1 ]]; then
   printf '%s' "$id" > "$dir/home/cache/ytfast/player/current"
   (cd "$root" && cargo build --no-default-features --example resolve_rust)
   # Only the resolver gets the fresh home (cargo and sccache keep theirs).
-  if ! env -u YTFAST_FAKE_STREAM XDG_CONFIG_HOME="$dir/home/config" \
-        XDG_CACHE_HOME="$dir/home/cache" YTFAST_RESOLVER=rust \
-        "$root/target/debug/examples/resolve_rust" "${songs[@]}"; then
-    failed+=("the Rust resolver failed signed out (see the log above)")
-  fi
+  status=0
+  env -u YTFAST_FAKE_STREAM XDG_CONFIG_HOME="$dir/home/config" \
+    XDG_CACHE_HOME="$dir/home/cache" YTFAST_RESOLVER=rust \
+    "$root/target/debug/examples/resolve_rust" "${songs[@]}" || status=$?
+  case $status in
+    0) ;;
+    # YouTube's bot check for every song: GitHub's IP, not the resolver.
+    3) echo "::warning::YouTube's bot check met every song from this runner; the live part is inconclusive" ;;
+    *) failed+=("the Rust resolver failed signed out (see the log above)") ;;
+  esac
 fi
 
 echo "== result"
@@ -75,4 +82,9 @@ if [[ ${#failed[@]} -gt 0 ]]; then
   printf 'FAILED: %s\n' "${failed[@]}"
   exit 1
 fi
-echo "ok: player $id solved like yt-dlp$([[ $live == 1 ]] && echo "; resolved and fetched: ${songs[*]}")"
+summary="ok: player $id solved like yt-dlp"
+if [[ $live == 1 ]]; then
+  if [[ $status == 3 ]]; then summary+="; live part inconclusive (bot check)"
+  else summary+="; songs resolved and fetched (see above)"; fi
+fi
+echo "$summary"

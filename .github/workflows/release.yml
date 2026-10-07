@@ -109,7 +109,13 @@ jobs:
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           mkdir -p dist
-          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool --no-appstream $app "dist/ytfast-gpui-$VERSION-linux-x86_64.AppImage"
+          # zstd (the only compressor appimagetool's mksquashfs has) at level
+          # 19 in 1 MB blocks: about 10% smaller than its defaults, and the
+          # runtime reads it the same way (docs/gpui/SIZE.md).
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool --no-appstream \
+            --mksquashfs-opt -Xcompression-level --mksquashfs-opt 19 \
+            --mksquashfs-opt -b --mksquashfs-opt 1M \
+            $app "dist/ytfast-gpui-$VERSION-linux-x86_64.AppImage"
 
       - name: Install cargo-deb and cargo-generate-rpm
         if: runner.os == 'Linux'
@@ -121,8 +127,10 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: gpui
         run: |
+          # cargo-deb compresses with xz already. The rpm's payload goes from
+          # zstd 19 (the default) to xz 9: 9% smaller (docs/gpui/SIZE.md).
           cargo deb --no-build --no-strip -o "../dist/ytfast-gpui-$VERSION-linux-amd64.deb"
-          cargo generate-rpm -o "../dist/ytfast-gpui-$VERSION-linux-x86_64.rpm"
+          cargo generate-rpm --payload-compress xz -o "../dist/ytfast-gpui-$VERSION-linux-x86_64.rpm"
           ls -la ../dist
 
       # Windows: an Inno Setup installer and a portable zip: the executable,
@@ -135,7 +143,8 @@ jobs:
           cp gpui/target/${{ matrix.target }}/release/ytfast-gpui.exe $src/
           cp gpui/packaging/icons/ytfast-gpui.ico gpui/packaging/THIRD-PARTY.txt $src/
           ls -la $src
-          (cd $src && 7z a -tzip "../ytfast-gpui-$VERSION-windows-x86_64-portable.zip" . > /dev/null)
+          # -mx=9: deflate with more passes; still a plain zip (docs/gpui/SIZE.md).
+          (cd $src && 7z a -tzip -mx=9 "../ytfast-gpui-$VERSION-windows-x86_64-portable.zip" . > /dev/null)
 
       - name: Installer (Windows)
         if: runner.os == 'Windows'
@@ -176,7 +185,9 @@ jobs:
           ln -s /Applications dmg/Applications
           mkdir -p dist
           arch=${{ matrix.name }}
-          hdiutil create -volname "ytfast" -srcfolder dmg -ov -format UDZO "dist/ytfast-gpui-$VERSION-${arch}.dmg"
+          # ULFO (LZFSE) is smaller than UDZO (zlib) and opens on macOS 10.11
+          # and later; the cask and Info.plist ask for 11 (docs/gpui/SIZE.md).
+          hdiutil create -volname "ytfast" -srcfolder dmg -ov -format ULFO "dist/ytfast-gpui-$VERSION-${arch}.dmg"
           ls -la dist
 
       - uses: actions/upload-artifact@v7

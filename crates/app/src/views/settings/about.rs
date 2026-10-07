@@ -17,8 +17,8 @@ use crate::theme::{Colors, Type, radius, size, space};
 use crate::update;
 
 const REPOSITORY: &str = "https://github.com/jvz-devx/ytfast-gpui";
-/// What the installers put next to the app (`gpui/packaging`).
-const NOTICES: &str = include_str!("../../../packaging/THIRD-PARTY.txt");
+/// What the installers put next to the app (`packaging`).
+const NOTICES: &str = include_str!("../../../../../packaging/THIRD-PARTY.txt");
 
 /// Who made what Music is built on: name, what it does here, licence, link.
 const CREDITS: &[(&str, &str, &str, &str)] = &[

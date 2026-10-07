@@ -92,27 +92,27 @@ You need Rust 1.98 or newer, CMake, a C compiler and, on Linux, the Wayland/X11,
 
 ```sh
 git clone https://github.com/jvz-devx/ytfast-gpui
-cd ytfast-gpui/gpui
+cd ytfast-gpui
 cargo run --release
 ```
 
 ## Development
 
-The repository has two Cargo workspaces: the root crate (the backend library) and `gpui/` (the GPUI app, the `ytfast-visuals` effects crate and the `ytfast-audio` player). Common commands, via [just](https://github.com/casey/just):
+The repository is one Cargo workspace: `crates/core` (the backend library), `crates/app` (the GPUI app), `crates/visuals` (the effects) and `crates/audio` (the player); installer files are in `packaging/`. Common commands, via [just](https://github.com/casey/just):
 
 ```sh
-just check gpui          # cargo check of one crate (gpui, visuals, audio, backend)
-just test backend        # one crate's tests (the parser runs against saved YouTube responses)
-just verify gpui         # fmt, check, tests and clippy for a crate, before you finish
+just check app           # cargo check of one crate (app, core, visuals, audio)
+just test core           # one crate's tests (the parser runs against saved YouTube responses)
+just verify app          # fmt, check, tests and clippy for a crate, before you finish
 just verify-workspace    # everything, at the end
 just profiling           # a release-speed build without LTO, for measurements
 just shaders             # validate the WGSL shaders with naga
-cd gpui && bacon         # background checks while you edit
+bacon                    # background checks while you edit
 ```
 
 `scripts/gpui-smoke.sh` builds the release app, runs it signed out and drives it on the desktop (pages, playback across track changes, a seek, Now Playing, Up next), capturing each state. `scripts/gpui-input.sh` drives KDE Wayland for visual checks. `YTFAST_FAKE_STREAM=<audio file>` plays a local file instead of YouTube streams, for checks that don't need real streams.
 
-Further reading: [docs/gpui/PLAN.md](docs/gpui/PLAN.md) (milestones and their evidence), [gpui/DESIGN.md](gpui/DESIGN.md) (the design system), [gpui/NOTES-visuals.md](gpui/NOTES-visuals.md) (effects and their costs), [docs/gpui/BUILD-SPEED.md](docs/gpui/BUILD-SPEED.md), [AGENTS.md](AGENTS.md) (rules for coding agents, and people).
+Further reading: [docs/gpui/PLAN.md](docs/gpui/PLAN.md) (milestones and their evidence), [docs/gpui/DESIGN.md](docs/gpui/DESIGN.md) (the design system), [docs/gpui/VISUALS.md](docs/gpui/VISUALS.md) (effects and their costs), [docs/gpui/BUILD-SPEED.md](docs/gpui/BUILD-SPEED.md), [AGENTS.md](AGENTS.md) (rules for coding agents, and people).
 
 ## Credits
 
@@ -125,7 +125,7 @@ ytfast-gpui started from [ytfast](https://github.com/MayberryDT/ytfast) by Tyler
 - Lyrics from [LRCLIB](https://lrclib.net); media controls on Windows and macOS through [souvlaki](https://github.com/Sinono3/souvlaki) (MIT).
 - The [Inter](https://rsms.me/inter/) typeface (OFL) and [Lucide](https://lucide.dev) icons (ISC).
 
-The notices the installers carry (Symphonia, libopus, QuickJS, the solver scripts) are in `gpui/packaging/THIRD-PARTY.txt`.
+The notices the installers carry (Symphonia, libopus, QuickJS, the solver scripts) are in `packaging/THIRD-PARTY.txt`.
 
 ## License
 

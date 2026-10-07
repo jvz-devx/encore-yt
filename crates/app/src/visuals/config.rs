@@ -36,7 +36,7 @@ pub const FPS: [u32; 6] = [15, 20, 30, 60, 120, DISPLAY_FPS];
 /// The frame rate out of the box: the display's on macOS (a frame costs
 /// Apple's GPUs little), 30 on Windows, and 20 on Linux, where the
 /// integrated GPUs it was measured on spend 6-10 ms on each window frame
-/// (gpui/NOTES-visuals.md, "Frame rate"). The sparkles drift well under a
+/// (docs/gpui/VISUALS.md, "Frame rate"). The sparkles drift well under a
 /// pixel a frame at 20, so motion still looks fluid.
 pub fn default_fps() -> u32 {
     if cfg!(target_os = "macos") {

@@ -1,4 +1,4 @@
-# Builds the GPUI app (gpui/) for Linux, Windows and macOS and packages it.
+# Builds the GPUI app (crates/app) for Linux, Windows and macOS and packages it.
 # Build only: no tests, no clippy. A `v*` tag attaches the installers to that
 # tag's GitHub Release; a manual run leaves them as workflow artifacts.
 name: Release
@@ -14,7 +14,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  # gpui/.cargo/config.toml's rustc-wrapper is a shell script for local
+  # .cargo/config.toml's rustc-wrapper is a shell script for local
   # sccache; Windows can't run it, and CI has no sccache anyway.
   RUSTC_WRAPPER: ""
 
@@ -51,7 +51,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="$(sed -n 's/^version = "\(.*\)"/\1/p' gpui/Cargo.toml | head -1)-dev.${GITHUB_SHA::7}"
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/app/Cargo.toml | head -1)-dev.${GITHUB_SHA::7}"
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "Version $version"
@@ -62,7 +62,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: gpui -> target
           key: ${{ matrix.target }}
 
       - name: Linux build dependencies
@@ -78,7 +77,6 @@ jobs:
       # YTFAST_VERSION is the version the app reports (`--version`, the
       # update check, M16); the crate's own version has no pre-release part.
       - name: Build
-        working-directory: gpui
         env:
           YTFAST_VERSION: ${{ env.VERSION }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p ytfast-gpui
@@ -89,21 +87,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           # cargo-deb and cargo-generate-rpm read target/release.
-          mkdir -p gpui/target/release
-          cp gpui/target/${{ matrix.target }}/release/ytfast-gpui gpui/target/release/ytfast-gpui
+          mkdir -p target/release
+          cp target/${{ matrix.target }}/release/ytfast-gpui target/release/ytfast-gpui
 
       - name: AppImage
         if: runner.os == 'Linux'
         run: |
           app=AppDir
           mkdir -p $app/usr/bin $app/usr/share/applications $app/usr/share/icons/hicolor/512x512/apps $app/usr/share/doc/ytfast-gpui
-          cp gpui/target/release/ytfast-gpui $app/usr/bin/
-          cp gpui/packaging/linux/AppRun $app/AppRun
-          cp gpui/packaging/linux/ytfast-gpui.desktop $app/ytfast-gpui.desktop
-          cp gpui/packaging/linux/ytfast-gpui.desktop $app/usr/share/applications/
-          cp gpui/packaging/icons/ytfast-gpui.png $app/ytfast-gpui.png
-          cp gpui/packaging/icons/ytfast-gpui.png $app/usr/share/icons/hicolor/512x512/apps/
-          cp gpui/packaging/THIRD-PARTY.txt $app/usr/share/doc/ytfast-gpui/
+          cp target/release/ytfast-gpui $app/usr/bin/
+          cp packaging/linux/AppRun $app/AppRun
+          cp packaging/linux/ytfast-gpui.desktop $app/ytfast-gpui.desktop
+          cp packaging/linux/ytfast-gpui.desktop $app/usr/share/applications/
+          cp packaging/icons/ytfast-gpui.png $app/ytfast-gpui.png
+          cp packaging/icons/ytfast-gpui.png $app/usr/share/icons/hicolor/512x512/apps/
+          cp packaging/THIRD-PARTY.txt $app/usr/share/doc/ytfast-gpui/
           chmod +x $app/AppRun
           desktop-file-validate $app/ytfast-gpui.desktop
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
@@ -125,13 +123,12 @@ jobs:
 
       - name: .deb and .rpm
         if: runner.os == 'Linux'
-        working-directory: gpui
         run: |
           # cargo-deb compresses with xz already. The rpm's payload goes from
           # zstd 19 (the default) to xz 9: 9% smaller (docs/gpui/SIZE.md).
-          cargo deb --no-build --no-strip -o "../dist/ytfast-gpui-$VERSION-linux-amd64.deb"
-          cargo generate-rpm --payload-compress xz -o "../dist/ytfast-gpui-$VERSION-linux-x86_64.rpm"
-          ls -la ../dist
+          cargo deb -p ytfast-gpui --no-build --no-strip -o "dist/ytfast-gpui-$VERSION-linux-amd64.deb"
+          cargo generate-rpm -p crates/app --payload-compress xz -o "dist/ytfast-gpui-$VERSION-linux-x86_64.rpm"
+          ls -la dist
 
       # Windows: an Inno Setup installer and a portable zip: the executable,
       # its icon and the third-party notices.
@@ -140,8 +137,8 @@ jobs:
         run: |
           src=dist/windows
           mkdir -p $src
-          cp gpui/target/${{ matrix.target }}/release/ytfast-gpui.exe $src/
-          cp gpui/packaging/icons/ytfast-gpui.ico gpui/packaging/THIRD-PARTY.txt $src/
+          cp target/${{ matrix.target }}/release/ytfast-gpui.exe $src/
+          cp packaging/icons/ytfast-gpui.ico packaging/THIRD-PARTY.txt $src/
           ls -la $src
           # -mx=9: deflate with more passes; still a plain zip (docs/gpui/SIZE.md).
           (cd $src && 7z a -tzip -mx=9 "../ytfast-gpui-$VERSION-windows-x86_64-portable.zip" . > /dev/null)
@@ -155,7 +152,7 @@ jobs:
             if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
             $env:PATH = "${env:ProgramFiles(x86)}\Inno Setup 6;$env:PATH"
           }
-          iscc /Q "/DAppVersion=$env:VERSION" "/DSourceDir=$PWD\dist\windows" "/DOutputDir=$PWD\dist" gpui\packaging\windows\ytfast-gpui.iss
+          iscc /Q "/DAppVersion=$env:VERSION" "/DSourceDir=$PWD\dist\windows" "/DOutputDir=$PWD\dist" packaging\windows\ytfast-gpui.iss
           Remove-Item -Recurse dist\windows
           Get-ChildItem dist
 
@@ -165,19 +162,19 @@ jobs:
         run: |
           app="dmg/ytfast.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-          cp gpui/target/${{ matrix.target }}/release/ytfast-gpui "$app/Contents/MacOS/"
+          cp target/${{ matrix.target }}/release/ytfast-gpui "$app/Contents/MacOS/"
           # The macOS the executable was built for (Rust's default target).
           minos=$(otool -l "$app/Contents/MacOS/ytfast-gpui" | awk '/LC_BUILD_VERSION/{b=1} b && $1=="minos"{print $2; exit}')
           minos=${minos:-11.0}
           echo "ytfast-gpui needs macOS $minos"
-          sed -e "s/@VERSION@/$VERSION/g" -e "s/@MINOS@/$minos/g" gpui/packaging/macos/Info.plist > "$app/Contents/Info.plist"
-          cp gpui/packaging/THIRD-PARTY.txt "$app/Contents/Resources/"
+          sed -e "s/@VERSION@/$VERSION/g" -e "s/@MINOS@/$minos/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          cp packaging/THIRD-PARTY.txt "$app/Contents/Resources/"
           iconset=ytfast-gpui.iconset
           mkdir -p $iconset
           for size in 16 32 128 256 512; do
-            sips -z $size $size gpui/packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}.png > /dev/null
+            sips -z $size $size packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}.png > /dev/null
             double=$((size * 2))
-            sips -z $double $double gpui/packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}@2x.png > /dev/null
+            sips -z $double $double packaging/icons/ytfast-gpui.png --out $iconset/icon_${size}x${size}@2x.png > /dev/null
           done
           iconutil -c icns $iconset -o "$app/Contents/Resources/ytfast-gpui.icns"
           codesign --force --deep --sign - "$app"

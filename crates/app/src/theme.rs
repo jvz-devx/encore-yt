@@ -1,4 +1,4 @@
-//! The design system's tokens (see `gpui/DESIGN.md`): colours for the dark
+//! The design system's tokens (see `docs/gpui/DESIGN.md`): colours for the dark
 //! and light look, the type scale, spacing, radii, elevation and motion.
 //!
 //! Views read colours only from [`colors`] (or the `cx.theme()` fields this

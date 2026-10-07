@@ -1,5 +1,5 @@
 //! The backend of ytfast-gpui, a native YouTube Music client: InnerTube,
-//! sign-in, playback and the desktop services. The app is in gpui/.
+//! sign-in, playback and the desktop services. The app is in crates/app.
 
 pub mod account;
 pub mod auth;

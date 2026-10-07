@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Solves a fixed set of JS challenges for a saved player script with yt-dlp's
-# EJS solver in deno (what yt-dlp itself runs), for tests/resolver_offline.rs.
+# EJS solver in deno (what yt-dlp itself runs), for crates/core/tests/resolver_offline.rs.
 #   scripts/ejs-expected.sh artifacts/resolver/<id>.js > artifacts/resolver/<id>.expected.json
 # Offline: reads only the given file and the vendored EJS scripts.
 set -euo pipefail
@@ -11,8 +11,8 @@ trap 'rm -f "$input"' EXIT
 python3 - "$player" "$root" > "$input" <<'PY'
 import json, sys
 player, root = sys.argv[1], sys.argv[2]
-lib = open(f"{root}/src/jsc/ejs-lib.min.js").read()
-core = open(f"{root}/src/jsc/ejs-core.min.js").read()
+lib = open(f"{root}/crates/core/src/jsc/ejs-lib.min.js").read()
+core = open(f"{root}/crates/core/src/jsc/ejs-core.min.js").read()
 # Real challenges: the web SABR URL and WEB_CREATOR cipher of 2026-10-07.
 n = ["_Kid_vJQOB_4Tt4Mq", "OREtw4lFskWoJnTXr", "ZdT9Xk3PqFwl0aB1c", "abcdefghijklmnop", "aAbBcCdDeEfFgG1234", "0123456789abcdefgh_-"]
 lengths = list(range(90, 121))

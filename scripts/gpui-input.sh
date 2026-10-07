@@ -5,7 +5,7 @@
 #
 #   scripts/gpui-input.sh setup             start ydotoold, flat pointer accel
 #   scripts/gpui-input.sh launch [BIN]      stop any running copy, start BIN
-#                                           (default gpui/target/debug/ytfast-gpui,
+#                                           (default target/debug/ytfast-gpui,
 #                                           log in artifacts/gpui/run.log) and
 #                                           place its window at 0,0 1280x1000
 #   scripts/gpui-input.sh stop              stop the app (its audio stops with it)
@@ -106,7 +106,7 @@ stop() {
 }
 
 launch() {
-    local bin="${1:-gpui/target/debug/ytfast-gpui}"
+    local bin="${1:-target/debug/ytfast-gpui}"
     stop
     mkdir -p artifacts/gpui
     setsid "$bin" >artifacts/gpui/run.log 2>&1 </dev/null &

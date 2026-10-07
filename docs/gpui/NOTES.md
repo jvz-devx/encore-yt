@@ -174,10 +174,10 @@ self._backend_task = cx.spawn(async move |this, cx| {
 
 ## UI tests (headless, `just test gpui`)
 
-`src/ui_tests/` runs the real `MusicApp` in a window of GPUI's test platform
+`crates/app/src/ui_tests/` runs the real `MusicApp` in a window of GPUI's test platform
 (`#[gpui_kit::test]`, the kit's `test-support` feature as a dev-dependency).
 
-- Seam: `MusicApp::with_link(Link::Fake { .. })` (`src/link.rs`, test builds
+- Seam: `MusicApp::with_link(Link::Fake { .. })` (`crates/app/src/link.rs`, test builds
   only) instead of `Backend::start`. A test pushes `Event`s through a std
   channel and drains them by hand (`MusicApp::drain`); the app's `Command`s
   (and the desktop remote's) land on a tokio channel the test reads. The
@@ -213,7 +213,7 @@ self._backend_task = cx.spawn(async move |this, cx| {
 
 ## Media keys on Windows and macOS (M15)
 
-`src/desktop/media.rs`, through the `souvlaki` crate (no default features,
+`crates/app/src/desktop/media.rs`, through the `souvlaki` crate (no default features,
 so no D-Bus on Linux, where the backend's MPRIS stays). It follows the same
 `desktop::Now` watch as MPRIS and drives the app through the same `Remote`;
 the controls live while the main window is open (closing it quits outside

@@ -1,13 +1,13 @@
 [package]
 name = "ytfast-audio"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.98"
+edition.workspace = true
+rust-version.workspace = true
 description = "The pure Rust playback engine of ytfast-gpui: HTTP range reader, symphonia, libopus, rubato, cpal"
-license = "MIT"
+license.workspace = true
 publish = false
 
-# No GPUI: the backend (src/player/rust.rs) plays through it and the
+# No GPUI: the backend (crates/core/src/player/rust.rs) plays through it and the
 # visuals crate reads its tap and decoder. See docs/gpui/AUDIO.md.
 [dependencies]
 # Demux WebM/Matroska (Opus) and MP4 (AAC), decode AAC; Ogg for local
@@ -22,6 +22,6 @@ rubato = "5"
 # Lock-free sample queues between the decoder threads and the output callback.
 rtrb = "0.3"
 # Range requests; the same reqwest and rustls the backend already builds.
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
-anyhow = "1"
-log = "0.4"
+reqwest = { workspace = true, features = ["blocking"] }
+anyhow.workspace = true
+log.workspace = true

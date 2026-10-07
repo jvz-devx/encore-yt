@@ -23,7 +23,9 @@ struct Expected {
 fn captures() -> Vec<(Player, Expected)> {
     let dir = std::env::var_os("YTFAST_RESOLVER_CAPTURES")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts/resolver"));
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/resolver")
+        });
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -160,7 +162,7 @@ fn runs_only_pinned_solver_scripts() {
 
 fn capture(name: &str) -> Option<String> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("artifacts/resolver")
+        .join("../../artifacts/resolver")
         .join(name);
     std::fs::read_to_string(path).ok()
 }

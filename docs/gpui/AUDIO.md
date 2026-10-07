@@ -2,7 +2,7 @@
 
 2026-10-07. Question: can a pure Rust pipeline replace the mpv subprocess, so the app ships as one binary plus yt-dlp and deno?
 
-Answer: yes. The spike crate `gpui/crates/audio` (`ytfast-audio`) plays WebM/Opus and fragmented MP4/AAC over HTTP with range requests, seeks, joins tracks without a gap, applies the 10-band EQ, and does it with about half of mpv's CPU and a fifth of its memory. It adds about 3.8 MB to the app. The work to swap it into the backend is real but bounded, and most of the risk sits in YouTube's container details, which this spike could not check against real streams (no YouTube streams by rule). Recommendation at the end.
+Answer: yes. The spike crate `crates/audio` (`ytfast-audio`) plays WebM/Opus and fragmented MP4/AAC over HTTP with range requests, seeks, joins tracks without a gap, applies the 10-band EQ, and does it with about half of mpv's CPU and a fifth of its memory. It adds about 3.8 MB to the app. The work to swap it into the backend is real but bounded, and most of the risk sits in YouTube's container details, which this spike could not check against real streams (no YouTube streams by rule). Recommendation at the end.
 
 ## What the spike is
 
@@ -14,20 +14,19 @@ HttpSource (Range requests, read-ahead) -> symphonia demux (WebM, MP4)
 
 | File | Lines | What it does |
 |---|---|---|
-| `src/http.rs` | 430 | One buffer the size of the file, filled by a fetch thread with 2 MiB `Range` requests up to 32 MiB ahead of the reader. A read the running request won't reach within ~0.25 s (measured throughput) drops that request and starts one at the read position. Downloaded bytes stay, so seeking back is free. Network errors retry the chunk 3 times; an HTTP status (403 on an expired URL) ends the track with an error. |
-| `src/decode.rs` | 440 | One thread per track: probe, decode, mix down to stereo, resample, push into a 2 s lock-free ring (`rtrb`). Seeks decode from 80 ms before the target and drop up to it (Opus and AAC both need a pre-roll). A seek gives the mixer a fresh ring, so no stale audio plays. |
-| `src/padding.rs` | 105 | Opus end padding from WebM's `DiscardPadding` (symphonia ignores it, see below). |
-| `src/resample.rs` | 95 | rubato's FFT resampler with its delay cut and its tail flushed, so N input frames give exactly `round(N * out / in)` output frames. AAC is 44.1 kHz, the device 48 kHz. |
-| `src/mixer.rs` | 320 | The output callback. Three decks (main, smooth mix, audition), each with a current and a queued next track. The next one starts in the same buffer the current one ends in. Per-deck volume and pause glide over 5 ms, each track has its own loudness gain, a 100 ms prebuffer applies at start and after seeks. No locks, no waiting on the network. |
-| `src/eq.rs` | 140 | RBJ peaking biquads, one octave wide, at the backend's ten centres (31 Hz to 16 kHz), with the same `-max(gain)` headroom preamp. This is what FFmpeg's `equalizer=t=o:w=1` computes, so presets sound the same as today. |
-| `src/output.rs` | 120 | cpal on its own thread (so the engine is `Send`). On Linux it speaks the PulseAudio protocol to pipewire-pulse with cpal's pure Rust client, else ALSA; WASAPI on Windows, CoreAudio on macOS. 2048-frame periods. |
-| `src/lib.rs` | 355 | `Engine`: `load`, `queue`, `clear_next`, `seek`, `pause`, `set_volume`, `stop`, `set_equalizer`, `stats`, and an event channel (`Started`, `Ended` with the played length, `Seeked`, `Error`). |
+| `crates/audio/src/http.rs` | 430 | One buffer the size of the file, filled by a fetch thread with 2 MiB `Range` requests up to 32 MiB ahead of the reader. A read the running request won't reach within ~0.25 s (measured throughput) drops that request and starts one at the read position. Downloaded bytes stay, so seeking back is free. Network errors retry the chunk 3 times; an HTTP status (403 on an expired URL) ends the track with an error. |
+| `crates/audio/src/decode.rs` | 440 | One thread per track: probe, decode, mix down to stereo, resample, push into a 2 s lock-free ring (`rtrb`). Seeks decode from 80 ms before the target and drop up to it (Opus and AAC both need a pre-roll). A seek gives the mixer a fresh ring, so no stale audio plays. |
+| `crates/audio/src/padding.rs` | 105 | Opus end padding from WebM's `DiscardPadding` (symphonia ignores it, see below). |
+| `crates/audio/src/resample.rs` | 95 | rubato's FFT resampler with its delay cut and its tail flushed, so N input frames give exactly `round(N * out / in)` output frames. AAC is 44.1 kHz, the device 48 kHz. |
+| `crates/audio/src/mixer.rs` | 320 | The output callback. Three decks (main, smooth mix, audition), each with a current and a queued next track. The next one starts in the same buffer the current one ends in. Per-deck volume and pause glide over 5 ms, each track has its own loudness gain, a 100 ms prebuffer applies at start and after seeks. No locks, no waiting on the network. |
+| `crates/audio/src/eq.rs` | 140 | RBJ peaking biquads, one octave wide, at the backend's ten centres (31 Hz to 16 kHz), with the same `-max(gain)` headroom preamp. This is what FFmpeg's `equalizer=t=o:w=1` computes, so presets sound the same as today. |
+| `crates/audio/src/output.rs` | 120 | cpal on its own thread (so the engine is `Send`). On Linux it speaks the PulseAudio protocol to pipewire-pulse with cpal's pure Rust client, else ALSA; WASAPI on Windows, CoreAudio on macOS. 2048-frame periods. |
+| `crates/core/src/lib.rs` | 355 | `Engine`: `load`, `queue`, `clear_next`, `seek`, `pause`, `set_volume`, `stop`, `set_equalizer`, `stats`, and an event channel (`Started`, `Ended` with the played length, `Seeked`, `Error`). |
 
 Run it:
 
 ```sh
-cd gpui
-cargo run -p ytfast-audio --example serve -- ../artifacts/audio 8765 1048576   # dir, port, bytes/s (0 = no limit)
+cargo run -p ytfast-audio --example serve -- artifacts/audio 8765 1048576   # dir, port, bytes/s (0 = no limit)
 cargo run -p ytfast-audio --example play -- http://127.0.0.1:8765/a.webm http://127.0.0.1:8765/b.webm
 ```
 
@@ -146,9 +145,9 @@ Replace mpv with `ytfast-audio`, in the five tasks above, behind a cargo feature
 
 Superseded by M23 below: mpv, the engine choice and the fallback are gone. Kept as the record of how the engine got there.
 
-The backend now plays through `src/player/` (`Player`, one deck). mpv is one engine, unchanged in behaviour; `ytfast-audio` is the other, behind the root crate's `rust-audio` feature, which the GPUI app turns on. There it is the default; `YTFAST_PLAYER=rust|mpv` and Settings' Audio player (Built-in or mpv, from the next song) choose. The egui app builds without the feature and stays on mpv.
+The backend now plays through `crates/core/src/player/` (`Player`, one deck). mpv is one engine, unchanged in behaviour; `ytfast-audio` is the other, behind the root crate's `rust-audio` feature, which the GPUI app turns on. There it is the default; `YTFAST_PLAYER=rust|mpv` and Settings' Audio player (Built-in or mpv, from the next song) choose. The egui app builds without the feature and stays on mpv.
 
-`src/player/rust.rs` keeps mpv's playlist model on top of the engine, so `playback.rs`, `deck.rs`, `audition.rs` and `sound.rs` work unchanged on either engine:
+`crates/core/src/player/rust.rs` keeps mpv's playlist model on top of the engine, so `playback.rs`, `deck.rs`, `audition.rs` and `sound.rs` work unchanged on either engine:
 
 | Backend asks | mpv | Rust engine |
 |---|---|---|
@@ -173,7 +172,7 @@ Visuals: the waveform decodes the resolved stream's URL (`Backend::stream_url`) 
 
 In the GPUI app with `YTFAST_FAKE_STREAM` (the test Ogg file), signed in, controlled through MPRIS (`playerctl`) and the window: play, pause, seek, Next (skip to the queued track), Previous, Space, a gapless join with each song's own loudness gain (−4.23 dB, then −2.90 dB), the Bass boost preset at start and a live change to Vocal from Settings, a smooth mix (equal-power volumes on both decks over 6 s, then the old deck cued with the next song), Audition (main deck ducked to 58.5, audition faded in over 250 ms from a third in, both back on release), the sleep timer at the end of the song (fade over the last 8 s, pause, next song parked), switching to mpv in Settings (the main deck moved to mpv at the next song), Now Playing's spectrum and waveform, and the fallback (an MP3 file the engine has no reader for played on mpv, logged once per song).
 
-Real streams, signed out, one public music video resolved with yt-dlp (`examples/stream_check.rs`, no playback tracking):
+Real streams, signed out, one public music video resolved with yt-dlp (`crates/core/examples/stream_check.rs`, no playback tracking):
 
 | itag | first audio | seek right after start (range request) | seek, downloaded | played vs container | join |
 |---|---|---|---|---|---|
@@ -196,12 +195,12 @@ CPU and memory in the app (profiling build, Home showing, a song playing, load a
 
 mpv is gone from the code (`src/mpv.rs`, `src/backend/engines.rs`, the `rust-audio` feature, `YTFAST_PLAYER`, Settings' Audio player) and from every installer. `player::Player` is one deck of the engine. The resolver never picks HE-AAC (139, 599), so every format it hands over has a decoder. A stream or decode error ends the file with an error: the song is resolved once more without the account, then skipped with "Couldn't play “…”, skipped it" (the decoder's words behind Copy details); three failures in a row stop playback with a plain message instead of running through the queue.
 
-M22 came with it: the spectrum reads the engine's tap (`src/tap.rs`: the output callback copies the mix as mono into a ring of atomics while a reader is open; no lock, no allocation, nothing it waits on) and the waveform decodes the cached stream URL with the engine's reader and decoders (`src/whole.rs`, `decode_mono`), so neither PipeWire's tools nor ffmpeg are needed, on any OS.
+M22 came with it: the spectrum reads the engine's tap (`crates/audio/src/tap.rs`: the output callback copies the mix as mono into a ring of atomics while a reader is open; no lock, no allocation, nothing it waits on) and the waveform decodes the cached stream URL with the engine's reader and decoders (`crates/audio/src/whole.rs`, `decode_mono`), so neither PipeWire's tools nor ffmpeg are needed, on any OS.
 
 ### Checked
 
 - In the GPUI app (debug build, fresh signed-out config and cache, `YTFAST_FAKE_STREAM`): play, Next, seeks (landed at 9.96 s for 10.06 s, 15.98 s for 16.08 s), the spectrum at 60 hops per second from the tap (601 hops in 10 s) and the waveform decoded in 1.27 s for 180 s of audio, both visible in Now Playing; the Bass boost equalizer from settings at start; Audition (a second deck from a third in, let go after 3 s); a smooth mix on a radio (blend over 5.6 s after a seek to 174 s, the cued deck taking over).
-- Real streams, signed out, one public song through `examples/stream_check.rs` (resolved by `src/streams.rs` as VISIONOS in 0.2 s): itag 251 first audio 42 ms, seeks 28–86 ms, played 213.045 of 213.061 s, join 0 frames; itag 140 first audio 44 ms, seeks 30–259 ms, played to the frame, join 0 frames.
+- Real streams, signed out, one public song through `crates/core/examples/stream_check.rs` (resolved by `crates/core/src/streams.rs` as VISIONOS in 0.2 s): itag 251 first audio 42 ms, seeks 28–86 ms, played 213.045 of 213.061 s, join 0 frames; itag 140 first audio 44 ms, seeks 30–259 ms, played to the frame, join 0 frames.
 - Premium 774 and 141 need the signed-in check above (not run here).
 
 ### Size

@@ -1,51 +1,103 @@
-[package]
-name = "ytfast"
-version = "0.1.0"
+# One workspace: the backend library (crates/core), the GPUI app
+# (crates/app), the Now Playing effects (crates/visuals) and the playback
+# engine (crates/audio). One Cargo.lock and one target/.
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/app", "crates/visuals", "crates/audio"]
+default-members = ["crates/app"]
+
+[workspace.package]
 edition = "2024"
 rust-version = "1.98"
-description = "The backend of ytfast-gpui, a native YouTube Music client"
 license = "MIT"
-authors = ["Tyler Mayberry"]
 repository = "https://github.com/jvz-devx/ytfast-gpui"
-publish = false
 
-
-[dependencies]
+# Versions shared by more than one crate; each crate adds its own features.
+[workspace.dependencies]
+ytfast = { path = "crates/core" }
+ytfast-audio = { path = "crates/audio" }
+ytfast-visuals = { path = "crates/visuals" }
 anyhow = "1"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-directories = "6"
-fastrand = "2"
-# The backend runtime: InnerTube requests, cover downloads and stream resolving.
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "gzip", "brotli"] }
-# MPRIS and desktop notifications over the session bus, served from the
-# backend's tokio runtime. The same zbus the app's AccessKit brings in, with
-# the same `async-io` reactor: zbus's `tokio` feature would apply to
-# AccessKit's zbus too, and accesskit_unix can't run its D-Bus thread with both.
-# `blocking-api`: sign-in reads KWallet from a blocking thread (src/auth.rs).
-zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
-# The tray icon (StatusNotifierItem) while the window is closed; on the same
-# zbus and `async-io` reactor, for the same reason.
-ksni = { version = "0.3", default-features = false, features = ["async-io"] }
-# Reads the browser's cookie store (a copy; the browser keeps it open).
-rusqlite = "0.37"
-# Chromium's cookie encryption on Linux: PBKDF2-SHA1 key, AES-128-CBC.
-aes = "0.8"
-cbc = { version = "0.1", features = ["alloc"] }
-pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
-sha1 = "0.10"
 sha2 = "0.10"
-rquickjs = "0.14"
-# The audio engine (docs/gpui/AUDIO.md).
-ytfast-audio = { path = "gpui/crates/audio" }
+tokio = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 
-# Windows has no system SQLite to link; build it in.
-[target.'cfg(windows)'.dependencies]
-rusqlite = { version = "0.37", features = ["bundled"] }
-
-# Keep dependencies optimized in development (examples and tests); the crate
-# itself stays incremental.
+# Keep dependencies optimized in development (tests, examples and the app's
+# debug build); the workspace's own crates stay incremental.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Small downloads (M26, docs/gpui/SIZE.md): fat LTO, one codegen unit and
+# opt-level "s" make the binary 43% smaller than thin LTO at opt-level 3, with
+# the app's CPU playing and in Now Playing unchanged. Panics still unwind.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+strip = true
+
+# Speed-critical crates stay at opt-level 3: audio decoding and resampling,
+# the audio engine, the effects and the GPU path. `profiling` inherits these.
+[profile.release.package.symphonia]
+opt-level = 3
+[profile.release.package.symphonia-core]
+opt-level = 3
+[profile.release.package.symphonia-codec-aac]
+opt-level = 3
+[profile.release.package.symphonia-format-isomp4]
+opt-level = 3
+[profile.release.package.symphonia-format-mkv]
+opt-level = 3
+[profile.release.package.symphonia-format-ogg]
+opt-level = 3
+[profile.release.package.symphonia-adapter-libopus]
+opt-level = 3
+[profile.release.package.opusic-sys]
+opt-level = 3
+[profile.release.package.rubato]
+opt-level = 3
+[profile.release.package.realfft]
+opt-level = 3
+[profile.release.package.rustfft]
+opt-level = 3
+[profile.release.package.audioadapter]
+opt-level = 3
+[profile.release.package.audioadapter-buffers]
+opt-level = 3
+[profile.release.package.audioadapter-sample]
+opt-level = 3
+[profile.release.package.cpal]
+opt-level = 3
+[profile.release.package.ytfast-audio]
+opt-level = 3
+[profile.release.package.ytfast-visuals]
+opt-level = 3
+[profile.release.package.wgpu]
+opt-level = 3
+[profile.release.package.wgpu-core]
+opt-level = 3
+[profile.release.package.wgpu-hal]
+opt-level = 3
+[profile.release.package.wgpu-types]
+opt-level = 3
+[profile.release.package.naga]
+opt-level = 3
+[profile.release.package.gpui-pre-wgpu]
+opt-level = 3
+
+# Release speed without release build times, for CPU/GPU measurements and
+# visual checks of the effects: `cargo build --profile profiling`. It keeps
+# release's opt-levels (the "s" default and the overrides above), so its CPU
+# numbers stand for release; only LTO and codegen units differ. Full
+# release (LTO) is for CI and packaging only; after a one-file change it
+# re-optimises and re-links the whole app, which takes minutes.
+[profile.profiling]
+inherits = "release"
+lto = false
+incremental = true
+codegen-units = 16
+strip = false
+debug = "line-tables-only"

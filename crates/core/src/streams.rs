@@ -96,7 +96,7 @@ pub const WEB_CREATOR: PlayerClient = PlayerClient {
 /// releases (by SHA-256) the app may download when its own solver can't
 /// use a player. Changing it takes a reviewed commit to `main`.
 const PINS_URL: &str =
-    "https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/src/jsc/pins.txt";
+    "https://raw.githubusercontent.com/jvz-devx/ytfast-gpui/main/crates/core/src/jsc/pins.txt";
 
 /// Where yt-dlp-ejs publishes its release assets.
 const EJS_RELEASES: &str = "https://github.com/yt-dlp/ejs/releases/download";

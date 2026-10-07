@@ -10,7 +10,7 @@ Code: `crates/visuals/src/strip.rs` + `shaders/strip.wgsl`,
 `dissolve.rs` + `shaders/dissolve.wgsl`, `gpu.rs` (the one device every
 effect shares), `pipelines.rs` (every effect's pipeline and the pipeline
 cache), `target.rs` (the readback ring, and `frame_now` for still
-pictures); app side `src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`,
+pictures); app side `crates/app/src/visuals/bar.rs`, `dissolve.rs`, `effects.rs`,
 `device.rs` (the device made in the background).
 
 - **One strip, one pass**: the bar's whole background is one
@@ -223,7 +223,7 @@ Now:
 - **Background device.** `Gpu` compiles all three pipelines (backdrop,
   strip, dissolve; `crates/visuals/src/pipelines.rs`) when it is made, so a
   renderer only makes buffers and textures (0.1-0.5 ms). The app makes the
-  `Gpu` on GPUI's background executor (`src/visuals/device.rs`): once after
+  `Gpu` on GPUI's background executor (`crates/app/src/visuals/device.rs`): once after
   the first visible frame (the warm-up, only with effects on), and again
   when an effect needs it after the layer dropped it for idling (30 s after
   the last frame, as before). The work starts in `on_next_frame`, so never
@@ -301,8 +301,8 @@ after), `warmup-bar-cmp` (the strip before and after), `warmup-np-cmp`
 
 ## Now Playing (M8)
 
-Code: the crate `gpui/crates/visuals` (`ytfast-visuals`, no GPUI) and the
-app side in `gpui/src/visuals/`.
+Code: the crate `crates/visuals` (`ytfast-visuals`, no GPUI) and the
+app side in `crates/app/src/visuals/`.
 
 - **Crate**: `Renderer` (on the shared `Gpu`, `shaders/backdrop.wgsl`,
   offscreen target and readback; `frame(params)` returns BGRA bytes), `Cover` (48x48
@@ -811,10 +811,10 @@ Rejected or not working:
 8. **Long term**: propose an external-texture primitive for gpui-pre's wgpu
    renderer upstream; it would remove the readback and the second device.
 
-Code pointers: `gpui/crates/visuals/src/renderer.rs` (device, pipeline,
+Code pointers: `crates/visuals/src/renderer.rs` (device, pipeline,
 readback ring, cross-fade), `shaders/backdrop.wgsl`, `cover.rs`,
 `spectrum.rs` (the engine's tap, FFT and bands), `waveform.rs` (the
-engine's decoder, cache), `audio/src/tap.rs` (the ring); app side `gpui/src/visuals/mod.rs`
+engine's decoder, cache), `audio/src/tap.rs` (the ring); app side `crates/app/src/visuals/mod.rs`
 (shell, settings), `effects.rs`, `content.rs`, `flight.rs`, `slots.rs`,
 `waveform.rs`.
 

@@ -18,7 +18,7 @@
 //! - [`waveform`]: a whole song's loudness outline, decoded with the audio
 //!   engine's decoder and cached per video id.
 //!
-//! Findings and numbers: `gpui/NOTES-visuals.md`.
+//! Findings and numbers: `docs/gpui/VISUALS.md`.
 
 pub mod color;
 mod cover;

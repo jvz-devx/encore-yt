@@ -3,9 +3,9 @@
 # by .github/workflows/resolver-canary.yml; never with cookies):
 #   1. the solver: fetches the current player script and checks that the
 #      embedded QuickJS solves its challenges exactly like yt-dlp's EJS in
-#      deno (tests/resolver_offline.rs);
+#      deno (crates/core/tests/resolver_offline.rs);
 #   2. live (unless --solver-only): resolves each song with the app's
-#      resolver (examples/resolve_rust.rs) and fetches its first
+#      resolver (crates/core/examples/resolve_rust.rs) and fetches its first
 #      KB, expecting 200 or 206. A song that meets YouTube's bot check
 #      (datacenter IPs do) doesn't count; if every song does, the live part
 #      is inconclusive and only warns.
@@ -50,7 +50,7 @@ echo "player $id ($(($(wc -c < "$dir/resolver/$id.js") / 1024)) KB)"
 if "$root/scripts/ejs-expected.sh" "$dir/resolver/$id.js" > "$dir/resolver/$id.expected.json"; then
   echo "deno: $(jq '.n | length' "$dir/resolver/$id.expected.json") n answers, $(jq '.sig | length' "$dir/resolver/$id.expected.json") signature lengths"
   if ! (cd "$root" && YTFAST_RESOLVER_CAPTURES="$dir/resolver" \
-        cargo test --test resolver_offline -- --nocapture); then
+        cargo test -p ytfast --test resolver_offline -- --nocapture); then
     failed+=("QuickJS solves player $id differently from yt-dlp's EJS (or not at all)")
   fi
 else
@@ -64,7 +64,7 @@ if [[ $live == 1 ]]; then
   # The example reuses the player fetched above instead of asking again.
   cp "$dir/resolver/$id.js" "$dir/home/cache/ytfast/player/$id.js"
   printf '%s' "$id" > "$dir/home/cache/ytfast/player/current"
-  (cd "$root" && cargo build --example resolve_rust)
+  (cd "$root" && cargo build -p ytfast --example resolve_rust)
   # Only the resolver gets the fresh home (cargo and sccache keep theirs).
   status=0
   env -u YTFAST_FAKE_STREAM XDG_CONFIG_HOME="$dir/home/config" \

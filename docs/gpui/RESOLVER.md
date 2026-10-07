@@ -62,18 +62,18 @@ yt-dlp 2026.08.19's defaults: signed out `visionos, web`; signed in `web_embedde
 
 Built off by default, with yt-dlp as the fallback; on by default in the GPUI app from M19, and the only resolver since M23. The list below is as built in M14; M23 at the end says what changed.
 
-- `src/jsc.rs`: the EJS solver in rquickjs, with yt-dlp-ejs vendored in `src/jsc/` (0.8.0 on 2026-10-07; `src/jsc/pins.txt` names the release by SHA-256, and the SHA3-512 hashes match the ones yt-dlp 2026.08.19 pins; licence in `src/jsc/EJS-LICENSE`, meriyah's and astring's in the bundle headers).
+- `crates/core/src/jsc.rs`: the EJS solver in rquickjs, with yt-dlp-ejs vendored in `crates/core/src/jsc/` (0.8.0 on 2026-10-07; `crates/core/src/jsc/pins.txt` names the release by SHA-256, and the SHA3-512 hashes match the ones yt-dlp 2026.08.19 pins; licence in `crates/core/src/jsc/EJS-LICENSE`, meriyah's and astring's in the bundle headers).
   - It preprocesses a player once per version and solver release and saves `<id>.ejs-<release>.js` beside it.
   - One engine thread keeps the last player's `n` and `sig` functions loaded.
   - Signatures are solved once per length as an index list and applied in Rust.
-- `src/streams.rs`: the resolver.
+- `crates/core/src/streams.rs`: the resolver.
   - It sends the InnerTube `player` request to www.youtube.com: as `VISIONOS` when signed out, as `WEB_CREATOR` with the session's cookies and SAPISIDHASH when signed in. (Since M27, signed in asks `WEB_REMIX` on music.youtube.com first; see the end.)
   - It picks the best audio format (774/141/251/140/250/249/139, skipping DRC copies), deciphers `s` into `sp`, transforms `n`, and returns the same `Stream` with the URL's `expire`.
   - It reads the player version from `https://www.youtube.com/iframe_api` at most every 6 hours and downloads the player once per version into `~/.cache/ytfast/player/`, keeping only the current one.
   - A version not yet preprocessed is prepared in the background while that song falls back to yt-dlp.
-- `src/innertube.rs` keeps the `responseContext.visitorData` from YouTube Music's responses and sends it with stream requests: signed out, VISIONOS fails the bot check without it. `player_as` sends a player request as another client.
-- `src/resolver.rs` tries the Rust resolver first. On any error yt-dlp runs instead, and a song whose Rust-resolved stream failed to play (the playback retry calls `forget`) goes to yt-dlp next time. Caching, slots and priorities are unchanged.
-- Tests: `tests/resolver_offline.rs` and `scripts/ejs-expected.sh`. The live check is `examples/resolve_rust.rs`.
+- `crates/core/src/innertube.rs` keeps the `responseContext.visitorData` from YouTube Music's responses and sends it with stream requests: signed out, VISIONOS fails the bot check without it. `player_as` sends a player request as another client.
+- `crates/core/src/resolver.rs` tries the Rust resolver first. On any error yt-dlp runs instead, and a song whose Rust-resolved stream failed to play (the playback retry calls `forget`) goes to yt-dlp next time. Caching, slots and priorities are unchanged.
+- Tests: `crates/core/tests/resolver_offline.rs` and `scripts/ejs-expected.sh`. The live check is `crates/core/examples/resolve_rust.rs`.
 
 ## Keeping up without hand work
 
@@ -83,13 +83,13 @@ Added on 2026-10-07 (PLAN M14, second item). Three parts keep the Rust resolver 
 
 The app runs the newest of these solver releases whose two files (`yt.solver.lib.min.js`, `yt.solver.core.min.js`) are both pinned by SHA-256 to that release:
 
-1. the copy vendored in the app (`src/jsc/ejs-*.min.js`);
+1. the copy vendored in the app (`crates/core/src/jsc/ejs-*.min.js`);
 2. `~/.cache/ytfast/ejs/`, where the app saves a release it downloaded;
 3. `~/.config/ytfast/ejs/`, for a release put there by hand.
 
-The pins are `src/jsc/pins.txt`, built into the app, plus the copy of that file the app last fetched (`~/.cache/ytfast/ejs/pins.txt`). A file whose hash isn't pinned, or a lib and core pinned to different releases, is ignored with a warning, and the vendored copy runs. Answers are cached per solver release (`<id>.ejs-<release>.js`), so a new solver never reuses an old one's output.
+The pins are `crates/core/src/jsc/pins.txt`, built into the app, plus the copy of that file the app last fetched (`~/.cache/ytfast/ejs/pins.txt`). A file whose hash isn't pinned, or a lib and core pinned to different releases, is ignored with a warning, and the vendored copy runs. Answers are cached per solver release (`<id>.ejs-<release>.js`), so a new solver never reuses an old one's output.
 
-The app fetches anything only when its solver fails on a player, once per player version: it reads `src/jsc/pins.txt` from this repository's `main` on raw.githubusercontent.com, and if that names a release newer than the one running, downloads its two files from yt-dlp-ejs's GitHub release (`github.com/yt-dlp/ejs/releases/download/<release>/`), checks both hashes, saves them with the fetched pins and switches the engine to them. The next songs of that player try again with the new solver; until then they play signed out (VISIONOS, which needs no solver), and a song that can't shows a plain error.
+The app fetches anything only when its solver fails on a player, once per player version: it reads `crates/core/src/jsc/pins.txt` from this repository's `main` on raw.githubusercontent.com, and if that names a release newer than the one running, downloads its two files from yt-dlp-ejs's GitHub release (`github.com/yt-dlp/ejs/releases/download/<release>/`), checks both hashes, saves them with the fetched pins and switches the engine to them. The next songs of that player try again with the new solver; until then they play signed out (VISIONOS, which needs no solver), and a song that can't shows a plain error.
 
 Trust model:
 - No remote code runs without a hash pin. The scripts come from yt-dlp-ejs's releases, but what may run is decided only by the pins, and changing the pins on `main` takes a commit to this repository (the EJS bump's pull request, reviewed and merged). Anyone who can push to `main` can already change the app's next release, so this adds no new party to trust.
@@ -102,14 +102,14 @@ Trust model:
 
 Daily at 05:17 UTC, by hand, and on pull requests that touch the resolver. It runs `scripts/resolver-canary.sh` on a GitHub runner, signed out, with no cookies and no secrets:
 
-1. It downloads the current player (iframe API, `base.js`), solves a fixed set of challenges with yt-dlp's EJS in deno (`scripts/ejs-expected.sh`) and runs `tests/resolver_offline.rs` against it (`YTFAST_RESOLVER_CAPTURES`), so QuickJS has to match deno on today's player.
-2. It resolves two public songs with the app's resolver (`examples/resolve_rust.rs`, VISIONOS) and fetches the first KB of each URL, expecting 200 or 206.
+1. It downloads the current player (iframe API, `base.js`), solves a fixed set of challenges with yt-dlp's EJS in deno (`scripts/ejs-expected.sh`) and runs `crates/core/tests/resolver_offline.rs` against it (`YTFAST_RESOLVER_CAPTURES`), so QuickJS has to match deno on today's player.
+2. It resolves two public songs with the app's resolver (`crates/core/examples/resolve_rust.rs`, VISIONOS) and fetches the first KB of each URL, expecting 200 or 206.
 
 That is 7 YouTube requests per run, all from GitHub's IPs. When a scheduled run, or a manual one on `main`, fails, the job opens an issue labelled `resolver-canary` with the log's tail, or comments on the open one (the workflow's `GITHUB_TOKEN`, `issues: write`). This needs Issues enabled on the repository. The log is also kept as a run artifact.
 
 ### The EJS bump (`.github/workflows/ejs-bump.yml`)
 
-Weekly on Mondays at 06:23 UTC, and by hand (optionally for a given release, or forced to re-check the vendored one). `scripts/ejs-bump.sh` asks GitHub's API for yt-dlp-ejs's latest release and, if it is newer than the vendored one, downloads the two files, checks them against GitHub's SHA-256 digests for the release assets and for the Unlicense header, copies them into `src/jsc/` and adds their pins. The job then runs the canary's solver part on the current player, pushes `ejs-bump/<release>`, opens a pull request and dispatches the canary on that branch (pull requests opened with `GITHUB_TOKEN` don't trigger workflows themselves; a dispatch does). Opening the pull request needs "Allow GitHub Actions to create and approve pull requests" in the repository's Actions settings; without it the job prints a compare link instead.
+Weekly on Mondays at 06:23 UTC, and by hand (optionally for a given release, or forced to re-check the vendored one). `scripts/ejs-bump.sh` asks GitHub's API for yt-dlp-ejs's latest release and, if it is newer than the vendored one, downloads the two files, checks them against GitHub's SHA-256 digests for the release assets and for the Unlicense header, copies them into `crates/core/src/jsc/` and adds their pins. The job then runs the canary's solver part on the current player, pushes `ejs-bump/<release>`, opens a pull request and dispatches the canary on that branch (pull requests opened with `GITHUB_TOKEN` don't trigger workflows themselves; a dispatch does). Opening the pull request needs "Allow GitHub Actions to create and approve pull requests" in the repository's Actions settings; without it the job prints a compare link instead.
 
 ### What the first runs found (2026-10-07)
 
@@ -204,7 +204,7 @@ yt-dlp, deno, the `rust-resolver` feature and `YTFAST_RESOLVER` are gone; `crate
 |---|---|---|
 | A new player version the vendored solver handles | Signed-in songs play signed out (251 at most) for the 12–41 s the new player is preprocessed in the background, then as the account again | Automatic |
 | A player the solver can't handle | Signed-in songs play signed out; the failure is logged once per player version. The app fetches `pins.txt` from `main` and runs a newer pinned solver if there is one | The EJS bump workflow pins the new yt-dlp-ejs release (a reviewed pull request); running apps pick it up at the next failure, no release needed |
-| VISIONOS stops giving plain URLs (SABR-only), or its bot check hits every request | Signed out nothing plays: each song shows the plain error and playback stops after three | Needs a new client in `src/streams.rs` (what yt-dlp moves to) and an app release |
+| VISIONOS stops giving plain URLs (SABR-only), or its bot check hits every request | Signed out nothing plays: each song shows the plain error and playback stops after three | Needs a new client in `crates/core/src/streams.rs` (what yt-dlp moves to) and an app release |
 | `WEB_REMIX` stops giving Premium formats or URLs (M27) | Premium plays `WEB_CREATOR`'s 251; if that goes too, signed out at 251 | Needs a client change and an app release |
 
 Known costs (until M27): a non-Premium account's `WEB_CREATOR` URLs fail at the first range request, so each of its songs paid one failed start before the signed-out retry. M27 cuts that to one per session. The canary (daily, signed out) notices the third row; nothing automatic notices the fourth.
@@ -225,7 +225,7 @@ The maintainer asked for Premium's 256 kbps formats without yt-dlp. Signed in, `
 
 1. **TV, built as yt-dlp builds it** (two signed-in resolves): the session's watch page config (player, visitor id, `DATASYNC_ID`, session index, the cookies the page sets), the context above and all three SAPISIDHASH schemes. Both times `UNPLAYABLE`, "The page needs to be reloaded", with the response saying the session was signed in. yt-dlp signed out gets the same answer today (artifacts/m19/ytdlp-tvd-signed-out.log).
 2. **Why**: yt-dlp issue 17389 (open since 2026-08-07, "tv_downgraded … has some problems for some people") and PR 17723: the TV client now forces the `player_ias_tcl` variant, whose `signatureTimestamp` has eight digits. For player `1b3be681` that is `20728001` against the web player's `20728` (the `tv-player-ias`, `tv-player-es6` and `tce` variants have `20728`). Signed out, `tv_downgraded` with `20728001` answered `OK` with ciphered 140/249/250/251 (artifacts/m19/tv-signed-out-probe.log).
-3. **But the TV URLs can't be solved**: EJS 0.8.0 (still the newest release) finds no n or signature function in the tcl variant ("no solutions"), and the TV 251 URL solved with the web player's functions got 403. So the app doesn't ask the TV client. The code stays (`src/streams/tv.rs`, `examples/resolve_rust.rs --client tv`): the yt-dlp-shaped request, the page config reader and the tcl timestamp, for when EJS learns that variant.
+3. **But the TV URLs can't be solved**: EJS 0.8.0 (still the newest release) finds no n or signature function in the tcl variant ("no solutions"), and the TV 251 URL solved with the web player's functions got 403. So the app doesn't ask the TV client. The code stays (`crates/core/src/streams/tv.rs`, `crates/core/examples/resolve_rust.rs --client tv`): the yt-dlp-shaped request, the page config reader and the tcl timestamp, for when EJS learns that variant.
 4. **`WEB_REMIX` signed out** (free check): `OK` with ciphered formats and a SABR URL, solved with the web player's timestamp. Without Premium its URLs need a PO token.
 5. **`WEB_REMIX` signed in** (the third resolve, `stream_check --signed-in --formats 774,141 dQw4w9WgXcQ`, artifacts/m19/streams-premium-music.log): one `player` request in 0.7 s listed 774, 141, 251, 140, 250, 249. Both Premium formats played through the engine with no PO token:
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Submits a release to winget (microsoft/winget-pkgs) by hand, with komac,
 # as the GitHub account `gh` is signed in to, through that account's fork
-# of winget-pkgs. See gpui/packaging/winget/README.md.
+# of winget-pkgs. See packaging/winget/README.md.
 #
 #   scripts/winget-submit.sh 0.1.0-alpha.2            # dry run: prints the manifests
 #   scripts/winget-submit.sh 0.1.0-alpha.2 --submit   # opens the pull request
@@ -15,7 +15,7 @@ set -euo pipefail
 PACKAGE="jvz-devx.ytfast"
 REPO="jvz-devx/ytfast-gpui"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-COMMITTED="$HERE/gpui/packaging/winget"
+COMMITTED="$HERE/packaging/winget"
 
 usage() {
 	echo "usage: winget-submit.sh VERSION [--submit]" >&2

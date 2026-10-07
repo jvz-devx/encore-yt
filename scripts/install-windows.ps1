@@ -29,7 +29,7 @@
     $repo = 'jvz-devx/ytfast-gpui'
     $api = "https://api.github.com/repos/$repo"
     $headers = @{ 'User-Agent' = 'ytfast-install'; 'Accept' = 'application/vnd.github+json' }
-    # The setup program's AppId (gpui/packaging/windows/ytfast-gpui.iss).
+    # The setup program's AppId (packaging/windows/ytfast-gpui.iss).
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F1C2B8E-4D1A-4B7E-9A55-2D3F1E0C7A91}_is1'
 
     if (-not [Environment]::Is64BitOperatingSystem) {

@@ -14,12 +14,12 @@ stripped release binary and of the packages built from it the way
 | **Fat LTO, 1 codegen unit, opt-level "s", hot crates at 3** | **37.5 MB** | 25.1 MB | 283 s |
 | The same, skrifa deduplicated (shipped) | 37.4 MB | | |
 
-"Rebuild after one edit" is `touch src/main.rs` and `cargo build --release
+"Rebuild after one edit" is `touch crates/app/src/main.rs` and `cargo build --release
 -j 3`: the bin crate plus the LTO link. A cold build of the shipped profile
 took 7 min at `-j 3` without the rustc wrapper (`RUSTC_WRAPPER=`).
 
 Hot crates kept at opt-level 3 (`[profile.release.package.*]` in
-gpui/Cargo.toml): symphonia and its codec and format crates, the libopus
+crates/app/Cargo.toml): symphonia and its codec and format crates, the libopus
 adapter and opusic-sys (libopus is C; cc takes cargo's opt-level), rubato,
 realfft, rustfft, audioadapter*, cpal, ytfast-audio, ytfast-visuals, wgpu,
 wgpu-core, wgpu-hal, wgpu-types, naga and gpui-pre-wgpu (GPUI's renderer,

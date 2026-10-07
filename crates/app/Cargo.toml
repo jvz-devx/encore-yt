@@ -1,26 +1,20 @@
 [package]
 name = "ytfast-gpui"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.98"
+edition.workspace = true
+rust-version.workspace = true
 description = "A GPUI interface for ytfast's YouTube Music backend"
-license = "MIT"
-repository = "https://github.com/jvz-devx/ytfast-gpui"
+license.workspace = true
+repository.workspace = true
 publish = false
 
 [[bin]]
 name = "ytfast-gpui"
 path = "src/main.rs"
 
-# Its own workspace, separate from the root crate's for now (one workspace
-# is planned in PLAN M23). crates/visuals holds the wgpu and audio code without GPUI, so it checks
-# and tests without building the app.
-[workspace]
-members = [".", "crates/visuals", "crates/audio"]
-
 [dependencies]
 # The backend (InnerTube, stream resolver, audio engine, sign-in, MPRIS).
-ytfast = { path = "..", default-features = false }
+ytfast.workspace = true
 # GPUI with gpui-component, pinned as one set: gpui-kit pins gpui-pre and
 # gpui-pre-platform (wayland, x11). Move these together.
 gpui-kit = "=0.7.1"
@@ -30,24 +24,24 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 # Wakes the foreground task that drains backend events.
 smol = "2"
 # SIGTERM/SIGINT/SIGHUP on the backend's runtime (already in the tree).
-tokio = { version = "1", features = ["rt", "signal", "sync"] }
-anyhow = "1"
-log = "0.4"
+tokio = { workspace = true, features = ["rt", "signal", "sync"] }
+anyhow.workspace = true
+log.workspace = true
 # Recently played in the sidebar (already in the tree).
-serde_json = "1"
+serde_json.workspace = true
 # The log file and the panic log.
 fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.2.2" }
 # M8 effects behind Now Playing (wgpu backdrop, the spectrum and waveform
-# from the audio engine), without GPUI; gpui/src/visuals wraps it in views.
-ytfast-visuals = { path = "crates/visuals" }
+# from the audio engine), without GPUI; src/visuals wraps it in views.
+ytfast-visuals.workspace = true
 # M16 auto-update (src/update): the release feed and downloads (the
 # backend's reqwest, on its runtime, with a client of our own so no YouTube
 # state goes to GitHub), checksums, versions and the job file. All already
 # in the tree at these versions.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
-sha2 = "0.10"
+reqwest.workspace = true
+sha2.workspace = true
 semver = "1"
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 # Builds the BGRA frames GPUI paints (`RenderImage` holds `image::Frame`s).
 # Already in the lock through gpui-pre, at the same version.
 image = { version = "0.25", default-features = false }
@@ -75,7 +69,9 @@ raw-window-handle = "0.6"
 
 # Linux packages (cargo-deb, cargo-generate-rpm), built by
 # .github/workflows/release.yml. The app lives in /usr/lib/ytfast-gpui and
-# needs no other programs: it plays and resolves streams itself.
+# needs no other programs: it plays and resolves streams itself. cargo-deb
+# reads asset paths from this crate's directory, cargo-generate-rpm from the
+# workspace root (where release.yml runs it).
 [package.metadata.deb]
 name = "ytfast-gpui"
 maintainer = "jvz-devx <jvz-devx@users.noreply.github.com>"
@@ -86,11 +82,11 @@ priority = "optional"
 depends = "$auto"
 assets = [
     ["target/release/ytfast-gpui", "usr/lib/ytfast-gpui/ytfast-gpui", "755"],
-    ["packaging/linux/ytfast-gpui.sh", "usr/bin/ytfast-gpui", "755"],
-    ["packaging/linux/ytfast-gpui.desktop", "usr/share/applications/ytfast-gpui.desktop", "644"],
-    ["packaging/icons/ytfast-gpui.svg", "usr/share/icons/hicolor/scalable/apps/ytfast-gpui.svg", "644"],
-    ["packaging/icons/ytfast-gpui.png", "usr/share/icons/hicolor/512x512/apps/ytfast-gpui.png", "644"],
-    ["packaging/THIRD-PARTY.txt", "usr/share/doc/ytfast-gpui/THIRD-PARTY.txt", "644"],
+    ["../../packaging/linux/ytfast-gpui.sh", "usr/bin/ytfast-gpui", "755"],
+    ["../../packaging/linux/ytfast-gpui.desktop", "usr/share/applications/ytfast-gpui.desktop", "644"],
+    ["../../packaging/icons/ytfast-gpui.svg", "usr/share/icons/hicolor/scalable/apps/ytfast-gpui.svg", "644"],
+    ["../../packaging/icons/ytfast-gpui.png", "usr/share/icons/hicolor/512x512/apps/ytfast-gpui.png", "644"],
+    ["../../packaging/THIRD-PARTY.txt", "usr/share/doc/ytfast-gpui/THIRD-PARTY.txt", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -105,78 +101,3 @@ assets = [
     { source = "packaging/icons/ytfast-gpui.png", dest = "/usr/share/icons/hicolor/512x512/apps/ytfast-gpui.png", mode = "644" },
     { source = "packaging/THIRD-PARTY.txt", dest = "/usr/share/doc/ytfast-gpui/THIRD-PARTY.txt", mode = "644", doc = true },
 ]
-
-[profile.dev.package."*"]
-opt-level = 2
-
-# Small downloads (M26, docs/gpui/SIZE.md): fat LTO, one codegen unit and
-# opt-level "s" make the binary 43% smaller than thin LTO at opt-level 3, with
-# the app's CPU playing and in Now Playing unchanged. Panics still unwind.
-[profile.release]
-lto = "fat"
-codegen-units = 1
-opt-level = "s"
-strip = true
-
-# Speed-critical crates stay at opt-level 3: audio decoding and resampling,
-# the audio engine, the effects and the GPU path. `profiling` inherits these.
-[profile.release.package.symphonia]
-opt-level = 3
-[profile.release.package.symphonia-core]
-opt-level = 3
-[profile.release.package.symphonia-codec-aac]
-opt-level = 3
-[profile.release.package.symphonia-format-isomp4]
-opt-level = 3
-[profile.release.package.symphonia-format-mkv]
-opt-level = 3
-[profile.release.package.symphonia-format-ogg]
-opt-level = 3
-[profile.release.package.symphonia-adapter-libopus]
-opt-level = 3
-[profile.release.package.opusic-sys]
-opt-level = 3
-[profile.release.package.rubato]
-opt-level = 3
-[profile.release.package.realfft]
-opt-level = 3
-[profile.release.package.rustfft]
-opt-level = 3
-[profile.release.package.audioadapter]
-opt-level = 3
-[profile.release.package.audioadapter-buffers]
-opt-level = 3
-[profile.release.package.audioadapter-sample]
-opt-level = 3
-[profile.release.package.cpal]
-opt-level = 3
-[profile.release.package.ytfast-audio]
-opt-level = 3
-[profile.release.package.ytfast-visuals]
-opt-level = 3
-[profile.release.package.wgpu]
-opt-level = 3
-[profile.release.package.wgpu-core]
-opt-level = 3
-[profile.release.package.wgpu-hal]
-opt-level = 3
-[profile.release.package.wgpu-types]
-opt-level = 3
-[profile.release.package.naga]
-opt-level = 3
-[profile.release.package.gpui-pre-wgpu]
-opt-level = 3
-
-# Release speed without release build times, for CPU/GPU measurements and
-# visual checks of the effects: `cargo build --profile profiling`. It keeps
-# release's opt-levels (the "s" default and the overrides above), so its CPU
-# numbers stand for release; only LTO and codegen units differ. Full
-# release (LTO) is for CI and packaging only; after a one-file change it
-# re-optimises and re-links the whole app, which takes minutes.
-[profile.profiling]
-inherits = "release"
-lto = false
-incremental = true
-codegen-units = 16
-strip = false
-debug = "line-tables-only"

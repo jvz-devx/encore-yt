@@ -9,7 +9,7 @@
 //! - Stage, equalizer, sleep timer (M6: `extras`)
 //!
 //! Shared recipes (icons, buttons, covers, skeletons) live in `widgets`;
-//! colours, sizes and type in `crate::theme`. See `gpui/DESIGN.md`.
+//! colours, sizes and type in `crate::theme`. See `docs/gpui/DESIGN.md`.
 
 mod account;
 pub(crate) mod extras;

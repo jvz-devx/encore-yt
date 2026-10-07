@@ -1,7 +1,7 @@
 # ytfast GPUI design system
 
 The look of the GPUI app, and the reference for every view built on it.
-Tokens live in `src/theme.rs`; shared recipes in `src/views/widgets.rs`.
+Tokens live in `crates/app/src/theme.rs`; shared recipes in `crates/app/src/views/widgets.rs`.
 Views never name a colour, size or font directly: they use these.
 
 ## Principles
@@ -52,7 +52,7 @@ Views never name a colour, size or font directly: they use these.
 The look follows the desktop live: `theme::init` reads the XDG desktop
 portal's `org.freedesktop.appearance` `color-scheme` (KDE sets it from the
 colour scheme) and listens for `SettingChanged`, switching the tokens and
-gpui-component's theme and redrawing every window (`src/theme/portal.rs`).
+gpui-component's theme and redrawing every window (`crates/app/src/theme/portal.rs`).
 No preference or no portal means dark. `YTFAST_GPUI_THEME=light|dark` pins
 a look over the desktop.
 
@@ -89,7 +89,7 @@ Prefer our recipes; when you use a kit component, don't recolour it per view.
 
 ## Type (`theme::Type`, on any `Styled`)
 
-Inter 4.001 static cuts, bundled (`assets/fonts`, OFL). Body is 14 px.
+Inter 4.001 static cuts, bundled (`crates/app/assets/fonts`, OFL). Body is 14 px.
 
 | Style | Size/line | Weight | Font | Use |
 | --- | --- | --- | --- | --- |
@@ -156,14 +156,14 @@ Inter 4.001 static cuts, bundled (`assets/fonts`, OFL). Body is 14 px.
   eases the current line to the top third or the centre. Text size S/M/L/XL
   and left or centred lines. Brightness is the `text` token's opacity.
   `YTFAST_GPUI_FAKE_LYRICS=<file.lrc>` gives every song local timed lyrics
-  for checks (`gpui/fixtures/lyrics.lrc`).
+  for checks (`crates/app/fixtures/lyrics.lrc`).
 
 ## Icons
 
 Lucide via `gpui_kit::assets::IconName`; add any you use to `ExtraIcons` in
-`src/assets.rs`. Outline icons at 18 px (16 in pills and fields), coloured
+`crates/app/src/assets.rs`. Outline icons at 18 px (16 in pills and fields), coloured
 `text_muted` at rest and `text` when active. Transport and play buttons use the
-filled glyphs in `assets/icons/fill` through `assets::Glyph` (play, pause,
+filled glyphs in `crates/app/assets/icons/fill` through `assets::Glyph` (play, pause,
 skip back/forward). A play triangle sits 2 px right of centre (optical).
 
 ## Components (`views/widgets.rs` and where they're used)

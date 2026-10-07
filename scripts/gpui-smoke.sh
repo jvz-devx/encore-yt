@@ -28,7 +28,7 @@ input=scripts/gpui-input.sh
 
 if [ -z "${SMOKE_LOCKED:-}" ]; then
     if [ -z "${SMOKE_NO_BUILD:-}" ]; then
-        (cd gpui && nice cargo build -j "${JOBS:-3}" --release)
+        nice cargo build -j "${JOBS:-3}" -p ytfast-gpui --release
     fi
     export SMOKE_LOCKED=1
     exec "$input" locked "$0" "$@"
@@ -47,7 +47,7 @@ shots=0
 # The app's file name must stay ytfast-gpui (`gpui-input.sh stop` finds it so).
 mkdir -p "$state/bin" "$state/config" "$state/cache" "$state/run" artifacts/gpui
 chmod 700 "$state/run"
-cp gpui/target/release/ytfast-gpui "$state/bin/ytfast-gpui"
+cp target/release/ytfast-gpui "$state/bin/ytfast-gpui"
 rm -f artifacts/gpui/smoke-*.png
 
 finish() {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Vendors a yt-dlp-ejs release (github.com/yt-dlp/ejs) into src/jsc/ and pins
-# its hashes in src/jsc/pins.txt, if it is newer than the vendored one.
+# Vendors a yt-dlp-ejs release (github.com/yt-dlp/ejs) into crates/core/src/jsc/ and pins
+# its hashes in crates/core/src/jsc/pins.txt, if it is newer than the vendored one.
 #   scripts/ejs-bump.sh            # the latest release
 #   scripts/ejs-bump.sh 0.9.0      # a given release
 #   EJS_FORCE=1 scripts/ejs-bump.sh 0.8.0   # re-vendor even if not newer
@@ -9,7 +9,7 @@
 # Actions it also writes bumped/version/previous to $GITHUB_OUTPUT.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-jsc="$root/src/jsc"
+jsc="$root/crates/core/src/jsc"
 pins="$jsc/pins.txt"
 api=https://api.github.com/repos/yt-dlp/ejs/releases
 auth=()

@@ -64,7 +64,7 @@ read from disk at the same time as the platform.
   the effects asked for their wgpu device in the first frame's render;
   making it (Vulkan instance, adapter and device) took 80 ms or more on the
   UI thread. The first frame now paints the plain bar, and the effects take
-  over once the device is there (`gpui/src/visuals/device.rs`).
+  over once the device is there (`crates/app/src/visuals/device.rs`).
 - **The portal and the cover art client start on threads.** Reading the
   desktop's colour scheme is a D-Bus round trip (capped at 300 ms when the
   portal is slow), and the HTTP client loads the system's root

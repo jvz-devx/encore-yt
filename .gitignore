@@ -3,6 +3,3 @@
 # Never commit account material.
 *cookies*.txt
 /notes
-# A machine-local toolchain pin, if one is needed.
-/.cargo/config.toml
-/gpui/target

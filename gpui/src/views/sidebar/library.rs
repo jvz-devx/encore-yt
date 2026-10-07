@@ -153,6 +153,7 @@ fn row(
         })
         .when(rail, |s| s.tooltip(widgets::tooltip(item.title.clone())))
         .on_click(cx.listener(move |this, _, _, cx| this.choose_library_item(&item_for_click, cx)))
+        .map(|el| crate::views::page::intent::page(el, item, cx))
 }
 
 /// The item's cover; Liked music without one (it wasn't on any page yet)

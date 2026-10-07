@@ -126,6 +126,7 @@ pub fn row(
             )
         })
         .on_click(on_activate(ctx, shelf, i, cx))
+        .map(|el| super::intent::page(el, item, cx))
         .map(|el| crate::views::extras::audition::hook(el, item.track.as_ref(), radius::MD, cx))
         .into_any_element()
 }

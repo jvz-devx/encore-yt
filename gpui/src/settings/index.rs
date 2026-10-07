@@ -76,6 +76,12 @@ const PLAYBACK: &[Line] = &[
         "Show a notification when the song changes",
         "Desktop notifications while Music's window isn't in front",
     ),
+    (
+        Category::Playback,
+        None,
+        "Load pages when you point at them",
+        "Loading ahead: albums and playlists open at once, and Play starts sooner",
+    ),
 ];
 
 const EQUALIZER: &[Line] = &[

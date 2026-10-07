@@ -12,6 +12,7 @@ use super::Ctx;
 use super::runs::runs_line;
 use crate::app::MusicApp;
 use crate::assets::Glyph;
+use crate::pages::Want;
 use crate::theme::{Type, size, space};
 use crate::views::widgets::{self, Pill};
 
@@ -48,6 +49,17 @@ pub fn header(
                 .any(|s| s.items.iter().any(|i| i.track.is_some()))
         });
     let key = ctx.key.clone();
+    // An album's or playlist's Play starts with its first song: resting on
+    // it resolves that song (M28). An artist's plays a radio.
+    let first_song = app
+        .pages
+        .states
+        .get(&ctx.key)
+        .map(|s| &s.target)
+        .filter(|t| {
+            matches!(t, Target::Browse { id, .. } if id.starts_with("VL") || id.starts_with("MPRE"))
+        })
+        .map(|t| Want::FirstSong(t.clone()));
     let play = (header.play.is_some() || has_songs).then(|| {
         widgets::pill_button(
             "header-play",
@@ -61,6 +73,10 @@ pub fn header(
             c,
         )
         .on_click(cx.listener(move |this, _, _, cx| this.play_page(&key, cx)))
+        .map(|el| match first_song {
+            Some(want) => super::intent::report(el, want, cx),
+            None => el,
+        })
     });
     let secondary = |id: &'static str, label: &'static str, icon: IconName, target: Target| {
         widgets::pill_button(

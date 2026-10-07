@@ -14,6 +14,7 @@ mod home;
 mod menu;
 mod motion;
 mod player;
+mod prefetch;
 mod search;
 mod settings;
 

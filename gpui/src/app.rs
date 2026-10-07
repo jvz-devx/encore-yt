@@ -120,7 +120,7 @@ impl MusicApp {
                 async {}
             }),
         ];
-        let (pages, subs) = Pages::new(window, cx);
+        let (pages, subs) = Pages::new(&paths, window, cx);
         subscriptions.extend(subs);
         let (player, subs) = Player::new(window, cx);
         subscriptions.extend(subs);

@@ -310,6 +310,7 @@ fn tile(ctx: &Ctx, shelf: usize, i: usize, item: &Item, cx: &mut Context<MusicAp
                 .child(item.title.clone()),
         )
         .on_click(on_activate(ctx, shelf, i, cx))
+        .map(|el| super::intent::page(el, item, cx))
         .into_any_element()
 }
 
@@ -332,6 +333,7 @@ fn top_result(ctx: &Ctx, shelf: usize, item: &Item, cx: &mut Context<MusicApp>) 
             c,
         )
         .on_click(on_play(ctx, shelf, 0, cx))
+        .map(|el| super::intent::play(el, item, cx))
     });
     h_flex()
         .id(ctx.id("top-result"))
@@ -366,5 +368,7 @@ fn top_result(ctx: &Ctx, shelf: usize, item: &Item, cx: &mut Context<MusicApp>) 
                 .children(play.map(|p| h_flex().mt(space::MD).child(p))),
         )
         .on_click(on_activate(ctx, shelf, 0, cx))
+        .map(|el| super::intent::page(el, item, cx))
+        .map(|el| crate::views::extras::audition::listen(el, item.track.as_ref(), cx))
         .into_any_element()
 }

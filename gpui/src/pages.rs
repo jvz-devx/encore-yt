@@ -2,6 +2,7 @@
 //! continuations, and search (`search`).
 
 mod list;
+mod prefetch;
 pub mod search;
 
 use std::collections::{HashMap, HashSet};
@@ -11,11 +12,15 @@ use gpui_kit::*;
 use ytfast::backend::Command;
 use ytfast::model::{Chip, Item, Page, Shelf, Target, Track};
 use ytfast::parse::More;
+use ytfast::paths::Paths;
 
 use crate::app::MusicApp;
 use crate::nav::{LibraryTab, PageState, View};
 
 pub use list::PageList;
+#[cfg(test)]
+pub use prefetch::{DWELL, FETCHES_PER_MINUTE, RESOLVES_PER_MINUTE};
+pub use prefetch::{Prefetch, Want};
 pub use search::{Dropdown, Search};
 
 actions!(music, [Back, Forward]);
@@ -42,6 +47,11 @@ pub struct Pages {
     pub link_hover: Option<(SharedString, usize)>,
     /// The last move between views, for the page transition.
     pub transition: Transition,
+    /// Hover intent and its budget (M28).
+    pub prefetch: Prefetch,
+    /// The page opened last and when, until it is shown (its timing is
+    /// logged at debug level).
+    opened: Option<(String, Instant)>,
 }
 
 /// A move to another view: when, which way, and whether its page was
@@ -57,7 +67,11 @@ pub struct Transition {
 }
 
 impl Pages {
-    pub fn new(_window: &mut Window, _cx: &mut Context<MusicApp>) -> (Self, Vec<Subscription>) {
+    pub fn new(
+        paths: &Paths,
+        _window: &mut Window,
+        cx: &mut Context<MusicApp>,
+    ) -> (Self, Vec<Subscription>) {
         (
             Self {
                 view: View::Home,
@@ -75,6 +89,8 @@ impl Pages {
                     back: false,
                     ready: false,
                 },
+                prefetch: Prefetch::new(paths, cx.background_executor().clone()),
+                opened: None,
             },
             Vec::new(),
         )
@@ -129,6 +145,12 @@ impl MusicApp {
             back,
             ready,
         };
+        let key = target.key();
+        if ready {
+            self.log_shown(&key, Instant::now());
+        } else {
+            self.pages.opened = Some((key, Instant::now()));
+        }
         self.ensure_page(target, false);
     }
 
@@ -249,6 +271,20 @@ impl MusicApp {
         state.seq = seq;
     }
 
+    /// The click timing (M28): how long page `key` took to show after
+    /// `opened`, and whether a hover fetched it.
+    fn log_shown(&self, key: &str, opened: Instant) {
+        log::debug!(
+            "page {key} shown {} ms after it was opened ({})",
+            opened.elapsed().as_millis(),
+            if self.pages.prefetch.hover_fetched(key) {
+                "hover fetched"
+            } else {
+                "not hover fetched"
+            }
+        );
+    }
+
     /// Asks again for a page that failed or shows its saved copy.
     pub fn retry_page(&mut self, key: &str, cx: &mut Context<Self>) {
         if let Some(target) = self.pages.states.get(key).map(|s| s.target.clone()) {
@@ -264,7 +300,14 @@ impl MusicApp {
         result: Result<Box<Page>, String>,
         cached: bool,
     ) {
-        let Some(state) = self.pages.states.get_mut(&key) else {
+        self.take_page(&key, seq, result, cached);
+        if !cached {
+            self.prefetch_landed(&key);
+        }
+    }
+
+    fn take_page(&mut self, key: &str, seq: u64, result: Result<Box<Page>, String>, cached: bool) {
+        let Some(state) = self.pages.states.get_mut(key) else {
             return;
         };
         if seq != state.seq {
@@ -272,6 +315,12 @@ impl MusicApp {
         }
         match result {
             Ok(page) => {
+                if let Some((_, at)) = self.pages.opened.take_if(|(k, _)| *k == key) {
+                    self.log_shown(key, at);
+                }
+                let Some(state) = self.pages.states.get_mut(key) else {
+                    return;
+                };
                 // A late cached copy never replaces fresh content.
                 if cached && state.page.is_some() && !state.cached {
                     return;
@@ -292,7 +341,7 @@ impl MusicApp {
             }
         }
         // The account's changes still in force apply to the new copy (M3).
-        self.account_page_arrived(&key, cached);
+        self.account_page_arrived(key, cached);
     }
 
     /// Loads the next part of page `key`: its own continuation (more
@@ -512,4 +561,6 @@ pub fn on_actions(root: Div, cx: &mut Context<MusicApp>) -> Div {
             MouseButton::Navigate(NavigationDirection::Forward),
             cx.listener(|this, _, _, cx| this.go_forward(cx)),
         )
+        // Hover intent waits while pages scroll (M28).
+        .on_scroll_wheel(cx.listener(|this, _, _, _| this.intent_scrolled()))
 }

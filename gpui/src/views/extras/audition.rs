@@ -40,7 +40,12 @@ pub fn listen(
     let hovered = track.clone();
     let pressed = track.clone();
     el.hover_listener_mode(HoverListenerMode::InputModalityIndependent)
-        .on_hover(cx.listener(move |this, on: &bool, _, cx| this.audition_hover(&hovered, *on, cx)))
+        .on_hover(cx.listener(move |this, on: &bool, _, cx| {
+            this.audition_hover(&hovered, *on, cx);
+            // Resting on a song resolves it ahead of a click (M28).
+            let want = crate::pages::Want::Song(hovered.video_id.clone());
+            this.hover_intent(want, *on, cx);
+        }))
         .on_mouse_down(
             MouseButton::Middle,
             cx.listener(move |this, _, _, cx| this.audition_middle(&pressed, cx)),

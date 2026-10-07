@@ -13,7 +13,9 @@
 //! cargo run --example stream_check --no-default-features --features rust-audio --
 //!     [--signed-in] [--formats 251,250,249,140] VIDEO_ID
 //!
-//! (Premium: `--signed-in --formats 774,141`.)
+//! (Premium: `--signed-in --formats 774,141`.) The resolved formats are kept
+//! for an hour in the runtime directory (0600), so running it again plays
+//! them without resolving the song again.
 
 use std::process::Command;
 use std::sync::OnceLock;
@@ -88,8 +90,31 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// One yt-dlp run for every format in `list` (comma-separated).
+/// One yt-dlp run for every format in `list` (comma-separated), or the
+/// formats an earlier run saved within the hour.
 fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
+    let who = if signed_in { "signed-in" } else { "signed-out" };
+    let saved = ytfast::paths::Paths::new()?
+        .runtime
+        .join(format!("stream-check-{video}-{who}.tsv"));
+    let fresh = std::fs::metadata(&saved)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < Duration::from_secs(3600));
+    if fresh {
+        let formats = parse(&std::fs::read_to_string(&saved)?);
+        if list.split(',').all(|f| formats.iter().any(|g| g.itag == f)) {
+            step!(
+                "using the {} formats resolved within the hour",
+                formats.len()
+            );
+            return Ok(formats
+                .into_iter()
+                .filter(|f| list.split(',').any(|l| l == f.itag))
+                .collect());
+        }
+    }
     let cookies = signed_in.then(cookie_file).transpose()?;
     let mut command = Command::new("yt-dlp");
     command.args(["--ignore-config", "--no-warnings", "--no-playlist"]);
@@ -110,8 +135,21 @@ fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
     if !output.status.success() {
         bail!("yt-dlp: {}", String::from_utf8_lossy(&output.stderr).trim());
     }
-    let formats: Vec<Format> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    save(&saved, &stdout)?;
+    let formats = parse(&stdout);
+    step!(
+        "yt-dlp resolved {} formats in {:.1} s ({})",
+        formats.len(),
+        started.elapsed().as_secs_f64(),
+        if signed_in { "signed in" } else { "signed out" }
+    );
+    Ok(formats)
+}
+
+/// yt-dlp's lines: format id, user agent, URL.
+fn parse(text: &str) -> Vec<Format> {
+    text.lines()
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\t');
             let (itag, agent, url) = (parts.next()?, parts.next()?, parts.next()?);
@@ -121,14 +159,17 @@ fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
                 user_agent: (agent != "NA").then(|| agent.to_owned()),
             })
         })
-        .collect();
-    step!(
-        "yt-dlp resolved {} formats in {:.1} s ({})",
-        formats.len(),
-        started.elapsed().as_secs_f64(),
-        if signed_in { "signed in" } else { "signed out" }
-    );
-    Ok(formats)
+        .collect()
+}
+
+/// Stream URLs are good for hours: only this user may read them.
+fn save(path: &std::path::Path, text: &str) -> Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    std::io::Write::write_all(&mut options.open(path)?, text.as_bytes())?;
+    Ok(())
 }
 
 /// The account's cookies for yt-dlp, as the app writes them (0600; removed
@@ -158,6 +199,26 @@ fn check(engine: &Engine, events: &Receiver<Event>, format: &Format) -> Result<S
         |e| matches!(e, Event::Started { track, .. } if *track == a),
     )?;
     let first = (now() - asked) * 1000.0;
+    // A seek far ahead at once, before the download gets there: a new
+    // range request at the target.
+    let early = engine.stats(0).and_then(|s| s.duration).unwrap_or(60.0) * 0.8;
+    let early_http = engine.stats(0).map_or(0, |s| s.http.downloaded);
+    let asked = now();
+    engine.seek(0, early.floor());
+    wait(
+        events,
+        |e| matches!(e, Event::Seeked { track, .. } if *track == a),
+    )?;
+    let seek_early = (now() - asked) * 1000.0;
+    step!(
+        "seeked to {:.0} s right away ({early_http} bytes downloaded) in {seek_early:.0} ms",
+        early.floor()
+    );
+    engine.seek(0, 0.0);
+    wait(
+        events,
+        |e| matches!(e, Event::Seeked { track, .. } if *track == a),
+    )?;
     std::thread::sleep(Duration::from_secs(3));
     let stats = engine.stats(0).context("no stats")?;
     let duration = stats.duration.context("the container gave no length")?;
@@ -203,7 +264,7 @@ fn check(engine: &Engine, events: &Receiver<Event>, format: &Format) -> Result<S
     let next = engine.stats(0).context("no stats after the join")?;
     let http = &stats.http;
     let row = format!(
-        "itag {}: first audio {first:.0} ms; seek to middle {seek_middle:.0} ms, near end {seek_end:.0} ms; \
+        "itag {}: first audio {first:.0} ms; early seek {seek_early:.0} ms; seek to middle {seek_middle:.0} ms, near end {seek_end:.0} ms; \
          played {length:.3} s of {duration:.3} s ({:+.1} ms); join gap {gap:.0} frames; \
          next track at {:.2} s; starved {:.3} s; http {} requests, {} of {} bytes at 3 s",
         format.itag,

@@ -259,6 +259,15 @@ impl Session {
         })
     }
 
+    /// A youtube.com cookie's value (`__Secure-1PAPISID` and
+    /// `__Secure-3PAPISID` for the other SAPISIDHASH schemes).
+    pub fn cookie(&self, name: &str) -> Option<&str> {
+        self.cookies
+            .iter()
+            .find(|c| c.name == name && applies_to_music(&c.host))
+            .map(|c| c.value.as_str())
+    }
+
     /// Writes the cookies as a Netscape cookie file (mode 0600).
     pub fn write_netscape(&self, path: &Path) -> Result<()> {
         let mut text = String::from("# Netscape HTTP Cookie File\n");

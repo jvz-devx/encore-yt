@@ -5,7 +5,10 @@
 //! (`crate::jsc`). What works and what doesn't (PO tokens, SABR), and what
 //! happens when YouTube changes its player, is in docs/gpui/RESOLVER.md.
 
+mod tv;
+
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -22,6 +25,18 @@ const ITAGS: [u64; 7] = [774, 141, 251, 140, 250, 249, 600];
 
 /// How long a player version is trusted before asking which is current.
 const PLAYER_CHECK: Duration = Duration::from_secs(6 * 3600);
+
+/// Premium's own formats: a response with one of them proves Premium.
+const PREMIUM_ITAGS: [u32; 2] = [774, 141];
+
+/// The account clients, best first: both need Premium for URLs without a
+/// PO token.
+const ACCOUNT_CLIENTS: [&PlayerClient; 2] = [&WEB_REMIX, &WEB_CREATOR];
+
+/// What the session's account is known to be.
+const UNKNOWN: u8 = 0;
+const PREMIUM: u8 = 1;
+const NOT_PREMIUM: u8 = 2;
 
 const WEB_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
@@ -40,15 +55,31 @@ pub const VISIONOS: PlayerClient = PlayerClient {
         ("osName", "visionOS"),
         ("osVersion", "26.5.23O471"),
     ],
+    host: tv::WWW,
 };
 
-/// An older TV client: takes cookies, needs the JS challenges, no PO token.
+/// An older TV client (yt-dlp's `tv_downgraded`): no PO token, the JS
+/// challenges of the TV player variant. Not asked by the app (see
+/// `Native::tv_sts`); `examples/resolve_rust.rs --client tv` asks it.
 pub const TV_DOWNGRADED: PlayerClient = PlayerClient {
     name: "TVHTML5",
     version: "5.20260707",
     number: 7,
     user_agent: Some("Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"),
     extra: &[],
+    host: tv::WWW,
+};
+
+/// YouTube Music's web client (yt-dlp's `web_music`) on
+/// music.youtube.com: with a Premium session its URLs need no PO token,
+/// and it offers 774 and 141. Without Premium they need one.
+pub const WEB_REMIX: PlayerClient = PlayerClient {
+    name: "WEB_REMIX",
+    version: "1.20260707.12.00",
+    number: 67,
+    user_agent: Some(WEB_AGENT),
+    extra: &[],
+    host: "https://music.youtube.com",
 };
 
 /// Studio's web client: signed in only; Premium needs no PO token.
@@ -58,6 +89,7 @@ pub const WEB_CREATOR: PlayerClient = PlayerClient {
     number: 62,
     user_agent: Some(WEB_AGENT),
     extra: &[],
+    host: tv::WWW,
 };
 
 /// The pins file on the repository's default branch: the list of solver
@@ -117,6 +149,15 @@ pub struct Native {
     logged: Mutex<std::collections::HashSet<String>>,
     /// Where to save each player response (for the live check example).
     dump: Option<PathBuf>,
+    /// The session's www.youtube.com config for the TV client, and when it
+    /// was read (or failed to be).
+    web: tokio::sync::Mutex<Option<(tv::WebConfig, Instant, bool)>>,
+    /// Whether the account has Premium ([`UNKNOWN`], [`PREMIUM`] once a
+    /// response had its formats, [`NOT_PREMIUM`] once an account client's
+    /// stream failed to play before that).
+    premium: AtomicU8,
+    /// The TV player variant's signature timestamp, by player version.
+    tv_sts: Mutex<Option<(String, u32)>>,
 }
 
 impl Native {
@@ -136,6 +177,9 @@ impl Native {
             current: tokio::sync::Mutex::default(),
             logged: Mutex::default(),
             dump: None,
+            web: tokio::sync::Mutex::default(),
+            premium: AtomicU8::new(UNKNOWN),
+            tv_sts: Mutex::default(),
         }
     }
 
@@ -167,29 +211,70 @@ impl Native {
         self.solver.version()
     }
 
-    /// The best audio stream and the client it came from: with `account`
-    /// through WEB_CREATOR with the session's cookies (Premium needs no PO
-    /// token there), else, or when that fails, signed out through VISIONOS,
-    /// which needs no JS. The TV client answered "The page needs to be
-    /// reloaded" on 2026-10-07 both ways, so it isn't asked.
+    /// The best audio stream and the client it came from.
     pub async fn resolve(&self, video_id: &str, account: bool) -> Result<(Stream, &'static str)> {
+        let (mut streams, client) = self.streams(video_id, account, 1).await?;
+        Ok((streams.remove(0), client))
+    }
+
+    /// Up to `limit` of the wanted formats, best first, and the client they
+    /// came from. With `account`, unless it is known to lack Premium:
+    /// YouTube Music's web client with the session (774 and 141), then
+    /// WEB_CREATOR (251); then, or else, signed out through VISIONOS, which
+    /// needs no JS. One `player` request per song while the first works.
+    pub async fn streams(
+        &self,
+        video_id: &str,
+        account: bool,
+        limit: usize,
+    ) -> Result<(Vec<Stream>, &'static str)> {
         let mut errors = Vec::new();
-        if account {
-            match self.resolve_as(&WEB_CREATOR, video_id, true).await {
-                Ok(stream) => return Ok((stream, WEB_CREATOR.name)),
+        let premium = self.premium.load(Ordering::Relaxed) != NOT_PREMIUM;
+        for client in ACCOUNT_CLIENTS.into_iter().filter(|_| account && premium) {
+            match self.streams_as(client, video_id, true, limit).await {
+                Ok(streams) => {
+                    if streams.iter().any(|s| PREMIUM_ITAGS.contains(&s.itag)) {
+                        self.premium.store(PREMIUM, Ordering::Relaxed);
+                    }
+                    return Ok((streams, client.name));
+                }
                 Err(error) => {
                     self.log_failure(video_id, &error);
-                    errors.push(format!("{}: {error:#}", WEB_CREATOR.name));
+                    errors.push(format!("{}: {error:#}", client.name));
+                    // A player being prepared fails the next client too.
+                    if error.downcast_ref::<PlayerFailure>().is_some() {
+                        break;
+                    }
                 }
             }
         }
-        match self.resolve_as(&VISIONOS, video_id, false).await {
-            Ok(stream) => Ok((stream, VISIONOS.name)),
+        match self.streams_as(&VISIONOS, video_id, false, limit).await {
+            Ok(streams) => Ok((streams, VISIONOS.name)),
             Err(error) => {
                 self.log_failure(video_id, &error);
                 errors.push(format!("{}: {error:#}", VISIONOS.name));
                 bail!("{}", errors.join("; "))
             }
+        }
+    }
+
+    /// A stream from `url` failed to play. One from an account client
+    /// before any response had Premium's formats means the account has no
+    /// Premium (those URLs then need a PO token): the account clients
+    /// aren't asked again this session, so only the first song pays a
+    /// failed start.
+    pub fn stream_failed(&self, url: &str) {
+        let client = url_param(url, "c");
+        let ours = ACCOUNT_CLIENTS
+            .iter()
+            .any(|c| client.as_deref() == Some(c.name));
+        if ours
+            && self
+                .premium
+                .compare_exchange(UNKNOWN, NOT_PREMIUM, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            log::warn!("the account's streams don't play (no Premium?); resolving signed out");
         }
     }
 
@@ -237,28 +322,55 @@ impl Native {
         limit: usize,
     ) -> Result<Vec<Stream>> {
         let needs_js = client.name != VISIONOS.name;
+        // The TV client is asked as yt-dlp asks it, with the session's own
+        // page config (its player version first of all).
+        let web = match authed && client.name == TV_DOWNGRADED.name {
+            true => Some(self.web_config(video_id).await),
+            false => None,
+        };
+        let want = web.as_ref().and_then(|w| w.player.clone());
         let mut current = if needs_js {
-            Some(self.player().await?)
+            Some(self.player_for(want.as_deref()).await?)
         } else {
             None
         };
-        let response = self
-            .innertube
-            .player_as(client, video_id, current.as_ref().map(|c| c.sts), authed)
-            .await
-            .map_err(|e| anyhow!("{e}"))?;
+        // The TV client wants the TV player variant's timestamp; with the
+        // web player's it answers "The page needs to be reloaded".
+        let sts = match (client.name == TV_DOWNGRADED.name, &current) {
+            (true, Some(current)) => Some(self.tv_sts(current).await),
+            (false, Some(current)) => Some(current.sts),
+            (_, None) => None,
+        };
+        let response = match &web {
+            Some(web) => self.player_tv(client, video_id, sts, web).await?,
+            None => self
+                .innertube
+                .player_as(client, video_id, sts, authed)
+                .await
+                .map_err(|e| anyhow!("{e}"))?,
+        };
         if let Some(dir) = &self.dump {
             let path = dir.join(format!("{}-{video_id}.json", client.name));
             let _ = std::fs::write(path, response.to_string());
         }
         let mut streams = Vec::new();
-        for format in audio_formats(&response)?.into_iter().take(limit) {
+        let formats = audio_formats(&response).map_err(|error| match authed {
+            // Whether YouTube took the session, for the log.
+            true => match crate::parse::logged_in(&response) {
+                Some(yes) => {
+                    error.context(format!("signed in: {}", if yes { "yes" } else { "no" }))
+                }
+                None => error,
+            },
+            false => error,
+        })?;
+        for format in formats.into_iter().take(limit) {
             let url = match (format.url, format.cipher) {
                 (Some(url), _) if !needs_challenges(&url) => url,
                 (url, cipher) => {
                     let current = match &current {
                         Some(current) => current.clone(),
-                        None => current.insert(self.player().await?).clone(),
+                        None => current.insert(self.player_for(None).await?).clone(),
                     };
                     self.solve(&current.player, url, cipher).await?
                 }
@@ -335,10 +447,16 @@ impl Native {
 
     /// The current player script, downloaded once per version.
     async fn player(&self) -> Result<Current> {
+        self.player_for(None).await
+    }
+
+    /// The player script: `want` (the version the session's page names)
+    /// or else the current one, downloaded once per version.
+    async fn player_for(&self, want: Option<&str>) -> Result<Current> {
         let mut current = self.current.lock().await;
         if let Some(known) = current
             .as_ref()
-            .filter(|c| c.checked.elapsed() < PLAYER_CHECK)
+            .filter(|c| c.checked.elapsed() < PLAYER_CHECK && want.is_none_or(|w| w == c.player.id))
         {
             return Ok(known.clone());
         }
@@ -349,10 +467,18 @@ impl Native {
             .ok()
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age < PLAYER_CHECK);
-        let saved = std::fs::read_to_string(&marker).ok();
-        let id = match saved.filter(|_| fresh) {
-            Some(id) => id.trim().to_owned(),
-            None => {
+        let saved = std::fs::read_to_string(&marker)
+            .ok()
+            .map(|id| id.trim().to_owned());
+        let id = match (want, saved.filter(|_| fresh)) {
+            (Some(want), saved) if saved.as_deref() != Some(want) => {
+                log::info!("the session's page names player {want}");
+                crate::paths::write_atomic(&marker, want.as_bytes())
+                    .context("saving the player id")?;
+                want.to_owned()
+            }
+            (_, Some(id)) => id,
+            (_, None) => {
                 let id = self.player_version().await?;
                 crate::paths::write_atomic(&marker, id.as_bytes())
                     .context("saving the player id")?;
@@ -373,6 +499,171 @@ impl Native {
         };
         *current = Some(known.clone());
         Ok(known)
+    }
+
+    /// The signature timestamp of the player's TV variant
+    /// (`player_ias_tcl`, eight digits where the web player's has five),
+    /// read once per player version and saved beside it; without it, the
+    /// web player's. With it the TV client answers, but its URLs are
+    /// ciphered for that variant, which the solver can't read (EJS 0.8.0
+    /// finds no functions in it), and solved with the web player's
+    /// functions they got 403 on 2026-10-07. So the app doesn't ask the
+    /// TV client (docs/gpui/RESOLVER.md, M27).
+    async fn tv_sts(&self, current: &Current) -> u32 {
+        let id = &current.player.id;
+        if let Some((known, sts)) = self.tv_sts.lock().expect("tv sts lock").as_ref()
+            && known == id
+        {
+            return *sts;
+        }
+        let saved = self.dir.join(format!("{id}.tv-sts"));
+        let read = match std::fs::read_to_string(&saved)
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+        {
+            Some(sts) => Ok(sts),
+            None => self.download_tv_sts(id).await.inspect(|sts| {
+                let _ = crate::paths::write_atomic(&saved, sts.to_string().as_bytes());
+            }),
+        };
+        match read {
+            Ok(sts) => {
+                *self.tv_sts.lock().expect("tv sts lock") = Some((id.clone(), sts));
+                sts
+            }
+            Err(error) => {
+                log::warn!("reading player {id}'s TV timestamp failed: {error:#}");
+                current.sts
+            }
+        }
+    }
+
+    async fn download_tv_sts(&self, id: &str) -> Result<u32> {
+        let url =
+            format!("https://www.youtube.com/s/player/{id}/player_ias_tcl.vflset/en_US/base.js");
+        let source = self
+            .innertube
+            .http()
+            .get(&url)
+            .header("User-Agent", WEB_AGENT)
+            .send()
+            .await
+            .context("downloading the TV player")?
+            .error_for_status()?
+            .text()
+            .await?;
+        let sts = signature_timestamp(&source).context("the TV player has no timestamp")?;
+        log::info!("player {id}'s TV variant has signature timestamp {sts}");
+        Ok(sts)
+    }
+
+    /// The session's www.youtube.com config, from the first song's watch
+    /// page (`tv::page_url`), read at most every [`PLAYER_CHECK`] (after a failure,
+    /// every ten minutes; meanwhile the TV client is asked without it).
+    async fn web_config(&self, video_id: &str) -> tv::WebConfig {
+        let mut web = self.web.lock().await;
+        if let Some((config, read, ok)) = web.as_ref() {
+            let keep = if *ok {
+                PLAYER_CHECK
+            } else {
+                Duration::from_secs(600)
+            };
+            if read.elapsed() < keep {
+                return config.clone();
+            }
+        }
+        let read = self.read_web_config(video_id).await;
+        if let Err(error) = &read {
+            log::warn!("reading the session's page config failed: {error:#}");
+        }
+        let ok = read.is_ok();
+        let config = read.unwrap_or_default();
+        *web = Some((config.clone(), Instant::now(), ok));
+        config
+    }
+
+    async fn read_web_config(&self, video_id: &str) -> Result<tv::WebConfig> {
+        let mut request = self
+            .innertube
+            .http()
+            .get(tv::page_url(video_id))
+            .header("User-Agent", WEB_AGENT)
+            .header("Accept-Language", "en-us,en;q=0.5");
+        if let Some(cookies) = self.innertube.cookie_header() {
+            request = request.header("Cookie", cookies);
+        }
+        let response = request
+            .send()
+            .await
+            .context("asking for the session's page")?
+            .error_for_status()?;
+        let cookies = set_cookies(&response);
+        let page = response.text().await?;
+        let mut config = tv::parse_ytcfg(&page);
+        config
+            .cookies
+            .add(cookies.iter().map(String::as_str), this_year());
+        if config.player.is_none() && config.visitor.is_none() {
+            bail!("the page has no config");
+        }
+        log::info!("the session's page config: {}", config.summary());
+        Ok(config)
+    }
+
+    /// A `player` request as `client` with the session, as yt-dlp sends it
+    /// (`tv::player_body`, `tv::player_headers`).
+    async fn player_tv(
+        &self,
+        client: &PlayerClient,
+        video_id: &str,
+        sts: Option<u32>,
+        web: &tv::WebConfig,
+    ) -> Result<Value> {
+        let it = &self.innertube;
+        let mut web = web.clone();
+        if web.visitor.is_none() {
+            web.visitor = it.visitor_data();
+        }
+        // The app decides which channel to act as, not the browser's page.
+        web.delegated_session = it.page_id();
+        let sids = tv::Sids {
+            sapisid: it
+                .cookie("SAPISID")
+                .or_else(|| it.cookie("__Secure-3PAPISID")),
+            one_p: it.cookie("__Secure-1PAPISID"),
+            three_p: it.cookie("__Secure-3PAPISID"),
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let authorization = tv::sid_authorization(&sids, tv::WWW, web.user_session.as_deref(), now);
+        let body = tv::player_body(client, video_id, sts);
+        let mut request = it
+            .http()
+            .post(format!("{}/youtubei/v1/player?prettyPrint=false", tv::WWW))
+            .body(body.to_string());
+        for (name, value) in tv::player_headers(client, &web, authorization) {
+            request = request.header(name, value);
+        }
+        if let Some(cookies) = it.cookie_header() {
+            request = request.header("Cookie", web.cookies.apply(&cookies));
+        }
+        let response = request.send().await.context("asking for the streams")?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("YouTube answered the player request with HTTP {status}");
+        }
+        // Cookies it renews are kept for the next song, as a browser would.
+        let renewed = set_cookies(&response);
+        if !renewed.is_empty()
+            && let Some((config, _, _)) = self.web.lock().await.as_mut()
+        {
+            config
+                .cookies
+                .add(renewed.iter().map(String::as_str), this_year());
+        }
+        response.json().await.context("reading the player response")
     }
 
     /// The current player version, from the iframe API script.
@@ -448,7 +739,8 @@ impl Native {
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".js") && !name.starts_with(&format!("{id}.")) {
+            let ours = name.ends_with(".js") || name.ends_with(".tv-sts");
+            if ours && !name.starts_with(&format!("{id}.")) {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
@@ -504,6 +796,25 @@ async fn fetch_solver(
     Ok(Some(found))
 }
 
+/// A response's `Set-Cookie` headers.
+fn set_cookies(response: &reqwest::Response) -> Vec<String> {
+    response
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(str::to_owned))
+        .collect()
+}
+
+/// This year (UTC, near enough to tell a cookie deletion).
+fn this_year() -> u32 {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    1970 + (secs / 31_556_952) as u32
+}
+
 /// An audio format from a player response.
 #[derive(Debug, PartialEq)]
 pub struct Format {
@@ -535,6 +846,7 @@ pub fn audio_formats(response: &Value) -> Result<Vec<Format>> {
     let usable = |f: &&Value| {
         // Dynamic-range-compressed copies share the itag; skip them.
         f.get("isDrc").and_then(Value::as_bool) != Some(true)
+            && f.get("drmFamilies").is_none()
             && (f.get("url").is_some() || f.get("signatureCipher").is_some())
     };
     let chosen: Vec<&Value> = ITAGS
@@ -582,12 +894,16 @@ pub fn player_id(text: &str) -> Option<String> {
 }
 
 /// The player's `signatureTimestamp`, which tells InnerTube which cipher
-/// the URLs must be encrypted for.
+/// the URLs must be encrypted for: five digits in the web player, eight in
+/// its TV variant (`20728` and `20728001` for player `1b3be681`).
 pub fn signature_timestamp(source: &str) -> Option<u32> {
     source.split("signatureTimestamp").skip(1).find_map(|rest| {
         let rest = rest.trim_start_matches([' ', ':']);
         let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        (digits.len() == 5).then(|| digits.parse().ok()).flatten()
+        (5..=9)
+            .contains(&digits.len())
+            .then(|| digits.parse().ok())
+            .flatten()
     })
 }
 
@@ -648,5 +964,70 @@ mod tests {
         let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
         assert_eq!(itags, [140, 249]);
         assert!(audio_formats(&response(&[139, 599])).is_err());
+    }
+
+    /// Premium's formats come first: 774 (Opus ~256 kbps), then 141 (AAC
+    /// 256 kbps), then 251, whatever order the response lists them in.
+    #[test]
+    fn premium_formats_first() {
+        let picked = audio_formats(&response(&[249, 251, 141, 140, 774])).expect("formats");
+        let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
+        assert_eq!(itags, [774, 141, 251, 140, 249]);
+    }
+
+    /// DRC copies and DRM-protected formats (a TV experiment) are skipped.
+    #[test]
+    fn skips_drc_and_drm() {
+        let response = json!({
+            "playabilityStatus": {"status": "OK"},
+            "streamingData": {"adaptiveFormats": [
+                {"itag": 774, "url": "https://example.invalid/a", "drmFamilies": ["WIDEVINE"]},
+                {"itag": 141, "url": "https://example.invalid/b", "isDrc": true},
+                {"itag": 141, "signatureCipher": "s=x&url=https%3A%2F%2Fexample.invalid%2Fc"},
+            ]},
+        });
+        let picked = audio_formats(&response).expect("formats");
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0].itag, 141);
+        assert!(picked[0].cipher.is_some());
+    }
+
+    #[test]
+    fn reads_both_timestamps() {
+        assert_eq!(
+            signature_timestamp("x={signatureTimestamp:20728,y"),
+            Some(20728)
+        );
+        assert_eq!(
+            signature_timestamp("x={signatureTimestamp:20728001,y"),
+            Some(20_728_001)
+        );
+        assert_eq!(signature_timestamp("signatureTimestamp:12,y"), None);
+    }
+
+    fn native() -> Native {
+        let dir = std::env::temp_dir().join("ytfast-streams-test");
+        Native::new(Arc::new(Client::new()), &dir, &dir)
+    }
+
+    /// An account client's stream that fails to play before Premium was
+    /// seen means no Premium; other clients' failures don't count, and
+    /// once Premium was seen nothing turns it off.
+    #[test]
+    fn learns_no_premium_from_a_failed_stream() {
+        let native = native();
+        native.stream_failed("https://example.invalid/videoplayback?c=VISIONOS&n=x");
+        assert_eq!(native.premium.load(Ordering::Relaxed), UNKNOWN);
+        native.stream_failed("https://example.invalid/videoplayback?c=WEB_REMIX&n=x");
+        assert_eq!(native.premium.load(Ordering::Relaxed), NOT_PREMIUM);
+        let premium = native_premium();
+        premium.stream_failed("https://example.invalid/videoplayback?c=WEB_CREATOR&n=x");
+        assert_eq!(premium.premium.load(Ordering::Relaxed), PREMIUM);
+    }
+
+    fn native_premium() -> Native {
+        let native = native();
+        native.premium.store(PREMIUM, Ordering::Relaxed);
+        native
     }
 }

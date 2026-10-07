@@ -38,7 +38,6 @@ started=$(date +%s)
 # A short path: the app's sockets live under it (sun_path is 108 bytes).
 state="$(mktemp -d /tmp/ytfast-smoke.XXXXXX)"
 log="$state/cache/ytfast/ytfast-gpui.log"
-mpv_socket="$state/run/ytfast/mpv.sock"
 desktop_run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 wayland="${WAYLAND_DISPLAY:-wayland-0}"
 [[ "$wayland" == /* ]] || wayland="$desktop_run/$wayland"
@@ -95,35 +94,14 @@ wait_log() {
 # Lines of the app log matching PATTERN.
 count_log() { grep -cE "$1" "$log" 2>/dev/null || true; }
 
-# mpv processes the app started (they name themselves "ytfast").
-app_mpv() {
-    local pid
-    for pid in $(pgrep -x mpv); do
-        tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'audio-client-name=ytfast' &&
-            echo "$pid"
+# Whether a ytfast-gpui process runs (as `gpui-input.sh stop` finds it).
+app_running() {
+    local p e
+    for p in /proc/[0-9]*; do
+        e="$(readlink "$p/exe" 2>/dev/null)" || continue
+        case "${e##*/}" in ytfast-gpui*) return 0 ;; esac
     done
-    return 0
-}
-
-# mpv_get PROPERTY: reads a property over the app's mpv IPC socket.
-mpv_get() {
-    python3 - "$mpv_socket" "$1" <<'PY'
-import json, socket, sys
-s = socket.socket(socket.AF_UNIX)
-s.settimeout(2)
-s.connect(sys.argv[1])
-s.sendall(json.dumps({"command": ["get_property", sys.argv[2]], "request_id": 7}).encode() + b"\n")
-buf = b""
-while True:
-    buf += s.recv(65536)
-    for line in buf.split(b"\n"):
-        if not line.strip():
-            continue
-        msg = json.loads(line)
-        if msg.get("request_id") == 7:
-            print(msg.get("data"))
-            sys.exit(0 if msg.get("error") == "success" else 1)
-PY
+    return 1
 }
 
 # Layout positions (screen pixels; the client area starts below a ~30 px
@@ -143,8 +121,8 @@ UP_NEXT=(1097 946)         # player bar: Up next
 
 echo "== smoke: release build, signed out, fresh state in $state"
 "$input" setup
-# Its own runtime directory too (resolved streams, mpv and single-instance
-# sockets), with Wayland, PipeWire, PulseAudio and D-Bus named by full path.
+# Its own runtime directory too (resolved streams and the single-instance
+# socket), with Wayland, PipeWire, PulseAudio and D-Bus named by full path.
 XDG_CONFIG_HOME="$state/config" XDG_CACHE_HOME="$state/cache" \
     XDG_RUNTIME_DIR="$state/run" \
     WAYLAND_DISPLAY="$wayland" \
@@ -191,7 +169,7 @@ else
 fi
 pause 2
 shot playing "Song 1 playing: the player bar shows it, its row in signal"
-[ -n "$(app_mpv)" ] && pass "mpv runs while playing" || fail "no mpv while playing"
+[ "$(count_log "decode [0-9]+: .* Hz")" -gt 0 ] && pass "the audio engine decodes" || fail "the audio engine decoded nothing"
 
 click "${NEXT[@]}"
 wait_log 'now playing .*\(queue 2\)' 15 && pass "Next: song 2" || fail "Next didn't reach song 2"
@@ -203,11 +181,13 @@ click "${SEEK_MID[@]}"
 if wait_log 'seek to [0-9.]+s' 5; then
     to="$(grep -oE 'seek to [0-9.]+' "$log" | tail -1 | grep -oE '[0-9.]+$')"
     pause 1.5
-    at="$(mpv_get time-pos 2>/dev/null || echo 0)"
+    # The engine's decoder logs where the seek landed.
+    at="$(grep -oE 'seek to [0-9.]+s landed at [0-9.]+s' "$log" | tail -1 | grep -oE '[0-9.]+s$' | tr -d s)"
+    at="${at:-0}"
     if awk -v a="$at" -v t="$to" 'BEGIN { exit !(a >= t - 1 && a <= t + 5) }'; then
-        pass "seek to ${to}s, mpv at ${at}s"
+        pass "seek to ${to}s, the decoder at ${at}s"
     else
-        fail "seek to ${to}s, but mpv is at ${at}s"
+        fail "seek to ${to}s, but the decoder is at ${at}s"
     fi
 else
     fail "the seek bar click didn't seek"
@@ -264,7 +244,8 @@ cp "$log" artifacts/gpui/smoke.log
 
 "$input" stop
 pause 1
-[ -z "$(app_mpv)" ] && pass "no mpv left after quitting" || fail "mpv still running after quitting"
+# Audio plays in the app's process, so it ends with it.
+if app_running; then fail "the app still runs after quitting"; else pass "the app (and its audio) quit"; fi
 
 echo "== $shots captures, $failures failed checks, $(($(date +%s) - started)) s"
 [ "$failures" -eq 0 ]

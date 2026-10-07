@@ -1,6 +1,6 @@
 # M14: resolving streams without yt-dlp
 
-Research, the implementation behind `YTFAST_RESOLVER=rust`, what was measured on 2026-10-07, and the recommendation. YouTube changes often: every fact here is dated.
+Research, the implementation, what was measured on 2026-10-07, and the recommendation. Since M23 (2026-10-07) this resolver is the only one: the app no longer runs yt-dlp (see "M23: the only resolver" at the end). YouTube changes often: every fact here is dated.
 
 ## State of the art (October 2026)
 
@@ -59,7 +59,7 @@ yt-dlp 2026.08.19's defaults: signed out `visionos, web`; signed in `web_embedde
 
 ## What was built
 
-All of it is off by default. `YTFAST_RESOLVER=rust` turns it on, and yt-dlp stays the fallback.
+Built off by default, with yt-dlp as the fallback; on by default in the GPUI app from M19, and the only resolver since M23. The list below is as built in M14; M23 at the end says what changed.
 
 - `src/jsc.rs`: the EJS solver in rquickjs, with yt-dlp-ejs vendored in `src/jsc/` (0.8.0 on 2026-10-07; `src/jsc/pins.txt` names the release by SHA-256, and the SHA3-512 hashes match the ones yt-dlp 2026.08.19 pins; licence in `src/jsc/EJS-LICENSE`, meriyah's and astring's in the bundle headers).
   - It preprocesses a player once per version and solver release and saves `<id>.ejs-<release>.js` beside it.
@@ -88,21 +88,21 @@ The app runs the newest of these solver releases whose two files (`yt.solver.lib
 
 The pins are `src/jsc/pins.txt`, built into the app, plus the copy of that file the app last fetched (`~/.cache/ytfast/ejs/pins.txt`). A file whose hash isn't pinned, or a lib and core pinned to different releases, is ignored with a warning, and the vendored copy runs. Answers are cached per solver release (`<id>.ejs-<release>.js`), so a new solver never reuses an old one's output.
 
-The app fetches anything only when its solver fails on a player, once per player version: it reads `src/jsc/pins.txt` from this repository's `main` on raw.githubusercontent.com, and if that names a release newer than the one running, downloads its two files from yt-dlp-ejs's GitHub release (`github.com/yt-dlp/ejs/releases/download/<release>/`), checks both hashes, saves them with the fetched pins and switches the engine to them. The next songs of that player try again with the new solver; until then they go to yt-dlp.
+The app fetches anything only when its solver fails on a player, once per player version: it reads `src/jsc/pins.txt` from this repository's `main` on raw.githubusercontent.com, and if that names a release newer than the one running, downloads its two files from yt-dlp-ejs's GitHub release (`github.com/yt-dlp/ejs/releases/download/<release>/`), checks both hashes, saves them with the fetched pins and switches the engine to them. The next songs of that player try again with the new solver; until then they play signed out (VISIONOS, which needs no solver), and a song that can't shows a plain error.
 
 Trust model:
 - No remote code runs without a hash pin. The scripts come from yt-dlp-ejs's releases, but what may run is decided only by the pins, and changing the pins on `main` takes a commit to this repository (the EJS bump's pull request, reviewed and merged). Anyone who can push to `main` can already change the app's next release, so this adds no new party to trust.
 - What the pins rely on: GitHub's TLS and access control for this repository. There is no signature yet. Signing `pins.txt` (for example minisign, with the public key in the app and the secret key as a repository secret used by the bump workflow) would remove the trust in raw.githubusercontent.com and in whoever can push to `main`; it needs a key the maintainer holds.
 - Files on disk are trusted as much as the user's home directory: whoever can write `~/.cache/ytfast/ejs/pins.txt` can also change the user's shell profile.
-- The solver runs in QuickJS without network, file or process access (no `std`/`os` modules), with a 1 GB memory limit and a 16 MB stack limit. A pinned but buggy solver can at worst give wrong answers, and then streams fail and fall back to yt-dlp.
-- Fetches happen only with `YTFAST_RESOLVER=rust` on and only after a solver failure, so the app doesn't call home.
+- The solver runs in QuickJS without network, file or process access (no `std`/`os` modules), with a 1 GB memory limit and a 16 MB stack limit. A pinned but buggy solver can at worst give wrong answers, and then streams fail to play and the song is resolved again signed out.
+- Fetches happen only after a solver failure, so the app doesn't call home.
 
 ### The canary (`.github/workflows/resolver-canary.yml`)
 
 Daily at 05:17 UTC, by hand, and on pull requests that touch the resolver. It runs `scripts/resolver-canary.sh` on a GitHub runner, signed out, with no cookies and no secrets:
 
 1. It downloads the current player (iframe API, `base.js`), solves a fixed set of challenges with yt-dlp's EJS in deno (`scripts/ejs-expected.sh`) and runs `tests/resolver_offline.rs` against it (`YTFAST_RESOLVER_CAPTURES`), so QuickJS has to match deno on today's player.
-2. It resolves two public songs with `YTFAST_RESOLVER=rust` (`examples/resolve_rust.rs`, VISIONOS) and fetches the first KB of each URL, expecting 200 or 206.
+2. It resolves two public songs with the app's resolver (`examples/resolve_rust.rs`, VISIONOS) and fetches the first KB of each URL, expecting 200 or 206.
 
 That is 7 YouTube requests per run, all from GitHub's IPs. When a scheduled run, or a manual one on `main`, fails, the job opens an issue labelled `resolver-canary` with the log's tail, or comments on the open one (the workflow's `GITHUB_TOKEN`, `issues: write`). This needs Issues enabled on the repository. The log is also kept as a run artifact.
 
@@ -117,7 +117,7 @@ Weekly on Mondays at 06:23 UTC, and by hand (optionally for a given release, or 
 
 ### At runtime
 
-`crate::resolver` falls back to yt-dlp on any Rust resolver failure. A failure that holds for every song of a player version (the solver can't use the player, or it is still being prepared) is logged once per player version, and further songs skip the broken player at once instead of preprocessing it again; other failures are logged per song.
+(As built in M14; M23 below replaces the fallback.) `crate::resolver` fell back to yt-dlp on any Rust resolver failure. A failure that holds for every song of a player version (the solver can't use the player, or it is still being prepared) is logged once per player version, and further songs skip the broken player at once instead of preprocessing it again; other failures are logged per song.
 
 ## Measurements (2026-10-07, i5 6-core shared with other builds, debug build with deps at opt-level 2)
 
@@ -187,3 +187,24 @@ Player `1b3be681` (signature timestamp 20728), saved under `artifacts/resolver/`
    2. Check which client yt-dlp gets 774 from for Premium. If 774 needs `web_music` with SABR or PO tokens, the Rust path tops out at 251 (Opus ~140 kbps), against 774 (Opus ~222 kbps) from yt-dlp.
    3. Run the preprocessing at startup in the background, or port it to a Rust parser (oxc/SWC, as ytdlp-ejs does), so a player update doesn't send the next songs to yt-dlp.
 3. If 774 stays out of reach, the right default for Premium accounts is yt-dlp for playback and the Rust resolver for speculation (prefetch and audition), where 251 is enough and speed matters most.
+
+## M23: the only resolver (2026-10-07)
+
+yt-dlp, deno, the `rust-resolver` feature and `YTFAST_RESOLVER` are gone; `crate::resolver` resolves every song through `crate::streams`.
+
+- Signed in, a song is asked for as `WEB_CREATOR` with the session (the Premium formats need it). If that fails, for one song or for the whole player version (being prepared, or the solver can't use it), the same song is asked for as `VISIONOS` signed out, which needs no solver. Such a stream doesn't count as the account's best, so the next resolve asks as the account again.
+- A song whose stream fails to play is resolved once more without the account, then skipped with a plain error ("Couldn't play “…”, skipped it", the technical text behind Copy details). Three songs failing one after the other stop playback with "Couldn't play “…” or the songs before it, so playback stopped. Try again in a few minutes", instead of running through the queue.
+- The format list is what the audio engine decodes: 774, 141, 251, 140, 250, 249, 600 (Opus in WebM, AAC-LC in MP4). HE-AAC (139, 599) is never picked; a song with nothing else fails with "no audio format with a URL that Music plays".
+- The pinned solver update path above is unchanged and is the only way a new solver arrives without an app release.
+
+### When YouTube changes its player
+
+| What changes | What the app does | Recovery |
+|---|---|---|
+| A new player version the vendored solver handles | Signed-in songs play signed out (251 at most) for the 12–41 s the new player is preprocessed in the background, then as the account again | Automatic |
+| A player the solver can't handle | Signed-in songs play signed out; the failure is logged once per player version. The app fetches `pins.txt` from `main` and runs a newer pinned solver if there is one | The EJS bump workflow pins the new yt-dlp-ejs release (a reviewed pull request); running apps pick it up at the next failure, no release needed |
+| VISIONOS stops giving plain URLs (SABR-only), or its bot check hits every request | Signed out nothing plays: each song shows the plain error and playback stops after three | Needs a new client in `src/streams.rs` (what yt-dlp moves to) and an app release |
+| `WEB_CREATOR` stops working for Premium | Premium plays signed out at 251 instead of 774 | Needs a client change and an app release |
+
+Known costs: a non-Premium account's `WEB_CREATOR` URLs fail at the first range request, so each of its songs pays one failed start before the signed-out retry. The canary (daily, signed out) notices the third row; nothing automatic notices the fourth.
+

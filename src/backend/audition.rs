@@ -130,23 +130,9 @@ impl super::Worker {
         let Some((video_id, start)) = self.decks.audition.held.clone() else {
             return;
         };
-        let kind = self.engine_for(&video_id, stream.itag);
-        let deck = match self
-            .decks
-            .audition
-            .deck
-            .clone()
-            .filter(|d| d.kind() == kind)
-        {
+        let deck = match self.decks.audition.deck.clone() {
             Some(deck) => deck,
-            None => match Player::spawn(
-                kind,
-                &self.paths.runtime.join("mpv-audition.sock"),
-                0.0,
-                self.mpv_tx.clone(),
-            )
-            .await
-            {
+            None => match Player::spawn(0.0, self.player_tx.clone()).await {
                 Ok(deck) => {
                     let _ = deck.set_equalizer(&self.deck_equalizer()).await;
                     self.decks.audition.deck = Some(deck.clone());
@@ -206,17 +192,10 @@ impl super::Worker {
                     self.keep_time();
                 }
             }
-            PlayerEvent::EndFile { entry, reason, .. } => {
-                if Some(entry) == a.entry && reason != EndReason::Stop {
-                    // The song ended or failed while held.
-                    a.entry = None;
-                    if a.held.is_some() {
-                        self.end_audition().await;
-                    }
-                }
-            }
-            PlayerEvent::Died => {
-                a.deck = None;
+            // The song ended or failed while held.
+            PlayerEvent::EndFile { entry, reason, .. }
+                if Some(entry) == a.entry && reason != EndReason::Stop =>
+            {
                 a.entry = None;
                 if a.held.is_some() {
                     self.end_audition().await;

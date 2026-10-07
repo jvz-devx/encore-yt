@@ -1,5 +1,8 @@
 use super::*;
 
+/// Songs failing one after the other before playback stops.
+pub(super) const FAILURES_TO_STOP: u32 = 3;
+
 impl super::Worker {
     /// A play request replaces the queue: results of earlier ones no longer apply.
     pub(super) fn new_epoch(&mut self) -> u64 {
@@ -43,7 +46,7 @@ impl super::Worker {
     }
 
     /// Applies a queue edit. The current song stays current wherever it
-    /// moves; if the song after it changed, the one queued in mpv behind
+    /// moves; if the song after it changed, the one queued in the player behind
     /// it is dropped and the new next one is prepared and queued instead.
     /// An edit never fetches autoplay's radio: songs removed or cleared
     /// stay gone, and autoplay continues when the last song ends
@@ -122,9 +125,9 @@ impl super::Worker {
         self.state.lyrics = None;
         self.state.related = None;
         self.emit(true);
-        if let Some(mpv) = &self.mpv {
+        if let Some(player) = &self.main {
             // Stop the previous song at once; the new one follows when resolved.
-            let _ = mpv.stop().await;
+            let _ = player.stop().await;
         }
         if self.sleeping_at_song_end() {
             // The timer now waits for this song's end.
@@ -176,7 +179,7 @@ impl super::Worker {
     }
 
     /// Keeps the queue ahead: the next song resolves for playback (with its
-    /// player response, for its loudness) and is appended to mpv's playlist
+    /// player response, for its loudness) and is appended to the player's playlist
     /// so the change is gapless; the one after it is prepared as a guess.
     pub(super) fn prefetch(&mut self) {
         let Some(pos) = self.pos else { return };
@@ -184,7 +187,7 @@ impl super::Worker {
             let id = after.video_id.clone();
             self.resolver.prepare(&id);
         }
-        // With the sleep timer at the song's end, nothing follows in mpv.
+        // With the sleep timer at the song's end, nothing follows in the player.
         if self.sleeping_at_song_end() {
             return;
         }
@@ -235,27 +238,14 @@ impl super::Worker {
         }
     }
 
-    /// The main deck, on engine `kind`: a deck on the other engine stops
-    /// and a new one starts.
-    async fn ensure_mpv(&mut self, kind: Kind) -> Option<Arc<Player>> {
-        if let Some(old) = self.mpv.take_if(|m| m.kind() != kind) {
-            log::info!("the main deck moves to {}", kind.label());
-            let _ = old.stop().await;
-            self.appended = None;
-        }
-        if self.mpv.is_none() {
-            match Player::spawn(
-                kind,
-                &self.paths.runtime.join("mpv.sock"),
-                self.main_volume(),
-                self.mpv_tx.clone(),
-            )
-            .await
-            {
-                Ok(mpv) => {
-                    self.mpv = Some(mpv.clone());
+    /// The main deck, started on first use.
+    async fn ensure_main(&mut self) -> Option<Arc<Player>> {
+        if self.main.is_none() {
+            match Player::spawn(self.main_volume(), self.player_tx.clone()).await {
+                Ok(player) => {
+                    self.main = Some(player.clone());
                     self.apply_loop().await;
-                    self.apply_equalizer(&mpv).await;
+                    self.apply_equalizer(&player).await;
                 }
                 Err(error) => {
                     self.sink.send(Event::Error(format!(
@@ -267,7 +257,7 @@ impl super::Worker {
                 }
             }
         }
-        self.mpv.clone()
+        self.main.clone()
     }
 
     pub(super) async fn next(&mut self, automatic: bool) {
@@ -293,10 +283,10 @@ impl super::Worker {
                 self.swap(0.0).await;
                 return;
             }
-            if let (Some(appended), Some(mpv), false) = (&self.appended, &self.mpv, self.idle)
+            if let (Some(appended), Some(player), false) = (&self.appended, &self.main, self.idle)
                 && self.queue.position(appended.id) == Some(pos + 1)
             {
-                let _ = mpv.skip().await;
+                let _ = player.skip().await;
                 return;
             }
             self.start(pos + 1).await;
@@ -321,8 +311,8 @@ impl super::Worker {
     pub(super) async fn seek(&mut self, seconds: f64) {
         let seconds = seconds.max(0.0);
         self.finish_blend().await;
-        if let (Some(mpv), Some(_)) = (&self.mpv, self.current_entry) {
-            let _ = mpv.seek(seconds).await;
+        if let (Some(player), Some(_)) = (&self.main, self.current_entry) {
+            let _ = player.seek(seconds).await;
             self.state.position = seconds;
             self.emit(true);
             self.save_session(true);
@@ -337,9 +327,9 @@ impl super::Worker {
 
     pub(super) async fn drop_appended(&mut self) {
         if self.appended.take().is_some()
-            && let Some(mpv) = &self.mpv
+            && let Some(player) = &self.main
         {
-            let _ = mpv.remove(1).await;
+            let _ = player.remove(1).await;
         }
         self.drop_cued().await;
     }
@@ -413,15 +403,14 @@ impl super::Worker {
                 };
                 match stream {
                     Ok(stream) => {
-                        let kind = self.engine_for(&track.video_id, stream.itag);
-                        let Some(mpv) = self.ensure_mpv(kind).await else {
+                        let Some(player) = self.ensure_main().await else {
                             return;
                         };
-                        // `replace` empties mpv's playlist, including any track queued behind.
+                        // `Replace` empties the playlist, including any track queued behind.
                         self.appended = None;
                         let (options, gain) =
                             self.file_options(&track.video_id, &stream, self.resume_at);
-                        match mpv.load(&stream.url, LoadMode::Replace, &options).await {
+                        match player.load(&stream.url, LoadMode::Replace, &options).await {
                             Ok(entry) => {
                                 log::info!(
                                     "starting {} {:.1}s after it was asked for",
@@ -430,7 +419,7 @@ impl super::Worker {
                                 );
                                 self.resume_at = None;
                                 self.current_entry = Some(entry);
-                                let _ = mpv.set_pause(false).await;
+                                let _ = player.set_pause(false).await;
                                 self.state.format = Some(resolver::describe(stream.itag));
                                 self.state.gain = gain;
                                 self.emit(true);
@@ -438,13 +427,7 @@ impl super::Worker {
                                 #[cfg(feature = "e2e")]
                                 self.probe_gain();
                             }
-                            Err(error) => {
-                                let error = format!("{error:#}");
-                                if kind == Kind::Rust {
-                                    self.rust_failed(&track.video_id, &error);
-                                }
-                                self.fail(&track, &error).await
-                            }
+                            Err(error) => self.fail(&track, &format!("{error:#}")).await,
                         }
                     }
                     Err(error) => self.fail(&track, &format!("{error:#}")).await,
@@ -479,17 +462,9 @@ impl super::Worker {
                     }
                     return;
                 }
-                let kind = self.engine_for(&video_id, stream.itag);
-                if self.mpv.as_ref().is_some_and(|m| m.kind() != kind) {
-                    log::info!(
-                        "the next song plays on {}: it starts after this one, not gapless",
-                        kind.label()
-                    );
-                    return;
-                }
                 let (options, gain) = self.file_options(&video_id, &stream, None);
-                if let Some(mpv) = &self.mpv
-                    && let Ok(entry) = mpv.load(&stream.url, LoadMode::Append, &options).await
+                if let Some(player) = &self.main
+                    && let Ok(entry) = player.load(&stream.url, LoadMode::Append, &options).await
                 {
                     self.appended = Some(Appended {
                         id,
@@ -579,7 +554,19 @@ impl super::Worker {
                 if generation != self.generation {
                     return;
                 }
-                if online {
+                if online && self.failed_in_row + 1 >= FAILURES_TO_STOP {
+                    // Nothing plays (YouTube changed something): stop
+                    // rather than skip through the whole queue.
+                    self.failed_in_row = 0;
+                    self.state.loading = false;
+                    self.state.playing = false;
+                    self.emit(true);
+                    self.sink.send(Event::Error(format!(
+                        "Couldn't play “{title}” or the songs before it, so playback stopped. \
+                         Try again in a few minutes: {error}"
+                    )));
+                } else if online {
+                    self.failed_in_row += 1;
                     self.sink.send(Event::Error(format!(
                         "Couldn't play “{title}”, skipped it. {error}"
                     )));
@@ -671,7 +658,7 @@ impl super::Worker {
         });
     }
 
-    /// The song after the current one (`next`, queued gapless in mpv or
+    /// The song after the current one (`next`, queued gapless in the player or
     /// cued on the second deck) started and is now the current one.
     pub(super) async fn advanced(&mut self, next: Appended) {
         let Some(pos) = self.queue.position(next.id) else {
@@ -693,11 +680,11 @@ impl super::Worker {
             .and_then(|t| t.duration)
             .map(f64::from)
             .unwrap_or(0.0);
-        // When the prefetched file opens at once, mpv reports its `duration`
-        // in the same batch as, and before, the change of file (observed
-        // order), where it was taken as the old song's: ask for it again.
-        if let Some(mpv) = &self.mpv
-            && let Some(duration) = mpv.duration().await
+        // When the prefetched file opens at once, its `duration` can arrive
+        // before the change of file, where it was taken as the old song's:
+        // ask for it again.
+        if let Some(player) = &self.main
+            && let Some(duration) = player.duration().await
         {
             self.state.duration = duration;
         }
@@ -717,7 +704,7 @@ impl super::Worker {
         self.probe_gain();
     }
 
-    pub(super) async fn mpv_event(&mut self, event: PlayerEvent) {
+    pub(super) async fn main_event(&mut self, event: PlayerEvent) {
         match event {
             PlayerEvent::Position(position) => {
                 // Before the current file loads, positions belong to the previous one.
@@ -728,6 +715,9 @@ impl super::Worker {
                 if self.deck_position().await {
                     // The next song took over on the second deck.
                     return;
+                }
+                if position >= 1.0 {
+                    self.failed_in_row = 0;
                 }
                 if !self.reported && position >= 10.0 {
                     self.reported = true;
@@ -764,23 +754,23 @@ impl super::Worker {
                 }
                 self.state.playing = !self.paused && !self.idle && self.pos.is_some();
                 self.emit(true);
-                // Safety net: mpv ran out of tracks although one was thought
+                // Safety net: the player ran out of tracks although one was thought
                 // to be queued behind the current one. Move on ourselves.
                 if self.idle && !self.state.loading && self.appended.is_some() && self.pos.is_some()
                 {
-                    log::warn!("mpv went idle with a track thought queued; advancing");
+                    log::warn!("the player went idle with a track thought queued; advancing");
                     self.appended = None;
                     self.next(true).await;
                 }
             }
             PlayerEvent::PlaylistPos(pos) => {
-                // mpv moved on to the track appended behind the current one.
+                // The player moved on to the track appended behind the current one.
                 if pos == Some(1)
                     && let Some(appended) = self.appended.take()
                 {
                     self.current_entry = Some(appended.entry);
-                    if let Some(mpv) = &self.mpv {
-                        let _ = mpv.remove(0).await;
+                    if let Some(player) = &self.main {
+                        let _ = player.remove(0).await;
                     }
                     // A short song that ends while it blends in: the old
                     // one stops before the position starts again at 0.
@@ -794,7 +784,7 @@ impl super::Worker {
                 entry,
             } => {
                 log::debug!(
-                    "mpv end-file {entry} {reason:?} {error:?}; current {:?}, queued {:?}",
+                    "end-file {entry} {reason:?} {error:?}; current {:?}, queued {:?}",
                     self.current_entry,
                     self.appended.as_ref().map(|a| a.entry)
                 );
@@ -811,49 +801,19 @@ impl super::Worker {
                         self.next(true).await
                     }
                     EndReason::Error => {
-                        // Keep mpv from moving on to the queued track: this one is
+                        // Keep the player from moving on to the queued track: this one is
                         // retried or skipped first.
                         self.drop_appended().await;
                         self.current_entry = None;
                         if let Some(track) = self.current().cloned() {
                             let error = error.unwrap_or_else(|| "the stream failed".into());
-                            self.main_deck_failed(&error);
                             self.fail(&track, &error).await;
                         }
                     }
                     _ => {}
                 }
             }
-            PlayerEvent::StartFile { entry } => log::debug!("mpv start-file {entry}"),
-            PlayerEvent::Died => {
-                self.mpv = None;
-                self.af = None;
-                self.appended = None;
-                self.current_entry = None;
-                self.idle = true;
-                let was_playing = self.state.playing;
-                self.state.playing = false;
-                self.state.loading = false;
-                self.emit(true);
-                let recent = self
-                    .last_death
-                    .is_some_and(|t| t.elapsed() < Duration::from_secs(30));
-                self.last_death = Some(Instant::now());
-                match (was_playing, recent, self.pos) {
-                    (true, false, Some(pos)) => {
-                        self.sink.send(Event::Error(
-                            "The audio player stopped unexpectedly; restarting the song.".into(),
-                        ));
-                        self.start(pos).await;
-                    }
-                    (true, true, _) => {
-                        self.sink.send(Event::Error(
-                            "The audio player keeps stopping. Press Play to try again.".into(),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
+            PlayerEvent::StartFile { entry } => log::debug!("start-file {entry}"),
         }
     }
 }

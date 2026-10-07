@@ -5,7 +5,6 @@ impl super::Worker {
         self.last_connect = Some(Instant::now());
         self.sink.send(Event::Account(Account::Checking));
         let client = self.client.clone();
-        let resolver = self.resolver.clone();
         let paths = self.paths.clone();
         let tx = self.internal_tx.clone();
         let sink = self.sink.clone();
@@ -31,7 +30,6 @@ impl super::Worker {
                 Ok(Err(error)) => {
                     client.set_session(None);
                     client.set_page_id(None);
-                    resolver.set_cookie_file(None);
                     sink.send(Event::Channels(Vec::new()));
                     let _ = tx.send(Internal::Connected(Account::SignedOut {
                         reason: format!("{error:#}"),
@@ -46,18 +44,12 @@ impl super::Worker {
                 }
             };
             let source = session.source.clone();
-            let cookie_file = paths.cookie_file();
-            match session.write_netscape(&cookie_file) {
-                Ok(()) => resolver.set_cookie_file(Some(cookie_file)),
-                Err(error) => log::warn!("could not write the cookie file: {error:#}"),
-            }
             client.set_session(Some(session));
             let channels = act_as_channel(&client, settings.channel.as_deref()).await;
             let account = client.verify(&source).await;
             if matches!(account, Account::SignedOut { .. }) {
                 client.set_session(None);
                 client.set_page_id(None);
-                resolver.set_cookie_file(None);
                 sink.send(Event::Channels(Vec::new()));
             } else {
                 sink.send(Event::Channels(channels));

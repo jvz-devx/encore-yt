@@ -31,9 +31,6 @@ pub struct Settings {
     /// Smooth mixes on radios and mixes (off by default) and its length.
     #[serde(default)]
     pub mixes: crate::model::Mixes,
-    /// The audio engine; unset means the default (`YTFAST_PLAYER` overrides it).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub player: Option<crate::player::Kind>,
 }
 
 impl Settings {

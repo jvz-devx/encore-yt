@@ -1,26 +1,20 @@
-//! Turns a video id into a playable audio URL through yt-dlp.
+//! Turns a video id into a playable audio URL, in Rust (`crate::streams`:
+//! InnerTube and the embedded JS engine; docs/gpui/RESOLVER.md).
 //!
-//! yt-dlp solves YouTube's JS challenges and, with the session's cookies,
-//! reaches Premium's Opus ~256 kbps (itag 774). A run takes ~4 s on the test
-//! machine whatever is tried, but runs scale: three at once finish in ~4.9 s
-//! (docs/integration.md). So resolves run in parallel at two priorities.
-//! Playback (the current song, then the next one) has its own slots and
-//! never waits behind speculation; speculation (songs on screen, under the
-//! pointer, further ahead in the queue) has two more slots, runs niced, and
-//! keeps a short most-likely-first backlog. A song asked for twice shares
-//! one run, and a playback run nobody waits for any more is stopped.
-//! Results are cached until ten minutes before the URL expires, in memory
-//! and in the runtime directory (0600), so a relaunch can start at once.
-//! The iOS client's direct URLs were tried and dropped: they stop after the
-//! first bytes. With the Rust resolver on (`crate::streams::enabled`) each
-//! run tries `crate::streams` (InnerTube and an embedded JS engine, no
-//! yt-dlp) first and falls back to yt-dlp when it fails, or when a stream it
-//! gave failed to play.
+//! Resolves run in parallel at two priorities. Playback (the current song,
+//! then the next one) has its own slots and never waits behind speculation;
+//! speculation (songs on screen, under the pointer, further ahead in the
+//! queue) has two more slots and keeps a short most-likely-first backlog. A
+//! song asked for twice shares one run, and a playback run nobody waits for
+//! any more is stopped. Results are cached until ten minutes before the URL
+//! expires, in memory and in the runtime directory (0600), so a relaunch
+//! can start at once. A song whose stream failed to play is resolved again
+//! without the account (`crate::streams::Native::resolve`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -31,7 +25,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use crate::innertube::Stream;
 
 /// Development and testing: `YTFAST_FAKE_STREAM=<audio file>` plays that
-/// local file for every song instead of resolving streams with yt-dlp, so
+/// local file for every song instead of resolving streams, so
 /// UI, performance and effects checks don't make stream requests to
 /// YouTube (whose rate limits an account can hit). Plays aren't reported to
 /// history in this mode.
@@ -83,7 +77,7 @@ impl Cached {
 
 type Outcome = Option<Result<Stream, String>>;
 
-/// One yt-dlp run, shared by everyone who wants its song.
+/// One resolve, shared by everyone who wants its song.
 struct Flight {
     result: watch::Sender<Outcome>,
     waiters: AtomicUsize,
@@ -94,9 +88,7 @@ struct Flight {
 
 pub struct Resolver {
     cache: Mutex<HashMap<String, Cached>>,
-    /// The session's cookies for yt-dlp; `None` when signed out.
-    cookie_file: Mutex<Option<PathBuf>>,
-    /// The runtime directory: cookie copies and the saved cache.
+    /// The runtime directory: the saved cache.
     scratch: PathBuf,
     flights: Mutex<HashMap<String, Arc<Flight>>>,
     playback: Arc<Semaphore>,
@@ -104,14 +96,11 @@ pub struct Resolver {
     backlog: Mutex<VecDeque<String>>,
     /// Serialises writes of the saved cache.
     saving: Mutex<()>,
-    runs: AtomicU64,
-    /// The Rust resolver, when `crate::streams::enabled`.
+    /// InnerTube and the JS challenges, set by [`Resolver::use_innertube`].
     native: OnceLock<crate::streams::Native>,
-    /// Songs whose Rust-resolved stream failed to play: yt-dlp's turn.
-    native_failed: Mutex<HashSet<String>>,
-    /// Player-wide Rust resolver failures already logged, so each is
-    /// logged once per player version instead of once per song.
-    native_logged: Mutex<HashSet<String>>,
+    /// Songs whose stream failed to play: resolved without the account
+    /// next time.
+    failed: Mutex<HashSet<String>>,
 }
 
 pub fn now() -> u64 {
@@ -129,7 +118,6 @@ pub fn describe(itag: u32) -> String {
         140 => "AAC 128 kbps (itag 140)".into(),
         250 => "Opus 70 kbps (itag 250)".into(),
         249 => "Opus 50 kbps (itag 249)".into(),
-        139 => "AAC 48 kbps (itag 139)".into(),
         other => format!("itag {other}"),
     }
 }
@@ -217,15 +205,6 @@ impl Drop for Landing {
     }
 }
 
-/// yt-dlp's private copy of the cookie file, removed however the run ends.
-struct CookieCopy(PathBuf);
-
-impl Drop for CookieCopy {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
 impl Resolver {
     /// Starts with the streams saved by an earlier run that are still valid.
     pub fn new(scratch: PathBuf) -> Self {
@@ -243,43 +222,33 @@ impl Resolver {
         }
         Self {
             cache: Mutex::new(cache),
-            cookie_file: Mutex::default(),
             scratch,
             flights: Mutex::default(),
             playback: Arc::new(Semaphore::new(PLAYBACK_SLOTS)),
             speculative: Arc::new(Semaphore::new(SPECULATIVE_SLOTS)),
             backlog: Mutex::default(),
             saving: Mutex::default(),
-            runs: AtomicU64::new(0),
             native: OnceLock::new(),
-            native_failed: Mutex::default(),
-            native_logged: Mutex::default(),
+            failed: Mutex::default(),
         }
     }
 
-    /// Resolves through InnerTube in Rust first (`crate::streams`), with
-    /// yt-dlp as the fallback, when `crate::streams::enabled`.
+    /// Resolves through `client`'s InnerTube session (`crate::streams`).
     pub fn use_innertube(
         &self,
         client: Arc<crate::innertube::Client>,
         paths: &crate::paths::Paths,
     ) {
-        if crate::streams::enabled() {
-            log::info!("resolving streams in Rust first, yt-dlp as the fallback");
-            let native = crate::streams::Native::new(client, &paths.cache, &paths.config);
-            let _ = self.native.set(native);
-        }
+        let native = crate::streams::Native::new(client, &paths.cache, &paths.config);
+        let _ = self.native.set(native);
     }
 
-    /// Streams resolved without cookies don't count once signed in (they
-    /// lack the account's formats); the others stay usable whatever happens
-    /// to the session, since stream URLs carry no cookies.
-    pub fn set_cookie_file(&self, path: Option<PathBuf>) {
-        *self.cookie_file.lock().expect("cookie lock") = path;
-    }
-
+    /// Whether the InnerTube session is signed in. Streams resolved signed
+    /// out don't count then (they lack the account's formats); the others
+    /// stay usable whatever happens to the session, since stream URLs carry
+    /// no cookies.
     fn signed_in(&self) -> bool {
-        self.cookie_file.lock().expect("cookie lock").is_some()
+        self.native.get().is_some_and(|n| n.signed_in())
     }
 
     /// A cached stream still valid for ten minutes.
@@ -295,9 +264,11 @@ impl Resolver {
             .map(Cached::stream)
     }
 
+    /// Drops `video_id`'s stream after it failed to play; the next resolve
+    /// goes without the account.
     pub fn forget(&self, video_id: &str) {
-        if self.native.get().is_some() {
-            let mut failed = self.native_failed.lock().expect("native lock");
+        {
+            let mut failed = self.failed.lock().expect("failed lock");
             if failed.len() > 256 {
                 failed.clear();
             }
@@ -495,7 +466,7 @@ impl Resolver {
             };
             let waited = queued.elapsed();
             let started = Instant::now();
-            let result = this.run(&id, speculative).await;
+            let result = this.run(&id).await;
             let kind = if speculative { "ahead" } else { "for playback" };
             match &result {
                 Ok((stream, _)) => log::info!(
@@ -567,131 +538,26 @@ impl Resolver {
         }
     }
 
-    /// The Rust resolver when it is on and succeeds, else yt-dlp (also for
-    /// a song whose Rust-resolved stream failed to play).
-    async fn run(&self, video_id: &str, speculative: bool) -> Result<(Stream, bool)> {
-        let failed = self
-            .native_failed
-            .lock()
-            .expect("native lock")
-            .contains(video_id);
-        if let Some(native) = self.native.get().filter(|_| !failed) {
-            let signed_in = self.signed_in();
-            let started = Instant::now();
-            match native.resolve(video_id, signed_in).await {
-                Ok(stream) => {
-                    log::info!(
-                        "resolved {video_id} in Rust as {}: itag {} in {:.2}s",
-                        native.last_client(),
-                        stream.itag,
-                        started.elapsed().as_secs_f64()
-                    );
-                    return Ok((stream, signed_in));
-                }
-                Err(error) => self.log_native_failure(video_id, started, &error),
-            }
-        }
-        self.run_ytdlp(video_id, speculative).await
-    }
-
-    /// A failure of one song is logged for that song; one that holds for
-    /// the whole player version (the solver can't use it, or it is being
-    /// prepared) once per version and kind.
-    fn log_native_failure(&self, video_id: &str, started: Instant, error: &anyhow::Error) {
-        let elapsed = started.elapsed().as_secs_f64();
-        let Some(failure) = error.downcast_ref::<crate::streams::PlayerFailure>() else {
-            log::warn!(
-                "the Rust resolver failed for {video_id} after {elapsed:.2}s ({error:#}); trying yt-dlp"
-            );
-            return;
-        };
-        let key = format!("{}:{}", failure.player, failure.preparing);
-        let first = {
-            let mut logged = self.native_logged.lock().expect("native lock");
-            if logged.len() > 64 {
-                logged.clear();
-            }
-            logged.insert(key)
-        };
-        if first {
-            log::warn!("{failure}; songs go to yt-dlp until that changes");
-        } else {
-            log::debug!("{video_id}: {failure}; trying yt-dlp");
-        }
-    }
-
-    /// One yt-dlp run; also says whether it had the account's cookies.
-    async fn run_ytdlp(&self, video_id: &str, speculative: bool) -> Result<(Stream, bool)> {
-        let cookies = self.cookie_file.lock().expect("cookie lock").clone();
-        // yt-dlp rewrites the cookie file it is given, so it gets a copy.
-        let copy = cookies.as_ref().map(|_| {
-            let run = self.runs.fetch_add(1, Ordering::Relaxed);
-            CookieCopy(self.scratch.join(format!("ytdlp-{video_id}-{run}.txt")))
-        });
-        if let (Some(from), Some(to)) = (&cookies, &copy) {
-            std::fs::copy(from, &to.0).context("copying cookies for yt-dlp")?;
-        }
-        // Guesses yield the CPU to playback's runs.
-        let mut command = if speculative && cfg!(unix) {
-            let mut nice = tokio::process::Command::new("nice");
-            nice.args(["-n", "10", "yt-dlp"]);
-            nice
-        } else {
-            tokio::process::Command::new("yt-dlp")
-        };
-        command.args([
-            "--ignore-config",
-            "--no-warnings",
-            "--no-playlist",
-            "-f",
-            "774/141/251/140/250/249/139",
-        ]);
-        // yt-dlp's own client choice: forcing `web_music` stopped working for
-        // this account on 2026-10-01 (it now needs a PO token and yields no audio).
-        command.args([
-            "--print",
-            "%(format_id)s\t%(http_headers.User-Agent)s\t%(url)s",
-        ]);
-        if let Some(copy) = &copy {
-            command.arg("--cookies").arg(&copy.0);
-        }
-        command.arg(format!("https://music.youtube.com/watch?v={video_id}"));
-        command
-            .kill_on_drop(true)
-            .stdin(std::process::Stdio::null());
-        crate::platform::no_console(&mut command);
-        let output =
-            tokio::time::timeout(std::time::Duration::from_secs(60), command.output()).await;
-        drop(copy);
-        let output = output
-            .context("yt-dlp timed out")?
-            .context("running yt-dlp")?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let line = stderr
-                .lines()
-                .rev()
-                .find(|l| l.contains("ERROR"))
-                .unwrap_or("yt-dlp failed");
-            bail!("{}", line.trim());
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut parts = stdout.trim().splitn(3, '\t');
-        let (Some(format), Some(agent), Some(url)) = (parts.next(), parts.next(), parts.next())
-        else {
-            bail!("yt-dlp printed no stream");
-        };
-        let itag = format
-            .split('-')
-            .next()
-            .and_then(|f| f.parse().ok())
-            .unwrap_or(0);
-        let stream = Stream {
-            itag,
-            expires: crate::innertube::expiry(url),
-            url: url.to_owned(),
-            user_agent: (agent != "NA").then(|| agent.to_owned()),
-        };
-        Ok((stream, cookies.is_some()))
+    /// One resolve; also says whether it has the account's formats.
+    async fn run(&self, video_id: &str) -> Result<(Stream, bool)> {
+        let native = self
+            .native
+            .get()
+            .context("the stream resolver isn't ready")?;
+        let failed = self.failed.lock().expect("failed lock").contains(video_id);
+        let signed_in = self.signed_in();
+        let started = Instant::now();
+        let (stream, client) = native.resolve(video_id, signed_in && !failed).await?;
+        log::info!(
+            "resolved {video_id} as {client}: itag {} in {:.2}s",
+            stream.itag,
+            started.elapsed().as_secs_f64()
+        );
+        // Signed out after a failure counts as the account's best: it won't
+        // get better until the URL expires. Signed out while the account's
+        // client fails for the player (being prepared, or the solver can't
+        // use it) is asked again next time.
+        let account = signed_in && (failed || client != crate::streams::VISIONOS.name);
+        Ok((stream, account))
     }
 }

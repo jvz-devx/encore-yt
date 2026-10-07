@@ -201,7 +201,7 @@ fn reach(place: Place, cx: &App) -> Pixels {
     match place {
         // Clear of the strip and the title below the cover.
         Place::NowPlaying => (side * 0.14).min(px(56.)),
-        Place::Stage | Place::Full => (side * 0.2).min(px(120.)),
+        Place::Stage | Place::Full => super::ring_reach(side),
     }
 }
 
@@ -218,17 +218,11 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
                 let grown = around(c, c.size.width * 0.3);
                 Some(grown.intersect(&page))
             }
-            _ => Slots::get(cx, Slot::Spectrum).map(|s| {
-                // A little more room up and to the sides for the glow.
-                Bounds::from_corners(
-                    point(s.left() - px(8.), s.top() - px(10.)),
-                    point(s.right() + px(8.), s.bottom() + px(4.)),
-                )
-            }),
+            _ => Slots::get(cx, Slot::Spectrum).map(super::visualizer_strip),
         },
         Place::Stage | Place::Full => {
             let body = Slots::get(cx, Slot::StageBody)?;
-            let band = if place == Place::Full { 0.3 } else { 0.22 };
+            let band = if place == Place::Full { 0.26 } else { 0.22 };
             match style {
                 Style::Ring => cover.map(|c| around(c, reach(place, cx) + px(32.))),
                 Style::Particles => Slots::get(cx, Slot::Stage),
@@ -236,7 +230,7 @@ fn region(place: Place, style: Style, cx: &App) -> Option<Bounds<Pixels>> {
                     // Mirrored bars stand on a floor with their reflection
                     // under it: a taller band.
                     let band = if style == Style::Mirrored {
-                        band * 1.25
+                        band * 1.15
                     } else {
                         band
                     };

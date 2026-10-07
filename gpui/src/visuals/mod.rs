@@ -239,23 +239,65 @@ pub fn paints_full() -> bool {
     enabled()
 }
 
+/// How far the ring's bars reach out of a scene's cover of `side`.
+pub fn ring_reach(side: Pixels) -> Pixels {
+    (side * 0.2).min(px(120.))
+}
+
 /// Stage's cover's corner radius at `side` (also the full-window
 /// visualiser's).
 pub fn stage_cover_radius(side: Pixels) -> Pixels {
     (side * 0.02).clamp(theme::radius::MD, px(16.))
 }
 
-/// The height of Now Playing's strip above the title: taller while the
-/// visualiser draws its bars there.
+/// The height of Now Playing's strip above the title (`base` for the
+/// thin spectrum): taller while the visualiser draws its bars there, and
+/// taller still when both show, the visualiser over the spectrum.
 pub fn spectrum_height(base: Pixels) -> Pixels {
+    match strip_band() {
+        Some(true) => base + VIS_BAND,
+        Some(false) => base + px(24.),
+        None => base,
+    }
+}
+
+/// The visualiser's band over the thin spectrum when both show.
+const VIS_BAND: Pixels = px(44.);
+/// The thin spectrum's height (Now Playing's strip without the visualiser).
+const SPECTRUM: Pixels = px(32.);
+
+/// Where the thin spectrum goes in Now Playing's strip: all of it, or its
+/// bottom under the visualiser.
+fn spectrum_strip(strip: Bounds<Pixels>) -> Bounds<Pixels> {
+    match strip_band() {
+        Some(true) => Bounds::from_corners(
+            point(strip.left(), strip.bottom() - SPECTRUM),
+            strip.bottom_right(),
+        ),
+        _ => strip,
+    }
+}
+
+/// Where the visualiser draws in Now Playing's strip: all of it (with
+/// room round it for the glow), or its top over the thin spectrum.
+fn visualizer_strip(strip: Bounds<Pixels>) -> Bounds<Pixels> {
+    let bottom = match strip_band() {
+        Some(true) => strip.bottom() - SPECTRUM - px(4.),
+        _ => strip.bottom() + px(4.),
+    };
+    Bounds::from_corners(
+        point(strip.left() - px(8.), strip.top() - px(10.)),
+        point(strip.right() + px(8.), bottom),
+    )
+}
+
+/// Whether the visualiser draws a band in Now Playing's strip, and if so
+/// whether the thin spectrum shows under it.
+fn strip_band() -> Option<bool> {
     let config = config::get();
     let v = &config.visualizer;
     let banded = !matches!(v.style, config::Style::Ring | config::Style::Particles);
-    if enabled() && v.now_playing.visualizer() && banded {
-        base + px(24.)
-    } else {
-        base
-    }
+    (enabled() && v.now_playing.visualizer() && banded).then(|| v.now_playing.spectrum())
 }
 
 /// The seek bar's width, as last laid out.

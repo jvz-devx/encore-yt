@@ -516,7 +516,14 @@ fn swatches(
             .border_2()
             .border_color(if picked { ring } else { transparent_black() })
             .cursor_pointer()
-            .child(div().size_full().rounded(radius::FULL).bg(fill))
+            .child(
+                div()
+                    .size_full()
+                    .rounded(radius::FULL)
+                    .bg(fill)
+                    .border_1()
+                    .border_color(c.outline),
+            )
             .tooltip(widgets::tooltip(swatch.label()))
             .on_click(
                 cx.listener(move |_, _, _, cx| change(cx, |s| s.visualizer.custom[stop] = swatch)),

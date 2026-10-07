@@ -27,7 +27,7 @@ pub fn visualizer(
     let c = theme::colors(cx);
     let view = window.viewport_size();
     let (w, h) = (f32::from(view.width), f32::from(view.height));
-    let side = px((h * 0.4).min(w * 0.34).max(120.));
+    let side = px((h * 0.36).min(w * 0.34).max(120.));
     let track = app.player.current().cloned();
     let painted = visuals::paints_full();
     let shadow = !visuals::paints_cover_shadow(cx);
@@ -47,7 +47,8 @@ pub fn visualizer(
                 .size_full()
                 .items_center()
                 .justify_center()
-                .pb(px(h * 0.08))
+                // Clear of the band along the bottom (`visuals::visualizer`).
+                .pb(px(h * 0.28))
                 .child(song(track.as_ref(), side, shadow, &c)),
         )
         .child(top_bar(painted, &c, cx))
@@ -70,6 +71,13 @@ fn song(track: Option<&Track>, side: Pixels, shadow: bool, c: &Colors) -> impl I
     let title_size = (f32::from(side) * 0.075).clamp(22., 36.);
     let corner = visuals::stage_cover_radius(side);
     let url = track.and_then(|t| t.thumbnail.as_deref());
+    // The ring's bars stand round the cover: the title moves clear of them.
+    let ring = config::get().visualizer.style == config::Style::Ring;
+    let below = if ring {
+        space::XXL + visuals::ring_reach(side)
+    } else {
+        space::XXL
+    };
     let cover = h_flex()
         .relative()
         .flex_none()
@@ -102,7 +110,7 @@ fn song(track: Option<&Track>, side: Pixels, shadow: bool, c: &Colors) -> impl I
         .children(track.map(|t| {
             v_flex()
                 .w(side * 1.6)
-                .mt(space::XXL)
+                .mt(below)
                 .items_center()
                 .gap(space::XS)
                 .child(

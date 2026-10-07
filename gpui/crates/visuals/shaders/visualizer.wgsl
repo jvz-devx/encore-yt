@@ -119,7 +119,7 @@ fn cap_color(color: vec3<f32>) -> vec3<f32> {
 
 // A glow's reach, in output pixels.
 fn glow_radius() -> f32 {
-    return (3.0 + 6.0 * params.look.y) * params.extra.x;
+    return (3.0 + 5.0 * params.look.y) * params.extra.x;
 }
 
 // One bar of a row: its body (rounded, from `base` up or down by its
@@ -140,7 +140,7 @@ fn row_bar(ink: Ink, p: vec2<f32>, i: i32, centre: f32, half_w: f32, base: f32, 
     let g = params.look.y;
     if g > 0.0 {
         let r = glow_radius();
-        let halo = exp(-max(d, 0.0) / r) * step(0.0, d) * (0.18 + 0.5 * v) * min(g, 1.5) * 0.6;
+        let halo = exp(-max(d, 0.0) / r) * step(0.0, d) * (0.12 + 0.4 * v) * min(g, 1.5) * 0.5;
         out = over(out, color, halo * fade);
     }
     let up = abs(p.y - base) / max(room, 1.0);
@@ -435,6 +435,15 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     } else {
         ink = particles(p);
     }
-    let alpha = clamp(ink.alpha * params.look.x, 0.0, 1.0);
+    // Glows fade out before the frame's edge, so its box never shows:
+    // all round for the ring and the particles, at the top for the bands
+    // (their bars stand on the bottom edge).
+    let size = params.output.xy;
+    let margin = 14.0 * params.extra.x;
+    var edge = p.y;
+    if style == 2 || style == 4 {
+        edge = min(min(p.x, size.x - p.x), min(p.y, size.y - p.y));
+    }
+    let alpha = clamp(ink.alpha * params.look.x, 0.0, 1.0) * smoothstep(0.0, margin, edge);
     return vec4<f32>(to_display(ink.color), alpha);
 }

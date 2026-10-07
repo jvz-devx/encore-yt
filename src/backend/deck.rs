@@ -184,10 +184,19 @@ impl super::Worker {
             };
             if failed {
                 log::warn!("the cued song failed; it will start the usual way");
-                if let Some(cued) = self.decks.cued.take()
-                    && !matches!(event, PlayerEvent::Died)
-                {
-                    self.decks.spare = Some(cued.mpv);
+                if let Some(cued) = self.decks.cued.take() {
+                    if cued.mpv.kind() == Kind::Rust
+                        && let Some(track) = self
+                            .queue
+                            .position(cued.next.id)
+                            .and_then(|p| self.track_at(p))
+                    {
+                        let id = track.video_id.clone();
+                        self.rust_failed(&id, "the cued song failed");
+                    }
+                    if !matches!(event, PlayerEvent::Died) {
+                        self.decks.spare = Some(cued.mpv);
+                    }
                 }
                 self.emit(true);
             }
@@ -341,10 +350,11 @@ impl super::Worker {
 
     /// Cues the next song paused and silent on a second deck.
     pub(super) async fn cue(&mut self, id: u64, video_id: &str, stream: &Stream) {
-        let deck = match self.decks.spare.take() {
+        let kind = self.engine_for(video_id, stream.itag);
+        let deck = match self.decks.spare.take().filter(|d| d.kind() == kind) {
             Some(deck) => deck,
             None => match Player::spawn(
-                self.player,
+                kind,
                 &self.paths.runtime.join("mpv-cue.sock"),
                 0.0,
                 self.mpv_tx.clone(),

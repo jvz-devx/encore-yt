@@ -130,10 +130,17 @@ impl super::Worker {
         let Some((video_id, start)) = self.decks.audition.held.clone() else {
             return;
         };
-        let deck = match self.decks.audition.deck.clone() {
+        let kind = self.engine_for(&video_id, stream.itag);
+        let deck = match self
+            .decks
+            .audition
+            .deck
+            .clone()
+            .filter(|d| d.kind() == kind)
+        {
             Some(deck) => deck,
             None => match Player::spawn(
-                self.player,
+                kind,
                 &self.paths.runtime.join("mpv-audition.sock"),
                 0.0,
                 self.mpv_tx.clone(),

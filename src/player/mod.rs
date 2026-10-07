@@ -22,6 +22,9 @@ use tokio::sync::mpsc;
 use crate::equalizer::{Equalizer, LABEL};
 use crate::mpv::Mpv;
 
+#[cfg(feature = "rust-audio")]
+mod rust;
+
 /// Serials of players, unique for the run.
 static SERIAL: AtomicU64 = AtomicU64::new(1);
 
@@ -95,37 +98,74 @@ pub struct FileOptions {
     pub start: Option<Start>,
 }
 
-/// The audio engines.
+/// The audio engines. Both always parse from settings; a build without
+/// the `rust-audio` feature plays on mpv whatever is chosen.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// An mpv process per deck, over its JSON IPC.
     #[default]
     Mpv,
+    /// `ytfast-audio`: decks of one in-process engine (docs/gpui/AUDIO.md).
+    Rust,
 }
 
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Kind::Mpv => "mpv",
+            Kind::Rust => "Rust",
         }
     }
 
-    /// The engine to use: `YTFAST_PLAYER=mpv`, else the saved setting,
-    /// else the default.
-    pub fn choose(setting: Option<Kind>) -> Kind {
-        match std::env::var("YTFAST_PLAYER").ok().as_deref() {
-            Some("mpv") => return Kind::Mpv,
-            Some(other) => log::warn!("YTFAST_PLAYER={other}: unknown, using the setting"),
-            None => {}
+    /// Whether the engine decodes YouTube's audio format `itag`. The Rust
+    /// engine has Opus (WebM) and AAC-LC (MP4), not HE-AAC (139, 599).
+    pub fn plays(self, itag: u32) -> bool {
+        match self {
+            Kind::Mpv => true,
+            Kind::Rust => matches!(itag, 140 | 141 | 249 | 250 | 251 | 600 | 774),
         }
-        setting.unwrap_or_default()
+    }
+
+    /// Whether this build has the engine.
+    pub fn available(self) -> bool {
+        match self {
+            Kind::Mpv => true,
+            Kind::Rust => cfg!(feature = "rust-audio"),
+        }
+    }
+
+    /// The engine to use: `YTFAST_PLAYER=rust|mpv`, else the saved
+    /// setting, else the default; mpv when the choice isn't in this build.
+    pub fn choose(setting: Option<Kind>) -> Kind {
+        let env = std::env::var("YTFAST_PLAYER").ok();
+        let chosen = match env.as_deref() {
+            Some("mpv") => Some(Kind::Mpv),
+            Some("rust") => Some(Kind::Rust),
+            Some(other) => {
+                log::warn!("YTFAST_PLAYER={other}: unknown (rust or mpv), using the setting");
+                None
+            }
+            None => None,
+        }
+        .or(setting)
+        .unwrap_or_default();
+        if chosen.available() {
+            chosen
+        } else {
+            log::warn!("this build has no {} player; using mpv", chosen.label());
+            Kind::Mpv
+        }
     }
 }
 
 /// One deck on one of the engines.
+// Players live in an `Arc`, one per deck, so the variants' sizes don't matter.
+#[allow(clippy::large_enum_variant)]
 pub enum Player {
     Mpv(Mpv),
+    #[cfg(feature = "rust-audio")]
+    Rust(rust::Deck),
 }
 
 impl Player {
@@ -138,13 +178,17 @@ impl Player {
         events: Events,
     ) -> Result<Arc<Self>> {
         Ok(Arc::new(match kind {
-            Kind::Mpv => Player::Mpv(Mpv::spawn(socket, volume, events).await?),
+            #[cfg(feature = "rust-audio")]
+            Kind::Rust => Player::Rust(rust::Deck::spawn(next_serial(), volume, events).await?),
+            _ => Player::Mpv(Mpv::spawn(socket, volume, events).await?),
         }))
     }
 
     pub fn kind(&self) -> Kind {
         match self {
             Player::Mpv(_) => Kind::Mpv,
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(_) => Kind::Rust,
         }
     }
 
@@ -152,6 +196,8 @@ impl Player {
     pub fn serial(&self) -> u64 {
         match self {
             Player::Mpv(mpv) => mpv.serial(),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => deck.serial(),
         }
     }
 
@@ -178,6 +224,8 @@ impl Player {
                 }
                 mpv.load(url, mode, &list).await
             }
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => deck.load(url, mode, options),
         }
     }
 
@@ -185,6 +233,11 @@ impl Player {
     pub async fn stop(&self) -> Result<()> {
         match self {
             Player::Mpv(mpv) => mpv.command(json!(["stop"])).await.map(drop),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.stop();
+                Ok(())
+            }
         }
     }
 
@@ -195,6 +248,11 @@ impl Player {
                 .command(json!(["playlist-next", "force"]))
                 .await
                 .map(drop),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.skip();
+                Ok(())
+            }
         }
     }
 
@@ -205,6 +263,11 @@ impl Player {
                 .command(json!(["playlist-remove", index]))
                 .await
                 .map(drop),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.remove(index);
+                Ok(())
+            }
         }
     }
 
@@ -214,12 +277,22 @@ impl Player {
                 .command(json!(["seek", seconds, "absolute"]))
                 .await
                 .map(drop),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.seek(seconds);
+                Ok(())
+            }
         }
     }
 
     pub async fn set_pause(&self, paused: bool) -> Result<()> {
         match self {
             Player::Mpv(mpv) => mpv.set("pause", json!(paused)).await,
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.set_pause(paused);
+                Ok(())
+            }
         }
     }
 
@@ -227,6 +300,11 @@ impl Player {
     pub async fn set_volume(&self, volume: f64) -> Result<()> {
         match self {
             Player::Mpv(mpv) => mpv.set("volume", json!(volume)).await,
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.set_volume(volume);
+                Ok(())
+            }
         }
     }
 
@@ -234,6 +312,11 @@ impl Player {
     pub async fn set_gain(&self, gain: f64) -> Result<()> {
         match self {
             Player::Mpv(mpv) => mpv.set("volume-gain", json!(gain)).await,
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.set_gain(gain);
+                Ok(())
+            }
         }
     }
 
@@ -244,6 +327,11 @@ impl Player {
                 mpv.set("loop-file", json!(if looping { "inf" } else { "no" }))
                     .await
             }
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.set_loop(looping);
+                Ok(())
+            }
         }
     }
 
@@ -251,6 +339,11 @@ impl Player {
     pub async fn set_equalizer(&self, equalizer: &Equalizer) -> Result<()> {
         match self {
             Player::Mpv(mpv) => mpv.set("af", json!(equalizer.filter())).await,
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => {
+                deck.set_equalizer(equalizer);
+                Ok(())
+            }
         }
     }
 
@@ -284,12 +377,19 @@ impl Player {
                         .await;
                 }
             }
+            // The engine's equalizer changes in place anyway.
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => deck.set_equalizer(now),
         }
     }
 
     /// The current file's length, asked now.
     pub async fn duration(&self) -> Option<f64> {
-        self.property("duration").await.and_then(|v| v.as_f64())
+        match self {
+            Player::Mpv(_) => self.property("duration").await.and_then(|v| v.as_f64()),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => deck.duration(),
+        }
     }
 
     /// A property by mpv's name, for checks and logs: `time-pos`,
@@ -297,6 +397,8 @@ impl Player {
     pub async fn property(&self, name: &str) -> Option<Value> {
         match self {
             Player::Mpv(mpv) => mpv.get(name).await.ok(),
+            #[cfg(feature = "rust-audio")]
+            Player::Rust(deck) => deck.property(name),
         }
     }
 }

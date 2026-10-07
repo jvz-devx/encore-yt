@@ -16,6 +16,7 @@
 mod account;
 mod audition;
 mod deck;
+mod engines;
 mod pages;
 mod playback;
 mod queue;
@@ -23,7 +24,7 @@ mod resume;
 mod session;
 mod sound;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -148,6 +149,8 @@ pub enum Command {
     /// Search YouTube Music for Play anything (Ctrl+K): answered with
     /// [`Event::QuickResults`], never saved to disk.
     QuickSearch(String),
+    /// Settings: the audio engine new songs start on (saved for next time).
+    Player(crate::player::Kind),
 }
 
 pub enum Event {
@@ -287,6 +290,12 @@ impl Backend {
         self.resolver.cached(video_id).is_some()
     }
 
+    /// A song's resolved stream URL (or `YTFAST_FAKE_STREAM`'s file), while
+    /// it is valid: the waveform decodes it.
+    pub fn stream_url(&self, video_id: &str) -> Option<String> {
+        self.resolver.cached(video_id).map(|stream| stream.url)
+    }
+
     /// E2E: drops a song's resolved stream; true if a click on it is now cold.
     #[cfg(feature = "e2e")]
     pub fn make_cold(&self, video_id: &str) -> bool {
@@ -392,8 +401,10 @@ struct Worker {
     mpv_rx: Option<mpsc::UnboundedReceiver<(u64, PlayerEvent)>>,
     /// The main deck: the current song plays on it.
     mpv: Option<Arc<Player>>,
-    /// The audio engine new decks start on.
+    /// The audio engine new songs start on.
     player: Kind,
+    /// Songs that play on mpv although the Rust engine is chosen.
+    fallbacks: HashSet<String>,
     last_connect: Option<Instant>,
     last_death: Option<Instant>,
 
@@ -452,6 +463,8 @@ impl Worker {
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
         let (mpv_tx, mpv_rx) = mpsc::unbounded_channel();
         let settings = crate::settings::Settings::load(&paths);
+        let player = Kind::choose(settings.player);
+        log::info!("audio player: {}", player.label());
         Self {
             client,
             resolver,
@@ -462,7 +475,8 @@ impl Worker {
             mpv_tx,
             mpv_rx: Some(mpv_rx),
             mpv: None,
-            player: Kind::choose(settings.player),
+            player,
+            fallbacks: HashSet::new(),
             last_connect: None,
             last_death: None,
             queue: queue::Queue::default(),
@@ -483,6 +497,7 @@ impl Worker {
                 normalize: settings.normalizes(),
                 equalizer: settings.equalizer,
                 mixes: settings.mixes,
+                player,
                 ..Playback::default()
             },
             last_emit: Instant::now(),
@@ -828,6 +843,7 @@ impl Worker {
                     sink.send(Event::QuickResults { query, result });
                 });
             }
+            Command::Player(kind) => self.set_player(kind),
         }
     }
 
@@ -838,6 +854,7 @@ impl Worker {
         }
         self.last_emit = Instant::now();
         self.state.next_ready = self.appended.is_some() || self.decks.cued.is_some();
+        self.state.engine = self.mpv.as_ref().map(|m| m.kind());
         self.sink.send(Event::Playback(self.state.clone()));
     }
 }

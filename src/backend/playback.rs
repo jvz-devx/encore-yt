@@ -235,10 +235,17 @@ impl super::Worker {
         }
     }
 
-    async fn ensure_mpv(&mut self) -> Option<Arc<Player>> {
+    /// The main deck, on engine `kind`: a deck on the other engine stops
+    /// and a new one starts.
+    async fn ensure_mpv(&mut self, kind: Kind) -> Option<Arc<Player>> {
+        if let Some(old) = self.mpv.take_if(|m| m.kind() != kind) {
+            log::info!("the main deck moves to {}", kind.label());
+            let _ = old.stop().await;
+            self.appended = None;
+        }
         if self.mpv.is_none() {
             match Player::spawn(
-                self.player,
+                kind,
                 &self.paths.runtime.join("mpv.sock"),
                 self.main_volume(),
                 self.mpv_tx.clone(),
@@ -406,7 +413,8 @@ impl super::Worker {
                 };
                 match stream {
                     Ok(stream) => {
-                        let Some(mpv) = self.ensure_mpv().await else {
+                        let kind = self.engine_for(&track.video_id, stream.itag);
+                        let Some(mpv) = self.ensure_mpv(kind).await else {
                             return;
                         };
                         // `replace` empties mpv's playlist, including any track queued behind.
@@ -430,7 +438,13 @@ impl super::Worker {
                                 #[cfg(feature = "e2e")]
                                 self.probe_gain();
                             }
-                            Err(error) => self.fail(&track, &format!("{error:#}")).await,
+                            Err(error) => {
+                                let error = format!("{error:#}");
+                                if kind == Kind::Rust {
+                                    self.rust_failed(&track.video_id, &error);
+                                }
+                                self.fail(&track, &error).await
+                            }
                         }
                     }
                     Err(error) => self.fail(&track, &format!("{error:#}")).await,
@@ -463,6 +477,14 @@ impl super::Worker {
                     if !self.decks.blending() {
                         self.cue(id, &video_id, &stream).await;
                     }
+                    return;
+                }
+                let kind = self.engine_for(&video_id, stream.itag);
+                if self.mpv.as_ref().is_some_and(|m| m.kind() != kind) {
+                    log::info!(
+                        "the next song plays on {}: it starts after this one, not gapless",
+                        kind.label()
+                    );
                     return;
                 }
                 let (options, gain) = self.file_options(&video_id, &stream, None);
@@ -795,6 +817,7 @@ impl super::Worker {
                         self.current_entry = None;
                         if let Some(track) = self.current().cloned() {
                             let error = error.unwrap_or_else(|| "the stream failed".into());
+                            self.main_deck_failed(&error);
                             self.fail(&track, &error).await;
                         }
                     }

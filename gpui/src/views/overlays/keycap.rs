@@ -12,6 +12,7 @@ const CAP: Pixels = px(24.);
 const EDGE: Pixels = px(1.5);
 
 pub fn keycap(label: &'static str, c: &Colors) -> Div {
+    let label = crate::desktop::key_label(label);
     h_flex()
         .flex_none()
         .h(CAP)

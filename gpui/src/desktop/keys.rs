@@ -5,7 +5,8 @@
 //!
 //! Single keys bind in `Music && !Input && !MusicMenu`, so they never fire
 //! while a field or a menu has the keyboard. Esc, Ctrl+K, Ctrl+Q and the
-//! other Ctrl chords work from a field too.
+//! other Ctrl chords work from a field too. The chords use GPUI's
+//! `secondary` modifier: Ctrl, or Cmd on macOS, as the keycaps say.
 
 use gpui_kit::*;
 use ytfast::backend::Command;
@@ -54,6 +55,8 @@ pub enum Group {
     Library,
     Navigation,
     Views,
+    /// Inside Settings (M24).
+    Settings,
 }
 
 impl Group {
@@ -63,12 +66,15 @@ impl Group {
             Group::Library => "Library",
             Group::Navigation => "Navigation",
             Group::Views => "Views",
+            Group::Settings => "In Settings",
         }
     }
 }
 
 /// One line of the shortcuts sheet: alternative key combinations (each a
-/// list of caps) and what they do.
+/// list of caps) and what they do. "Ctrl" is the `secondary` modifier
+/// (Cmd on macOS) and "Control" the Control key itself; the keycaps name
+/// them for the platform (`views::overlays::keycap`).
 pub struct Shortcut {
     pub group: Group,
     pub keys: &'static [&'static [&'static str]],
@@ -125,9 +131,38 @@ pub const SHORTCUTS: &[Shortcut] = &[
     ),
     line(Group::Views, &[&["E"]], "Equalizer"),
     line(Group::Views, &[&["Ctrl", ","]], "Settings"),
+    line(Group::Views, &[&["V"]], "Visualiser"),
     line(Group::Views, &[&["Ctrl", "M"]], "Mini player"),
-    line(Group::Views, &[&["?"]], "Keyboard shortcuts"),
+    line(
+        Group::Views,
+        &[&["?"], &["Ctrl", "/"]],
+        "Keyboard shortcuts",
+    ),
+    line(
+        Group::Settings,
+        &[&["↑"], &["↓"]],
+        "Previous or next category",
+    ),
+    line(Group::Settings, &[&["Control", "Tab"]], "Next category"),
+    line(Group::Settings, &[&["/"]], "Search settings"),
+    line(Group::Settings, &[&["Tab"]], "Next setting"),
+    line(
+        Group::Settings,
+        &[&["Esc"]],
+        "Clear the search, then close Settings",
+    ),
 ];
+
+/// A key's name on this platform: the table's "Ctrl" is Cmd on macOS
+/// (GPUI's `secondary`), "Control" the Control key, Alt is Option.
+pub fn key_label(label: &'static str) -> &'static str {
+    match label {
+        "Ctrl" if cfg!(target_os = "macos") => "Cmd",
+        "Alt" if cfg!(target_os = "macos") => "Option",
+        "Control" if !cfg!(target_os = "macos") => "Ctrl",
+        other => other,
+    }
+}
 
 pub fn bind_keys(cx: &mut App) {
     let single = Some(SINGLE);
@@ -150,12 +185,12 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("l", Like, single),
         KeyBinding::new("/", FocusSearch, single),
         KeyBinding::new("?", Shortcuts, single),
-        KeyBinding::new("ctrl-f", FocusSearch, anywhere),
-        KeyBinding::new("ctrl-/", Shortcuts, anywhere),
+        KeyBinding::new("secondary-f", FocusSearch, anywhere),
+        KeyBinding::new("secondary-/", Shortcuts, anywhere),
         KeyBinding::new("escape", CloseLayer, anywhere),
-        KeyBinding::new("ctrl-k", PlayAnything, anywhere),
-        KeyBinding::new("ctrl-,", Settings, anywhere),
-        KeyBinding::new("ctrl-q", Quit, anywhere),
+        KeyBinding::new("secondary-k", PlayAnything, anywhere),
+        KeyBinding::new("secondary-,", Settings, anywhere),
+        KeyBinding::new("secondary-q", Quit, anywhere),
     ]);
     super::menu::bind_keys(cx);
 }

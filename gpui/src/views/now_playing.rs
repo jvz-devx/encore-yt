@@ -110,7 +110,11 @@ fn song(app: &MusicApp, side: Pixels, c: &Colors, cx: &mut Context<MusicApp>) ->
                 .relative()
                 .when(hidden, |d| d.opacity(0.))
                 .child(
-                    widgets::cover(url.map(Into::into), side, false, c).shadow(elevation::high(c)),
+                    widgets::cover(url.map(Into::into), side, false, c)
+                        // The backdrop draws it while it shows.
+                        .when(!visuals::paints_cover_shadow(cx), |d| {
+                            d.shadow(elevation::high(c))
+                        }),
                 )
                 .child(visuals::slot(Slot::Cover)),
         )

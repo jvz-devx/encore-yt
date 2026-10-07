@@ -56,7 +56,7 @@ use gpui_kit::*;
 use crate::app::MusicApp;
 use crate::theme;
 
-pub use slots::{Covers, Slot, paints_bar, set_bar_cover, set_covers, slot};
+pub use slots::{Covers, Slot, paints_bar, paints_cover_shadow, set_bar_cover, set_covers, slot};
 pub use waveform::waveform;
 
 /// The layers, made with the first window and kept for the next one.

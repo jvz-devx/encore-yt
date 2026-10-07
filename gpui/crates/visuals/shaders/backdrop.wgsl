@@ -10,6 +10,11 @@ struct Params {
     output: vec4<f32>,
     // x: weight of the new cover (cross-fade), y: has a cover (0/1)
     cover: vec4<f32>,
+    // The large cover's box under its drop shadow: left, top, right, bottom
+    shadow_box: vec4<f32>,
+    // x: the box's corner radius, y: pixels per point, z: the shadow's
+    // alpha, w: on (0/1)
+    shadow: vec4<f32>,
     palette: array<vec4<f32>, 4>,
 };
 
@@ -147,6 +152,46 @@ fn tone_light(color: vec3<f32>) -> vec3<f32> {
     return pow(clamp(toned, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.2));
 }
 
+// The error function, as GPUI's shadows use it.
+fn erf2(v: vec2<f32>) -> vec2<f32> {
+    let s = sign(v);
+    let a = abs(v);
+    let r1 = 1.0 + (0.278393 + (0.230389 + (0.000972 + 0.078108 * a) * a) * a) * a;
+    let r2 = r1 * r1;
+    return s - s / (r2 * r2);
+}
+
+// How much of a box blurred by a gaussian of `sigma` covers `p`.
+fn blurred_box(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, sigma: f32) -> f32 {
+    let k = 1.0 / (sigma * 1.4142135);
+    let a = erf2((p - lo) * k);
+    let b = erf2((p - hi) * k);
+    return 0.25 * (a.x - b.x) * (a.y - b.y);
+}
+
+// The same for a rounded box, from its signed distance: exact along the
+// edges, a little soft at the corners (fine for the tight layer).
+fn blurred_round_box(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32, sigma: f32) -> f32 {
+    let centre = (lo + hi) * 0.5;
+    let q = abs(p - centre) - (hi - lo) * 0.5 + r;
+    let d = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
+    return 0.5 - 0.5 * erf2(vec2<f32>(d / (sigma * 1.4142135), 0.0)).x;
+}
+
+// The cover's drop shadow (the theme's elevation "high": 2 pt down with a
+// 6 pt blur at half the alpha, 16 pt down with a 40 pt blur): how much
+// light is left at `p`.
+fn cover_shadow(p: vec2<f32>) -> f32 {
+    let lo = params.shadow_box.xy;
+    let hi = params.shadow_box.zw;
+    let s = params.shadow.y;
+    let alpha = params.shadow.z;
+    let tight = blurred_round_box(p, lo + vec2<f32>(0.0, 2.0 * s), hi + vec2<f32>(0.0, 2.0 * s),
+        params.shadow.x, 6.0 * s);
+    let wide = blurred_box(p, lo + vec2<f32>(0.0, 16.0 * s), hi + vec2<f32>(0.0, 16.0 * s), 40.0 * s);
+    return (1.0 - tight * alpha * 0.5) * (1.0 - wide * alpha);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let t = params.audio.x;
@@ -199,6 +244,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         } else {
             color += tint * m * (0.07 + 0.08 * kick);
         }
+    }
+
+    // GPUI blends shadows in display space: the same here.
+    if params.shadow.w > 0.5 {
+        color *= cover_shadow(in.uv * params.output.xy);
     }
 
     // Dither so 8-bit gradients don't band.

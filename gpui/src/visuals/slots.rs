@@ -50,6 +50,8 @@ pub(super) struct Slots {
     covers: RefCell<Covers>,
     /// The effects layer paints the player bar's background and seek bar.
     bar_painted: Cell<bool>,
+    /// The backdrop draws the large cover's drop shadow.
+    shadow_painted: Cell<bool>,
 }
 
 impl Global for Slots {}
@@ -75,6 +77,12 @@ impl Slots {
     pub fn set_bar_painted(cx: &App, painted: bool) {
         if let Some(slots) = cx.try_global::<Self>() {
             slots.bar_painted.set(painted);
+        }
+    }
+
+    pub fn set_shadow_painted(cx: &App, painted: bool) {
+        if let Some(slots) = cx.try_global::<Self>() {
+            slots.shadow_painted.set(painted);
         }
     }
 
@@ -105,6 +113,13 @@ pub fn slot(which: Slot) -> impl IntoElement {
 pub fn paints_bar(cx: &App) -> bool {
     cx.try_global::<Slots>()
         .is_some_and(|s| s.bar_painted.get())
+}
+
+/// Whether the backdrop draws Now Playing's cover shadow: the cover then
+/// leaves its own out.
+pub fn paints_cover_shadow(cx: &App) -> bool {
+    cx.try_global::<Slots>()
+        .is_some_and(|s| s.shadow_painted.get())
 }
 
 /// Tells the effects which cover image the player bar shows.

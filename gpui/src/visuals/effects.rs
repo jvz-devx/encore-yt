@@ -16,12 +16,12 @@ use std::time::{Duration, Instant};
 use gpui_kit::*;
 use ytfast_visuals::{AudioTap, BANDS, Bands, Cover, Gpu, Look};
 
-use super::backdrop::Backdrop;
+use super::backdrop::{self, Backdrop};
 use super::bar::{self, Bar};
 use super::dissolve::{self, Change};
 use super::slots::{self, Slot, Slots};
 use super::waveform;
-use crate::theme::{self, radius};
+use crate::theme::{self, radius, size};
 
 /// The backdrop renderer is dropped this long after Now Playing closes, and
 /// the GPU device (a second Vulkan device, ~50-90 MB) this long after the
@@ -366,12 +366,15 @@ impl Effects {
         }
     }
 
-    /// Tells the bar whether to leave its background to this layer; when
-    /// that changes, the cached app view renders afresh.
-    fn hand_over_bar(&mut self, window: &mut Window, cx: &App) {
-        let painted = self.input.bar.is_some() && self.bar.image().is_some();
-        if slots::paints_bar(cx) != painted {
-            Slots::set_bar_painted(cx, painted);
+    /// Tells the bar whether to leave its background to this layer, and
+    /// Now Playing's cover its shadow; when either changes, the cached app
+    /// view renders afresh.
+    fn hand_over(&mut self, window: &mut Window, cx: &App) {
+        let bar = self.input.bar.is_some() && self.bar.image().is_some();
+        let shadow = self.input.showing && self.backdrop.image().is_some();
+        if slots::paints_bar(cx) != bar || slots::paints_cover_shadow(cx) != shadow {
+            Slots::set_bar_painted(cx, bar);
+            Slots::set_shadow_painted(cx, shadow);
             self.input_flag.set(true);
             window.request_animation_frame();
         }
@@ -440,9 +443,11 @@ impl Render for Effects {
             // next.
             let paced = |due| Tick { due, ..tick };
             match slots::panel(cx).filter(|_| input.showing) {
-                Some(panel) if !(skip("backdrop") && self.backdrop.image().is_some()) => self
-                    .backdrop
-                    .update(&paced(backdrop_due), panel, art, window),
+                Some(panel) if !(skip("backdrop") && self.backdrop.image().is_some()) => {
+                    let shadow = cover_shadow(cx);
+                    let tick = paced(backdrop_due);
+                    self.backdrop.update(&tick, panel, art, shadow, window)
+                }
                 Some(_) => {}
                 None if input.showing => window.request_animation_frame(),
                 None => {}
@@ -471,7 +476,7 @@ impl Render for Effects {
                 self.drew_at = Instant::now();
             }
         }
-        self.hand_over_bar(window, cx);
+        self.hand_over(window, cx);
         // Still pictures to finish, for the effects that are on.
         let pending = gpu.is_some()
             && ((input.showing && self.backdrop.pending())
@@ -580,6 +585,26 @@ impl Waveform {
             colors: waveform::colors(c),
         }
     }
+}
+
+/// Now Playing's cover, whose shadow the backdrop draws, unless the cover
+/// is flying (the flight draws its own).
+fn cover_shadow(cx: &App) -> Option<backdrop::Shadow> {
+    if super::cover_in_flight(cx) {
+        return None;
+    }
+    let cover = Slots::get(cx, Slot::Cover)?;
+    // As `widgets::cover` rounds it.
+    let radius = if cover.size.width >= size::HEADER_COVER {
+        radius::LG
+    } else {
+        radius::MD
+    };
+    Some(backdrop::Shadow {
+        cover,
+        radius,
+        opacity: theme::colors(cx).shadow.a,
+    })
 }
 
 /// The spectrum as bars mirrored around the strip's centre (lows in the

@@ -556,6 +556,12 @@ pub fn store_cookie_header(text: &str) -> Result<Profile> {
     } else {
         parse_cookie_header(text)
     };
+    // Counts only, never the text.
+    log::info!(
+        "pasted {} characters, {} cookies",
+        text.chars().count(),
+        cookies.len()
+    );
     if cookies.is_empty() {
         bail!(
             "That doesn't look like a Cookie header. Copy the value of the Cookie request header, then paste it again."

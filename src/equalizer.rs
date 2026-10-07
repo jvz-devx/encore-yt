@@ -145,13 +145,4 @@ impl Equalizer {
             bands.join(",")
         )
     }
-
-    /// "31 Hz", "1 kHz".
-    pub fn band_label(band: usize) -> String {
-        match BANDS.get(band) {
-            Some(&f) if f >= 1000 => format!("{} kHz", f / 1000),
-            Some(f) => format!("{f} Hz"),
-            None => String::new(),
-        }
-    }
 }

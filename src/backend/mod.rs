@@ -129,14 +129,9 @@ pub enum Command {
     Equalizer(Equalizer),
     /// Turn loudness levelling between songs on or off.
     Normalize(bool),
-    /// Resolve songs likely to be played next (on screen when a page
-    /// loads), most likely first, without delaying playback.
-    PrepareMany(Vec<String>),
     /// Most-replayed heat for a song (by video id), asked once per song;
     /// answered with [`Event::Heat`].
     Heat(String),
-    /// Settings: theme-painted covers on or off (saved for next time).
-    PaintCovers(bool),
     /// Audition: preview `track` over the ducked current song, from `start`
     /// seconds in (its best part; `None` plays from a third of the way in),
     /// until [`Command::EndAudition`]. Holding another song switches to it.
@@ -791,19 +786,9 @@ impl Worker {
                     sink.send(Event::Heat { id: video_id, heat });
                 });
             }
-            Command::PaintCovers(on) => {
-                let mut settings = crate::settings::Settings::load(&self.paths);
-                settings.paint_covers = on;
-                if let Err(error) = settings.save(&self.paths) {
-                    self.sink.send(Event::Error(format!(
-                        "Couldn't save the cover painting setting: {error}"
-                    )));
-                }
-            }
             Command::AccountEdit { op, edit, refresh } => self.account_edit(op, edit, refresh),
             Command::LikeStatus(video_id) => self.like_status(video_id),
             Command::Prepare(video_id) => self.resolver.prepare(&video_id),
-            Command::PrepareMany(video_ids) => self.resolver.prepare_many(video_ids),
             Command::PlayNext(tracks) => self.add(tracks, true).await,
             Command::AddToQueue(tracks) => self.add(tracks, false).await,
             Command::RemoveFromQueue(at) => {

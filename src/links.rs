@@ -75,14 +75,6 @@ pub fn target_from_link(link: &str) -> Option<Target> {
     }
 }
 
-/// The first link in `text` that [`target_from_link`] understands: a dropped
-/// file's contents, a `.url` file's `URL=` line, a pasted sentence.
-pub fn find_link(text: &str) -> Option<&str> {
-    text.split(|c: char| c.is_whitespace() || c == '"' || c == '\'')
-        .map(|token| token.strip_prefix("URL=").unwrap_or(token))
-        .find(|token| token.contains("youtu") && target_from_link(token).is_some())
-}
-
 fn is_video_id(text: &str) -> bool {
     text.len() == 11 && is_id(text)
 }

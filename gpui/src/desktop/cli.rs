@@ -60,8 +60,6 @@ pub fn command_line(paths: &Paths, args: Vec<String>) -> Option<Launch> {
         // Nothing running: start, and open the link or just show.
         Message::Open(link) => Some(Launch { link: Some(link) }),
         Message::Show => Some(Launch { link: None }),
-        // Only a running instance cares about the theme hook.
-        Message::ReloadThemes => None,
         _ => {
             eprintln!("ytfast-gpui: Music isn't running");
             std::process::exit(1);

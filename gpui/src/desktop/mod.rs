@@ -148,8 +148,6 @@ fn handle_requests(app: &Entity<MusicApp>, cx: &mut App) {
             }
             Request::Open(link) => window::open_link(app, &link, cx),
             Request::Like => app.update(cx, |this, cx| this.like_playing(cx)),
-            // Omarchy's theme hook: the GPUI app has its own theme.
-            Request::ReloadThemes => {}
         }
     }
 }

@@ -10,7 +10,7 @@ It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music
 
 [Releases](https://github.com/jvz-devx/ytfast-gpui/releases) has installers for each system, built by `.github/workflows/release.yml`. They're test builds (pre-releases) and aren't signed. Nothing else needs installing and nothing else is bundled: the app finds the streams and plays them itself.
 
-**macOS** (Apple silicon on macOS 14 or newer, Intel on macOS 15 or newer). With Homebrew:
+**macOS** (Apple silicon or Intel, macOS 11 or newer). With Homebrew:
 
 ```sh
 brew tap jvz-devx/ytfast-gpui https://github.com/jvz-devx/ytfast-gpui
@@ -37,7 +37,7 @@ The script downloads the setup program, checks it against `checksums.txt` and in
 
 **By hand**, from [Releases](https://github.com/jvz-devx/ytfast-gpui/releases), checked against its `checksums.txt` if you like (`shasum -a 256` on macOS, `Get-FileHash` on Windows):
 
-- macOS: open the `macos-arm64` or `macos-x86_64` `.dmg` and drag ytfast to Applications. The first time, macOS refuses to open it. On macOS 14, right-click the app and choose Open; on macOS 15 and later, try to open it once, then choose Open Anyway in System Settings → Privacy & Security. `xattr -dr com.apple.quarantine /Applications/ytfast.app` does the same in a terminal.
+- macOS: open the `macos-arm64` or `macos-x86_64` `.dmg` and drag ytfast to Applications. The first time, macOS refuses to open it. On macOS 14 and earlier, right-click the app and choose Open; on macOS 15 and later, try to open it once, then choose Open Anyway in System Settings → Privacy & Security. `xattr -dr com.apple.quarantine /Applications/ytfast.app` does the same in a terminal.
 - Windows: `…-setup.exe` installs for your user with a Start menu entry; SmartScreen warns about the unsigned installer: More info, Run anyway. `…-portable.zip` holds the same files.
 
 Media keys and the system's media controls work everywhere (MPRIS on Linux, the media overlay on Windows, Now Playing on macOS). The tray, song-change notifications and following the system's light/dark setting are Linux-only for now, and on Windows and macOS closing the window quits.

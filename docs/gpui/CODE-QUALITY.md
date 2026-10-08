@@ -179,6 +179,9 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
   are bounded.
 - A5, low, fixed in `f482f3f`: the play example reports missing arguments
   instead of panicking and binds the queued track id directly.
+- A10, low, fixed in `5e88611`: the new mixer regressions could write the
+  global tap concurrently with its existing reader test. A test-only lock
+  now serializes them; production callback behavior is unchanged.
 - A8, low, deliberately kept: sample conversion to floating point is DSP
   arithmetic, not an external array index. Internal buffer/deck indexing
   follows validated layouts. Decoder/network retry sleeps run on their own
@@ -295,6 +298,11 @@ the final workspace run are core 61, app 46, audio 13, Cast 25, sign-in 4
 and visuals 22. The visuals gate also validated seven shader entry files.
 The configured pre-commit hook only handles `server/` paths, so these gates
 were run explicitly.
+
+The first workspace test build was terminated with SIGTERM after its
+format and Clippy stages passed. No compiler or test failure was reported.
+No Cargo/compiler process survived in this worktree; the warm-cache rerun
+also includes the final tap-test isolation fix.
 
 Final `just verify-workspace`: pending. Temporary files and driver caches
 are redirected beneath ignored `artifacts/`. No release build, sign-in,

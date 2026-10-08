@@ -1,12 +1,14 @@
 //! M31 spike: the sign-in window. `encore-yt-signin` (crates/signin) opens
 //! YouTube Music in the OS's own web engine, waits for the session cookies
 //! and writes them as a cookie file; this starts it, waits for it to end and
-//! imports the file like "Import a cookies file". Offered only with
-//! `ENCORE_SIGNIN_WINDOW=1` until the spike is judged (docs/gpui/SIGNIN-WINDOW.md).
+//! imports the file like "Import a cookies file". Offered wherever the
+//! helper is installed (the Windows and macOS installers ship it), and the
+//! first choice on Windows, where the browser route can't read Edge, Chrome
+//! or Brave (docs/gpui/SIGNIN-WINDOW.md).
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use gpui_kit::*;
@@ -22,9 +24,21 @@ const HELPER: &str = if cfg!(windows) {
 /// How often the helper is looked at.
 const LOOK: Duration = Duration::from_millis(500);
 
-/// Whether the Sign in sheet offers the window.
+/// Whether the Sign in sheet offers the window: when the helper is
+/// installed. `ENCORE_SIGNIN_WINDOW=0` hides it, `=1` offers it regardless.
 pub fn enabled() -> bool {
-    std::env::var_os("ENCORE_SIGNIN_WINDOW").is_some_and(|v| v == "1")
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| match std::env::var_os("ENCORE_SIGNIN_WINDOW") {
+        Some(v) if v == "0" => false,
+        Some(v) if v == "1" => true,
+        _ => helper_path().is_file(),
+    })
+}
+
+/// Whether the window comes first on the Sign in sheet: on Windows, where
+/// the browser route can only read Firefox.
+pub fn suggested() -> bool {
+    cfg!(windows) && enabled()
 }
 
 /// The running helper; dropping it closes its window.

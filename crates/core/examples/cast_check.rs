@@ -68,12 +68,16 @@ fn main() -> Result<()> {
         encore_core::resolver::fake_stream().is_some(),
         "a local fake stream is required"
     );
-    let uuid = std::env::var("ENCORE_CAST_TEST_UDN")
-        .context("set the UUID of the stand-in you started")?;
+    let local_seek = std::env::args().skip(1).any(|arg| arg == "--local-seek");
+    let uuid = if local_seek {
+        String::new()
+    } else {
+        std::env::var("ENCORE_CAST_TEST_UDN").context("set the UUID of the stand-in you started")?
+    };
     struct Logger;
     impl log::Log for Logger {
-        fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-            metadata.level() <= log::Level::Warn
+        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+            true
         }
         fn log(&self, record: &log::Record<'_>) {
             if self.enabled(record.metadata()) {
@@ -83,7 +87,11 @@ fn main() -> Result<()> {
         fn flush(&self) {}
     }
     let _ = log::set_logger(&Logger);
-    log::set_max_level(log::LevelFilter::Warn);
+    log::set_max_level(if local_seek {
+        log::LevelFilter::Info
+    } else {
+        log::LevelFilter::Warn
+    });
     let root = std::env::temp_dir().join(format!("cast-backend-check-{}", std::process::id()));
     let paths = Paths {
         config: root.join("config"),
@@ -100,6 +108,23 @@ fn main() -> Result<()> {
         start: 0,
     });
     playback(&backend, "local playback", |p| p.playing && !p.loading)?;
+    if local_seek {
+        for target in [0.5, 6.76, 50.76] {
+            backend.send(Command::Seek(target));
+            playback(
+                &backend,
+                &format!("native decoded seek at {target} seconds"),
+                |p| {
+                    p.playing
+                        && !p.loading
+                        && p.position > target + 0.1
+                        && p.position < target + 1.0
+                },
+            )?;
+        }
+        backend.shutdown();
+        return Ok(());
+    }
     backend.send(Command::Seek(12.0));
     playback(&backend, "local seek to 12 seconds", |p| {
         p.position >= 12.0 && p.position < 14.0

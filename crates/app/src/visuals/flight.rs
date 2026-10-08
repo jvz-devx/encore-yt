@@ -116,7 +116,8 @@ impl Render for Flight {
                             });
                         window.paint_drop_shadows(bounds, corners, &shadows);
                         if let Some(image) = image {
-                            let _ = window.paint_image(bounds, bounds, corners, image, 0, false);
+                            let fitted = super::dissolve::cover_fit(bounds, &image);
+                            let _ = window.paint_image(bounds, fitted, corners, image, 0, false);
                         }
                     }
                     if t < 1. {

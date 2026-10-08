@@ -296,18 +296,63 @@ mod tests {
             }
         };
         let mut strip = Strip::new(&gpu, 320, 88);
-        for colour in [[0.9, 0.1, 0.1], [0.1, 0.2, 0.95], [1.0, 1.0, 1.0]] {
+        for colour in [
+            [0.9, 0.1, 0.1],
+            [0.1, 0.2, 0.95],
+            [1.0, 1.0, 1.0],
+            [0.8, 0.08, 0.5],
+        ] {
             for look in [Look::Dark, Look::Light] {
-                let frame = strip.frame_now(&params(look, colour)).expect("frame");
-                let (lo, hi) = frame
-                    .bgra
-                    .chunks(4)
-                    .map(luminance)
-                    .fold((f32::MAX, 0.0f32), |(lo, hi), l| (lo.min(l), hi.max(l)));
-                match look {
-                    Look::Dark => assert!(hi <= 0.0091, "dark glow too bright: {hi}"),
-                    Look::Light => assert!(lo >= 0.855, "light glow too dark: {lo}"),
+                for glow in [0., 0.55, 1., 2.] {
+                    let mut p = params(look, colour);
+                    p.glow = glow;
+                    let frame = strip.frame_now(&p).expect("frame");
+                    let (lo, hi) = frame
+                        .bgra
+                        .chunks(4)
+                        .map(luminance)
+                        .fold((f32::MAX, 0.0f32), |(lo, hi), l| (lo.min(l), hi.max(l)));
+                    match look {
+                        Look::Dark => assert!(hi <= 0.0091, "dark glow too bright: {hi}"),
+                        Look::Light => assert!(lo >= 0.855, "light glow too dark: {lo}"),
+                    }
                 }
+            }
+        }
+    }
+
+    /// Maximum glow must not reveal the shader's gamut-reduction steps as
+    /// contours. Check neighbouring pixels of the actual GPU output, with
+    /// enough allowance for its one-step dither and the smooth gradient.
+    #[test]
+    fn maximum_glow_has_no_gamut_contours() {
+        let _one = crate::gpu_test_lock();
+        let gpu = match Gpu::new() {
+            Ok(gpu) => gpu,
+            Err(e) => {
+                eprintln!("skipped, no GPU: {e:#}");
+                return;
+            }
+        };
+        let mut strip = Strip::new(&gpu, 320, 88);
+        for colour in [[0.9, 0.1, 0.1], [0.1, 0.2, 0.95], [0.8, 0.08, 0.5]] {
+            for look in [Look::Dark, Look::Light] {
+                let mut p = params(look, colour);
+                p.glow = 2.;
+                let frame = strip.frame_now(&p).expect("frame");
+                let mut largest = 0;
+                for y in 1..88 {
+                    for x in 0..320 {
+                        let at = (y * 320 + x) * 4;
+                        for channel in 0..3 {
+                            largest = largest.max(
+                                frame.bgra[at + channel]
+                                    .abs_diff(frame.bgra[at - 320 * 4 + channel]),
+                            );
+                        }
+                    }
+                }
+                assert!(largest <= 5, "{look:?} {colour:?}: adjacent jump {largest}");
             }
         }
     }

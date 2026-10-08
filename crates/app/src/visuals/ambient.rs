@@ -86,17 +86,21 @@ impl Field {
     }
 
     /// Paints the sparkles over `area` (window coordinates), clipped to it.
+    ///
+    /// In one layer: each quad then takes the layer's place in the scene's
+    /// order instead of a search and an insert of its own in GPUI's bounds
+    /// tree, which was most of what a sparkle cost the CPU (and made every
+    /// view painted after them search a tree a few hundred leaves larger).
     pub fn paint(&self, area: Bounds<Pixels>, window: &mut Window) {
         let config = config::get();
         let scale = window.scale_factor();
-        let mut sparkles = Vec::new();
-        for layer in 0..3 {
-            self.layer(layer, area, scale, &config, &mut sparkles);
-        }
+        let tints = self.tints(config.particles.colour);
         window.with_content_mask(Some(ContentMask { bounds: area }), |window| {
-            for s in sparkles {
-                s.paint(window);
-            }
+            window.paint_layer(area, |window| {
+                for layer in 0..3 {
+                    self.layer(layer, area, scale, &config, &tints, window);
+                }
+            });
         });
     }
 
@@ -107,7 +111,8 @@ impl Field {
         area: Bounds<Pixels>,
         scale: f32,
         config: &config::VisualsConfig,
-        out: &mut Vec<Sparkle>,
+        tints: &[Hsla; 4],
+        window: &mut Window,
     ) {
         let p = &config.particles;
         let wave = &config.wave;
@@ -116,8 +121,8 @@ impl Field {
         let boost = if light { 2. } else { 1. };
         let near = 0.5 + (layer as f32 * 0.5 - 0.5) * p.depth;
         // Cell size in points, drift in points a second.
-        // About 300 over Now Playing's panel at amount 1: each is a quad
-        // GPUI lays out on the CPU in every frame (about 2 µs).
+        // About 300 over Now Playing's panel at amount 1, each a quad (two
+        // with a halo) painted in every window frame.
         let cell = 44. + 28. * near;
         let speed = 3. + 7. * near;
         let angle = f64::from(p.direction.to_radians());
@@ -173,7 +178,7 @@ impl Field {
                 if alpha < 0.03 {
                     continue;
                 }
-                out.push(Sparkle {
+                Sparkle {
                     at: point(area.origin.x + px(x), area.origin.y + px(y)),
                     radius: px(radius_px.max(0.5) / scale),
                     alpha,
@@ -183,25 +188,28 @@ impl Field {
                     } else {
                         0.
                     },
-                    color: self.color(p.colour, r[0], light),
-                });
+                    color: tints[((r[0] * 4.) as usize).min(3)],
+                }
+                .paint(scale, window);
             }
         }
     }
 
-    /// White, or a little of the cover's colours or the accent.
-    fn color(&self, colour: ParticleColour, pick: f32, light: bool) -> Hsla {
+    /// The four colours a sparkle picks from (by its cell's hash): white,
+    /// or a little of the cover's colours or the accent. Mixed once a frame,
+    /// not per sparkle.
+    fn tints(&self, colour: ParticleColour) -> [Hsla; 4] {
         let white: Hsla = gpui_kit::white();
-        let tinted = match colour {
-            ParticleColour::White => return white,
-            ParticleColour::Cover => {
-                let [r, g, b, _] = self.palette[((pick * 4.) as usize).min(3)];
-                Rgba { r, g, b, a: 1. }.into()
-            }
-            ParticleColour::Accent => self.accent,
-        };
         // `mix_oklab` weighs the first colour: mostly white.
-        white.mix_oklab(tinted, if light { 0.85 } else { 0.7 })
+        let weight = if self.look == Look::Light { 0.85 } else { 0.7 };
+        std::array::from_fn(|i| match colour {
+            ParticleColour::White => white,
+            ParticleColour::Cover => {
+                let [r, g, b, _] = self.palette[i];
+                white.mix_oklab(Rgba { r, g, b, a: 1. }.into(), weight)
+            }
+            ParticleColour::Accent => white.mix_oklab(self.accent, weight),
+        })
     }
 }
 
@@ -214,19 +222,41 @@ struct Sparkle {
     color: Hsla,
 }
 
+/// Halos wider than this (device pixels) are blurred instead of flat. The
+/// default sizes stay under it (at most about 4.6), where a flat disc reads
+/// as a soft point; the larger sizes Settings offers would show its edge.
+const FLAT_HALO_PX: f32 = 5.;
+
 impl Sparkle {
     /// A halo (as soft as the setting) under a core.
-    fn paint(&self, window: &mut Window) {
+    fn paint(&self, scale: f32, window: &mut Window) {
         let dot = |r: Pixels, alpha: f32, window: &mut Window| {
             let bounds = Bounds::new(self.at - point(r, r), size(r * 2., r * 2.));
             window.paint_quad(fill(bounds, self.color.opacity(alpha)).corner_radii(r));
         };
         if self.softness > 0. {
-            dot(
-                self.radius * (1. + 1.5 * self.softness),
-                self.alpha * 0.3 * self.softness,
-                window,
-            );
+            let halo = self.radius * (1. + 1.5 * self.softness);
+            let alpha = self.alpha * 0.3 * self.softness;
+            if f32::from(halo) * scale <= FLAT_HALO_PX {
+                dot(halo, alpha, window);
+            } else {
+                // A disc of half the halo's radius blurred over most of
+                // the rest: about the flat disc's light, fading to nothing
+                // a little past its edge.
+                let r = halo * 0.5;
+                let bounds = Bounds::new(self.at - point(r, r), size(r * 2., r * 2.));
+                window.paint_drop_shadows(
+                    bounds,
+                    Corners::all(r),
+                    &[BoxShadow {
+                        color: self.color.opacity((alpha * 2.5).min(1.)),
+                        offset: point(px(0.), px(0.)),
+                        blur_radius: halo * 0.4,
+                        spread_radius: px(0.),
+                        inset: false,
+                    }],
+                );
+            }
         }
         dot(self.radius * (1. - 0.3 * self.softness), self.alpha, window);
     }

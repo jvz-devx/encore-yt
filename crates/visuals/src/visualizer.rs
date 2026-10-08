@@ -308,6 +308,58 @@ mod tests {
         assert!(bars.quiet());
     }
 
+    /// Slider extremes still respond at each paced frame rate. The maximum
+    /// frequency handles clamp to 2..16 kHz, so bass-only audio correctly
+    /// leaves that view flat; energy in its selected bands must still rise.
+    #[test]
+    fn slider_extremes_keep_following_the_selected_bands() {
+        let min = BarSettings {
+            count: 16,
+            sensitivity: 0.5,
+            smoothing: 0.,
+            decay: 0.3,
+            low_hz: 50.,
+            high_hz: 100.,
+            peak_fall: 0.1,
+            ..settings(16)
+        };
+        let max = BarSettings {
+            count: 128,
+            sensitivity: 3.,
+            smoothing: 0.95,
+            decay: 8.,
+            low_hz: 2_000.,
+            high_hz: 16_000.,
+            peak_fall: 4.,
+            ..settings(128)
+        };
+        for s in [min, max] {
+            for fps in [15, 20, 30, 60, 120] {
+                let dt = 1. / fps as f32;
+                let mut bars = Bars::default();
+                for _ in 0..fps {
+                    bars.update(&[1.; BANDS], &s, dt);
+                }
+                assert_eq!(bars.values.len(), s.count);
+                assert!(
+                    bars.values
+                        .iter()
+                        .all(|v| v.is_finite() && *v > 0.4 && *v <= 1.)
+                );
+                // Even the slowest peak fall reaches zero in this interval.
+                for _ in 0..fps * 12 {
+                    bars.update(&[0.; BANDS], &s, dt);
+                }
+                assert!(bars.quiet());
+            }
+        }
+        let mut bass_only = [0.; BANDS];
+        bass_only[0] = 1.;
+        let mut bars = Bars::default();
+        bars.update(&bass_only, &max, 1. / 20.);
+        assert!(bars.quiet());
+    }
+
     /// Each style draws something from a loud spectrum, and leaves most of
     /// the frame see-through when the music is silent.
     #[test]

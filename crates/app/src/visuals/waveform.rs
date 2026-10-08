@@ -177,15 +177,20 @@ pub(super) fn paint(
     let n = values.len().max(1) as f32;
     let step = bounds.size.width / n;
     let width = (step * 0.6).max(px(1.));
-    for (i, value) in values.iter().enumerate() {
-        let height = (bounds.size.height * *value).max(width);
-        let x = bounds.left() + step * i as f32 + (step - width) / 2.;
-        let bar = Bounds::new(point(x, centre - height / 2.), size(width, height));
-        let color = if (i as f32 + 0.5) / n <= progress {
-            played
-        } else {
-            rest
-        };
-        window.paint_quad(fill(bar, color).corner_radii(Corners::all(width / 2.)));
-    }
+    // The bars share one draw order. Inserting each bar separately into
+    // GPUI's bounds tree costs more than painting the waveform itself and
+    // makes every later primitive search a larger tree.
+    window.paint_layer(bounds, |window| {
+        for (i, value) in values.iter().enumerate() {
+            let height = (bounds.size.height * *value).max(width);
+            let x = bounds.left() + step * i as f32 + (step - width) / 2.;
+            let bar = Bounds::new(point(x, centre - height / 2.), size(width, height));
+            let color = if (i as f32 + 0.5) / n <= progress {
+                played
+            } else {
+                rest
+            };
+            window.paint_quad(fill(bar, color).corner_radii(Corners::all(width / 2.)));
+        }
+    });
 }

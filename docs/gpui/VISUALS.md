@@ -428,8 +428,9 @@ by default), a halo quad only for the near and large ones, a twinkle over
 seconds, brighter near the wave, and lifted at most half the reaction by
 the music's smoothed level. First tried as a full-size frame of the
 visualiser shader: 7% CPU and 12% GPU at 30 fps here, mostly the read-back
-and upload, so they became quads (about 300 at amount 1; each costs GPUI
-about 2 µs of CPU a frame, which is why there aren't more).
+and upload, so they became quads, about 300 at amount 1. Initially each
+quad cost GPUI about 2 µs of CPU a frame. They now share one paint layer;
+see the CPU follow-up below.
 
 **Visualiser.** `encore_visuals::Visualizer` (`visualizer.wgsl`, compiled
 with the other pipelines, so warm-up and the pipeline cache cover it) draws
@@ -476,6 +477,119 @@ closed 8.9%):
 
 \* Before the backdrop went to every other frame. The default costs the
 GPU what main did; the sparkles add about 1.3 points of one core.
+
+### Now Playing CPU follow-up (2026-10-08)
+
+The sparkles share one GPUI paint layer and mix their four tints once per
+frame. Their hashes, positions, radii, twinkle, depth, clocks and frame
+rates are unchanged. Halos wider than five device pixels use a blurred
+disc rather than a flat one; the default preset never reaches that size.
+
+`perf record -e cpu-clock:u -F 999 -g --call-graph dwarf,8192` over ten
+seconds of Now Playing still put 14% of the branch's samples in GPUI's
+bounds-tree insertion after the sparkle batching, against 18% before M21.
+The waveform and spectrum were still inserting each bar separately. They
+now each share one paint layer, preserving the bars and their order.
+Batching alone left a 0.5 to 0.6 point CPU gap in two alternating pairs.
+
+There was also a build-profile difference: pre-M21 compiled GPUI at
+opt-level 3, while the later download-size profile compiled its CPU paint
+path at `s`. `gpui-pre` now joins `gpui-pre-wgpu` in the speed-critical
+crate overrides. The rest of the size profile stays unchanged. In the
+profiling binary this adds 0.77 MB of text against the batched `s` build;
+release installer size was not measured here.
+
+Final measurements used `scripts/gpui-measure.sh`, profiling builds, a
+1280x1000 window, dark look, Default at Linux's 20 fps, and Now Playing
+with Up next. Each run used fresh signed-out config/cache/runtime folders
+and the same local test audio through `ENCORE_FAKE_STREAM`, shown as
+"Lose Yourself to Dance". The pre-M21 build is 142d187. Runs alternated
+pre-M21, final, pre-M21, final under the desktop lock; no local build or
+test ran during these measurements. Other agents were using the machine.
+
+| Run | Pre-M21 CPU | Final CPU | Pre-M21 GPU | Final GPU |
+|---|---|---|---|---|
+| 1 | 8.2% | 8.7% | 29.1% | 28.6% |
+| 2 | 8.6% | 8.5% | 27.1% | 28.0% |
+
+CPU is percent of one core; GPU is render busy for the whole desktop.
+The app-closed GPU baseline was 8.9%. Final steady-state logs show about
+19 to 20 window frames and 10 backdrop frames per second. No frame rate,
+particle count or animation was reduced to get these numbers. The final
+CPU is 0.5 point above and 0.1 point below the paired pre-M21 run. Windows'
+30 fps and macOS's display-paced defaults are unchanged.
+
+Local evidence in `artifacts/`: `perf/handoff-measure.txt`,
+`perf/closed-baseline.txt`, the `pre-1` and `branch-profile-1` perf traces,
+and `gpui/pre-handoff-{1,2}` / `gpui/handoff-{1,2}` captures and logs. Before
+the maximum-glow correction below, the same CPU changes measured 7.7%
+twice against 8.4% and 8.0%; the final table includes the corrected shader
+and cover flight. The earlier post-gamut pair, 8.3%/9.1% against
+8.5%/8.7%, is retained in `perf/final-gamut-measure.txt`.
+
+For repeat runs, set `ENCORE_UPDATE_FEED=http://127.0.0.1:9/releases`
+before launching. Fresh settings otherwise check GitHub for updates on
+every launch and can exhaust the shared address's anonymous API quota.
+
+Maximum player-bar glow exposed a hard magenta contour. The strip's gamut
+correction reduced chroma in 30% steps, so neighbouring pixels could land
+on different steps. It now interpolates between the last out-of-gamut
+colour and the first in-gamut colour to reach the boundary continuously.
+A final linear-RGB luminance correction keeps the text budget after that
+mapping. Colours already in gamut skip the interpolation.
+
+The GPU regression renders maximum-strength red, blue and magenta glows
+in both looks and checks adjacent pixels across the glow's rise. The old
+shader failed with a 12-step channel jump; the corrected shader stays
+within five, including dither. The contrast test also covers zero,
+Default's 0.55, 1 and maximum 2 strength under red, blue, white and magenta.
+
+### Extreme settings checked (2026-10-08)
+
+Twenty-four final configurations: every slider in Backdrop, Particles,
+Player bar, Visualiser and Transitions at minimum, then maximum, in dark
+and light; Motion and lyrics at its smallest and largest numeric choices
+and text sizes. Each configuration was copied into a newly created config
+directory with an empty cache and its own runtime directory. Each session
+held `scripts/gpui-input.sh locked`, played only the local fake stream,
+confirmed signed out, captured all its views in one launch, and called
+`scripts/gpui-input.sh stop` before releasing the lock.
+
+Every final PNG was opened and inspected. Names in `artifacts/gpui/`:
+
+| Tab | Capture prefix | Result |
+|---|---|---|
+| Backdrop | `x-backdrop` | Smooth neutral minimum and stronger maximum; text remains readable. |
+| Particles | `x-particles` | Zero amount removes the field; maximum drifts and twinkles within the panel, with soft near halos. |
+| Player bar | `x-player-bar` | Zero glow stays plain; maximum has no gamut contour after the correction above. |
+| Visualiser | `x-visualiser` | Line style in Now Playing and full-window; stroke and glow stay bounded. |
+| Transitions | `x-transitions` | 120/2000 ms flight and 200/3000 ms dissolve finish cleanly; moving covers keep their crop. |
+| Motion and lyrics | `x-motion-lyrics` | Instant/2x speed, 100/120% line growth, 0/75% dim and S/XL text; lines wrap and advance without overflow. |
+
+Every prefix has `-min-dark`, `-min-light`, `-max-dark` and `-max-light`,
+plus `-later` frames to check movement. Visualiser adds `-full` and
+`-full-later`; Transitions adds `-flight`, `-dissolve` and `-settled`.
+That is 68 inspected PNGs. The local manifest and review are
+`artifacts/extremes/captures-complete.txt` and `review-final.json`;
+`artifacts/audit-extremes.mjs` checks their completeness, unique scratch
+directories, exact config files, signed-out/fake-stream logs and shutdowns.
+
+The long flight exposed a second defect: a wide thumbnail was stretched
+into its square while moving, then cropped on landing. Flight now uses
+the same centre-cover fit as the settled cover. The refreshed dark/light
+flight captures show the correct proportions throughout.
+
+The visualiser's frequency handles were both written at their endpoints:
+50/50 Hz loads as 50..100 Hz, and 16000/16000 Hz as 2000..16000 Hz. The
+maximum therefore shows a quiet baseline with the required bass-heavy
+test audio, not a stalled visualiser. A synthetic-band regression checks
+finite rise and decay at both slider extremes at 15, 20, 30, 60 and 120 fps,
+and confirms that bass outside the selected range correctly stays quiet.
+
+Final checks: `just verify visuals` passed all 24 tests, `just verify app`
+passed all 35 tests, both clippy checks passed, `just shaders` validated all
+seven shaders, and `cargo fmt --all --check` passed. No captures, traces,
+logs or scratch configurations are committed.
 
 Captures (`artifacts/gpui/`, gitignored): `v-np-*` and `v-full-*` (each
 style in Now Playing and the full window), `v-stage-mirrored`,

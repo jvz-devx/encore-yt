@@ -796,15 +796,19 @@ fn paint_spectrum(strip: Bounds<Pixels>, levels: &[f32; BANDS], color: Hsla, win
     let step = strip.size.width / count as f32;
     let width = (step * 0.5).max(px(1.));
     let centre_y = strip.center().y;
-    for i in 0..count {
-        let band = if i < BANDS { BANDS - 1 - i } else { i - BANDS };
-        let level = levels[band];
-        let height = (strip.size.height * level.max(0.06)).max(width);
-        let x = strip.left() + step * i as f32 + (step - width) / 2.;
-        let bar = Bounds::new(point(x, centre_y - height / 2.), size(width, height));
-        let color = color.opacity(0.28 + 0.6 * level);
-        window.paint_quad(fill(bar, color).corner_radii(Corners::all(width / 2.)));
-    }
+    // Like the waveform, the spectrum needs one position in the scene's
+    // order, not one bounds-tree insertion per bar.
+    window.paint_layer(strip, |window| {
+        for i in 0..count {
+            let band = if i < BANDS { BANDS - 1 - i } else { i - BANDS };
+            let level = levels[band];
+            let height = (strip.size.height * level.max(0.06)).max(width);
+            let x = strip.left() + step * i as f32 + (step - width) / 2.;
+            let bar = Bounds::new(point(x, centre_y - height / 2.), size(width, height));
+            let color = color.opacity(0.28 + 0.6 * level);
+            window.paint_quad(fill(bar, color).corner_radii(Corners::all(width / 2.)));
+        }
+    });
 }
 
 /// The seek bar's playhead grows under the pointer: a move across its edge

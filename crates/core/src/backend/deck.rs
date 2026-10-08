@@ -227,14 +227,14 @@ impl super::Worker {
     /// fade, the duck, the blend and the audition's fades.
     pub(super) async fn apply_volumes(&mut self) {
         if let Some(player) = &self.main {
-            let _ = player.set_volume(self.main_volume()).await;
+            player.set_volume(self.main_volume());
         }
         if let Some(tail) = &self.decks.tail {
-            let _ = tail.deck.set_volume(self.tail_volume()).await;
+            tail.deck.set_volume(self.tail_volume());
         }
         if let Some(deck) = self.decks.audition.deck() {
             let volume = self.audition_volume();
-            let _ = deck.set_volume(volume).await;
+            deck.set_volume(volume);
         }
     }
 
@@ -325,7 +325,7 @@ impl super::Worker {
             Some(deck) => deck,
             None => match Player::spawn(0.0, self.player_tx.clone()).await {
                 Ok(deck) => {
-                    let _ = deck.set_equalizer(&self.deck_equalizer()).await;
+                    deck.set_equalizer(&self.deck_equalizer());
                     deck
                 }
                 Err(error) => {
@@ -334,9 +334,9 @@ impl super::Worker {
                 }
             },
         };
-        let _ = deck.set_pause(true).await;
-        let _ = deck.set_volume(0.0).await;
-        let _ = deck.set_loop(false).await;
+        deck.set_pause(true);
+        deck.set_volume(0.0);
+        deck.set_loop(false);
         let (options, gain) = self.file_options(video_id, stream, None);
         match deck.load(&stream.url, LoadMode::Replace, &options).await {
             Ok(entry) => {
@@ -361,7 +361,7 @@ impl super::Worker {
     /// Stops the cued song; its deck is kept as the spare.
     pub(super) async fn drop_cued(&mut self) {
         if let Some(cued) = self.decks.cued.take() {
-            let _ = cued.deck.stop().await;
+            cued.deck.stop();
             self.decks.spare = Some(cued.deck);
         }
     }
@@ -409,7 +409,7 @@ impl super::Worker {
                 self.decks.tail = Some(Tail { deck: old, length });
                 self.keep_time();
             } else {
-                let _ = old.stop().await;
+                old.stop();
                 if self.decks.mixes.on {
                     self.decks.spare = Some(old);
                 }
@@ -417,7 +417,7 @@ impl super::Worker {
         }
         self.apply_loop().await;
         self.apply_volumes().await;
-        let _ = cued.deck.set_pause(false).await;
+        cued.deck.set_pause(false);
         let entry = cued.next.entry;
         self.advanced(cued.next).await;
         // The cued file's length arrived while it waited; ask for it again.
@@ -445,7 +445,7 @@ impl super::Worker {
         let Some(tail) = self.decks.tail.take() else {
             return false;
         };
-        let _ = tail.deck.stop().await;
+        tail.deck.stop();
         if self.decks.mixes.on {
             self.decks.spare = Some(tail.deck);
         }

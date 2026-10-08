@@ -122,7 +122,7 @@ impl super::Worker {
     /// Sets the current song's gain while it plays.
     async fn apply_gain(&mut self, gain: f64) {
         if let Some(player) = &self.main {
-            let _ = player.set_gain(gain).await;
+            player.set_gain(gain);
         }
         self.state.gain = Some(gain);
         self.emit(true);
@@ -165,10 +165,8 @@ impl super::Worker {
     /// Gives a newly started main deck the equalizer.
     pub(super) async fn apply_equalizer(&mut self, player: &Player) {
         let equalizer = self.state.equalizer.clone();
-        match player.set_equalizer(&equalizer).await {
-            Ok(()) => self.af = Some(equalizer),
-            Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
-        }
+        player.set_equalizer(&equalizer);
+        self.af = Some(equalizer);
     }
 
     pub(super) async fn set_equalizer(&mut self, equalizer: Equalizer) {
@@ -213,14 +211,10 @@ impl super::Worker {
 
     /// Sets every deck's equalizer whole.
     async fn set_af(&mut self, decks: &[Arc<Player>], equalizer: Equalizer) {
-        let mut applied = false;
         for player in decks {
-            match player.set_equalizer(&equalizer).await {
-                Ok(()) => applied = true,
-                Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
-            }
+            player.set_equalizer(&equalizer);
         }
-        if applied {
+        if !decks.is_empty() {
             self.af = Some(equalizer);
         }
     }
@@ -249,7 +243,7 @@ impl super::Worker {
     pub(super) async fn apply_loop(&self) {
         let looping = self.state.repeat == Repeat::One && !self.sleeping_at_song_end();
         if let Some(player) = &self.main {
-            let _ = player.set_loop(looping).await;
+            player.set_loop(looping);
         }
     }
 
@@ -344,7 +338,7 @@ impl super::Worker {
         self.state.sleep = None;
         self.finish_blend().await;
         if let (Some(player), false) = (&self.main, self.idle) {
-            let _ = player.set_pause(true).await;
+            player.set_pause(true);
         }
         self.restore_fade().await;
         self.emit(true);

@@ -127,7 +127,7 @@ impl super::Worker {
         self.emit(true);
         if let Some(player) = &self.main {
             // Stop the previous song at once; the new one follows when resolved.
-            let _ = player.stop().await;
+            player.stop();
         }
         if self.sleeping_at_song_end() {
             // The timer now waits for this song's end.
@@ -286,7 +286,7 @@ impl super::Worker {
             if let (Some(appended), Some(player), false) = (&self.appended, &self.main, self.idle)
                 && self.queue.position(appended.id) == Some(pos + 1)
             {
-                let _ = player.skip().await;
+                player.skip();
                 return;
             }
             self.start(pos + 1).await;
@@ -312,7 +312,7 @@ impl super::Worker {
         let seconds = seconds.max(0.0);
         self.finish_blend().await;
         if let (Some(player), Some(_)) = (&self.main, self.current_entry) {
-            let _ = player.seek(seconds).await;
+            player.seek(seconds);
             self.state.position = seconds;
             self.emit(true);
             self.save_session(true);
@@ -329,7 +329,7 @@ impl super::Worker {
         if self.appended.take().is_some()
             && let Some(player) = &self.main
         {
-            let _ = player.remove(1).await;
+            player.remove(1);
         }
         self.drop_cued().await;
     }
@@ -419,7 +419,7 @@ impl super::Worker {
                                 );
                                 self.resume_at = None;
                                 self.current_entry = Some(entry);
-                                let _ = player.set_pause(false).await;
+                                player.set_pause(false);
                                 self.state.format = Some(resolver::describe(stream.itag));
                                 self.state.gain = gain;
                                 self.emit(true);
@@ -766,7 +766,7 @@ impl super::Worker {
                 {
                     self.current_entry = Some(appended.entry);
                     if let Some(player) = &self.main {
-                        let _ = player.remove(0).await;
+                        player.remove(0);
                     }
                     // A short song that ends while it blends in: the old
                     // one stops before the position starts again at 0.

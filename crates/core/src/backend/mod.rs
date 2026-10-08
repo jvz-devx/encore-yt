@@ -673,7 +673,7 @@ impl Worker {
                         // Pausing in a blend ends it: the new song pauses alone.
                         self.finish_blend().await;
                     }
-                    let _ = player.set_pause(self.state.playing).await;
+                    player.set_pause(self.state.playing);
                 } else if let Some(pos) = self.pos {
                     // Nothing loaded (a restored session, or the queue
                     // ended): play, from where a restored song was.

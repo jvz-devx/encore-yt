@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gpui_kit::TestAppContext;
 
-use super::Ui;
+use super::{Ui, primary};
 use crate::theme::motion::{
     self, Align, Anchor, BASE, Config, FAST, Kind, Lyrics, PageStyle, Reduce, TextSize,
 };
@@ -98,7 +98,7 @@ fn saves_and_loads(_cx: &mut TestAppContext) {
 fn settings_change_the_motion(cx: &mut TestAppContext) {
     motion::set_for_test(Config::default());
     let mut ui = Ui::start(cx);
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     ui.click("settings-category:Motion and lyrics");
     reveal(&mut ui, "motion-pages:Slide");
     ui.click("motion-pages:Slide");

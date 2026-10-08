@@ -7,7 +7,7 @@ use encore_core::backend::Command;
 use encore_core::equalizer::Preset;
 use gpui_kit::{TestAppContext, px};
 
-use super::Ui;
+use super::{Ui, primary};
 use crate::settings::Category;
 
 fn open(ui: &mut Ui) -> bool {
@@ -23,7 +23,7 @@ fn ctrl_comma_opens_a_wide_modal_and_escape_closes_it(cx: &mut TestAppContext) {
     let mut ui = Ui::start(cx);
     assert!(ui.bounds("settings").is_none());
 
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     assert!(open(&mut ui), "Settings is open");
     let sheet = ui.find("settings");
     assert!(
@@ -40,7 +40,7 @@ fn ctrl_comma_opens_a_wide_modal_and_escape_closes_it(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn categories_change_by_click_arrows_and_ctrl_tab(cx: &mut TestAppContext) {
     let mut ui = Ui::start(cx);
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     ui.click("settings-category:Equalizer");
     assert_eq!(category(&mut ui), Category::Equalizer);
     ui.keys("down");
@@ -52,7 +52,7 @@ fn categories_change_by_click_arrows_and_ctrl_tab(cx: &mut TestAppContext) {
 
     // Ctrl+, comes back to the last category used.
     ui.keys("escape");
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     assert_eq!(category(&mut ui), Category::Equalizer);
     assert!(ui.bounds("settings-choice:Rock").is_some());
 }
@@ -60,7 +60,7 @@ fn categories_change_by_click_arrows_and_ctrl_tab(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn search_filters_across_categories_and_opens_a_result(cx: &mut TestAppContext) {
     let mut ui = Ui::start(cx);
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     ui.keys("/");
     ui.type_text("lyrics size");
     assert!(ui.bounds("settings-hit:Text size").is_some());
@@ -92,7 +92,7 @@ fn search_filters_across_categories_and_opens_a_result(cx: &mut TestAppContext) 
 #[gpui_kit::test]
 fn a_setting_still_changes_and_resets(cx: &mut TestAppContext) {
     let mut ui = Ui::start(cx);
-    ui.keys("ctrl-,");
+    ui.keys(&primary(","));
     ui.click("settings-category:Equalizer");
     ui.take_sent();
     ui.click("settings-choice:Rock");
@@ -122,9 +122,52 @@ fn the_equalizer_panel_and_play_anything_open_a_category(cx: &mut TestAppContext
     assert_eq!(category(&mut ui), Category::Equalizer);
     ui.keys("escape");
 
-    ui.keys("ctrl-k");
+    ui.keys(&primary("k"));
     ui.type_text("settings about");
     ui.keys("enter");
     assert!(open(&mut ui));
     assert_eq!(category(&mut ui), Category::About);
+}
+
+#[gpui_kit::test]
+fn tabbing_down_a_long_category_scrolls_the_focused_row_into_view(cx: &mut TestAppContext) {
+    let mut ui = Ui::start(cx);
+    ui.keys(&primary(","));
+    ui.click("settings-category:Playback");
+    let offset = |ui: &mut Ui| {
+        ui.app
+            .read_with(&ui.cx, |app, _| app.settings.scroll.offset().y)
+    };
+    assert_eq!(offset(&mut ui), px(0.));
+
+    // Tab down until the body has scrolled; the focused row stays in view.
+    let mut tabs = 0;
+    while offset(&mut ui) == px(0.) && tabs < 60 {
+        ui.keys("tab");
+        tabs += 1;
+        in_view(&mut ui);
+    }
+    let down = offset(&mut ui);
+    assert!(down < px(0.), "the body scrolled down after {tabs} tabs");
+
+    // Shift+Tab back up scrolls the other way.
+    let mut back = 0;
+    while offset(&mut ui) == down && back < 60 {
+        ui.keys("shift-tab");
+        back += 1;
+        in_view(&mut ui);
+    }
+    assert!(offset(&mut ui) > down, "and back up after {back} more");
+}
+
+/// The row the keyboard is on (if it is in the body) lies within it.
+fn in_view(ui: &mut Ui) {
+    let Some(row) = ui.bounds("settings-focused-row") else {
+        return;
+    };
+    let body = ui.find("settings-content");
+    assert!(
+        row.top() >= body.top() && row.bottom() <= body.bottom(),
+        "the focused row {row:?} is inside the body {body:?}"
+    );
 }

@@ -16,6 +16,7 @@ pub mod innertube;
 pub mod jsc;
 pub mod links;
 pub mod lyrics;
+pub mod metered;
 pub mod migrate;
 pub mod model;
 pub mod mpris;

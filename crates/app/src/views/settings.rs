@@ -16,6 +16,7 @@ mod mixes;
 mod motion;
 mod playback;
 mod results;
+mod reveal;
 mod shortcuts;
 mod sidebar;
 mod sleep;
@@ -50,6 +51,7 @@ pub fn settings(
         width: w,
         height: h,
     } = modal_size(window);
+    reveal::begin(&app.settings.scroll);
     let content = if app.settings.query.is_empty() {
         frame::content(app, &c, window, cx)
     } else {
@@ -249,7 +251,7 @@ fn section(
                 .bg(c.hover)
                 .px(space::LG)
                 .py(space::XS)
-                .children(rows),
+                .children(rows.into_iter().map(reveal::wrap)),
         )
         .into_any_element()
 }

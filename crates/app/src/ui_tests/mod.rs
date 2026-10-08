@@ -46,6 +46,17 @@ pub struct Ui {
     sent: Vec<Command>,
 }
 
+/// A shortcut with the platform's primary modifier, as the app binds it
+/// (`secondary-` in GPUI): Cmd on macOS, Ctrl elsewhere.
+pub fn primary(key: &str) -> String {
+    let modifier = if cfg!(target_os = "macos") {
+        "cmd"
+    } else {
+        "ctrl"
+    };
+    format!("{modifier}-{key}")
+}
+
 impl Ui {
     /// Opens the app the way `desktop::window` does, on a fake backend.
     pub fn start(cx: &mut TestAppContext) -> Self {

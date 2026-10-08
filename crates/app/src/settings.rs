@@ -153,6 +153,8 @@ pub struct SettingsNav {
     pub notices: bool,
     /// The sidebar's items, so ↑/↓ can carry the keyboard focus along.
     pub items: Vec<FocusHandle>,
+    /// The body's scroll position, which keyboard focus moves (M33).
+    pub scroll: ScrollHandle,
 }
 
 impl SettingsNav {
@@ -166,6 +168,7 @@ impl SettingsNav {
             hit: 0,
             notices: false,
             items: Category::ALL.iter().map(|_| cx.focus_handle()).collect(),
+            scroll: ScrollHandle::new(),
         }
     }
 

@@ -36,6 +36,8 @@ pub const RESOLVES_PER_MINUTE: usize = 10;
 const MINUTE: Duration = Duration::from_secs(60);
 /// A hover fetch with no answer after this no longer holds up the next one.
 const GIVE_UP: Duration = Duration::from_secs(30);
+/// How often the OS is asked whether the connection is metered.
+const METERED_EVERY: Duration = MINUTE;
 
 /// What resting on an item asks for.
 #[derive(Clone, Debug, PartialEq)]
@@ -93,6 +95,11 @@ fn on() -> bool {
     true
 }
 
+/// A check last made at `last` is due again at `now`.
+fn check_due(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|t| now.saturating_duration_since(t) >= METERED_EVERY)
+}
+
 /// Hover intent and its budget.
 pub struct Prefetch {
     /// Load pages and songs the pointer rests on (Settings → Playback).
@@ -115,6 +122,10 @@ pub struct Prefetch {
     resolved: HashSet<String>,
     /// A page whose first song is wanted once it arrives.
     first_song_of: Option<String>,
+    /// The OS says the connection is metered (checked at most once a
+    /// minute, off the UI thread): nothing is prefetched on it.
+    metered: bool,
+    metered_checked: Option<Instant>,
 }
 
 impl Prefetch {
@@ -137,7 +148,20 @@ impl Prefetch {
             fetched: HashMap::new(),
             resolved: HashSet::new(),
             first_song_of: None,
+            metered: false,
+            metered_checked: None,
         }
+    }
+
+    /// What the OS said about a metered connection (the tests say it).
+    #[cfg(test)]
+    pub fn set_metered(&mut self, metered: bool) {
+        self.metered = metered;
+    }
+
+    /// Whether the metered check is due at `now`.
+    fn metered_due(&self, now: Instant) -> bool {
+        check_due(self.metered_checked, now)
     }
 
     /// Whether page `key` was fetched on hover (for the click timing).
@@ -186,6 +210,10 @@ impl MusicApp {
         if !prefetch.on {
             return;
         }
+        if hovered {
+            self.check_metered(cx);
+        }
+        let prefetch = &mut self.pages.prefetch;
         let slot = prefetch.slot(&want);
         if !hovered {
             if slot.as_ref().is_some_and(|(w, _)| *w == want) {
@@ -204,6 +232,29 @@ impl MusicApp {
         *slot = Some((want, wait));
     }
 
+    /// Asks the OS about a metered connection when the last answer is a
+    /// minute old; the answer arrives later and applies to the next hover.
+    fn check_metered(&mut self, cx: &mut Context<Self>) {
+        let prefetch = &mut self.pages.prefetch;
+        let now = prefetch.clock.now();
+        if !prefetch.metered_due(now) {
+            return;
+        }
+        prefetch.metered_checked = Some(now);
+        // The headless tests have no system bus to ask.
+        if cfg!(test) {
+            return;
+        }
+        let ask = cx
+            .background_executor()
+            .spawn(async { encore_core::metered::is_metered() });
+        cx.spawn(async move |this, cx| {
+            let metered = ask.await;
+            let _ = this.update(cx, |this, _| this.pages.prefetch.metered = metered);
+        })
+        .detach();
+    }
+
     /// The wheel turned: what rests under the pointer now scrolled there.
     pub fn intent_scrolled(&mut self) {
         let prefetch = &mut self.pages.prefetch;
@@ -213,6 +264,9 @@ impl MusicApp {
 
     /// The pointer rested on an item for `DWELL`.
     fn intent_rested(&mut self, want: Want) {
+        if self.pages.prefetch.metered {
+            return;
+        }
         // Still under the pointer: the slot keeps it until the pointer
         // leaves, for `prefetch_landed`.
         let slot = self.pages.prefetch.slot(&want);
@@ -336,5 +390,20 @@ impl MusicApp {
         }
         prefetch.save();
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::{MINUTE, check_due};
+
+    #[test]
+    fn the_metered_check_runs_once_a_minute() {
+        let start = Instant::now();
+        assert!(check_due(None, start));
+        assert!(!check_due(Some(start), start + Duration::from_secs(59)));
+        assert!(check_due(Some(start), start + MINUTE));
     }
 }

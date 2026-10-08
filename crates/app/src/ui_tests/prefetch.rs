@@ -246,3 +246,23 @@ fn the_setting_turns_it_off(cx: &mut TestAppContext) {
     ui.wait(DWELL * 2);
     assert!(fetched(&ui.take_sent()).is_empty());
 }
+
+#[gpui_kit::test]
+fn a_metered_connection_prefetches_nothing(cx: &mut TestAppContext) {
+    let (mut ui, home) = on_home(cx);
+    let (card, item) = page_card(&mut ui, &home);
+    ui.app
+        .update(&mut ui.cx, |app, _| app.pages.prefetch.set_metered(true));
+
+    point_at(&mut ui, &card);
+    ui.wait(DWELL * 2);
+    assert!(fetched(&ui.take_sent()).is_empty(), "no fetch when metered");
+
+    // Back on an unmetered connection the same rest loads the page.
+    ui.app
+        .update(&mut ui.cx, |app, _| app.pages.prefetch.set_metered(false));
+    point_away(&mut ui);
+    point_at(&mut ui, &card);
+    ui.wait(DWELL * 2);
+    assert_eq!(fetched(&ui.take_sent()), vec![page_key(&item)]);
+}

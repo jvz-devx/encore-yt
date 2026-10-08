@@ -151,14 +151,14 @@ async fn find(wanted: &str) -> Result<Device> {
     let wait = Duration::from_secs(3);
     let (cast, renderers) =
         tokio::join!(mdns::scan(wait), dlna::scan(ssdp::MULTICAST.parse()?, wait));
-    let all: Vec<Device> = cast?
+    let all = cast?
         .into_iter()
         .map(Device::Cast)
-        .chain(renderers?.into_iter().map(Device::Dlna))
-        .collect();
+        .chain(renderers?.into_iter().map(Device::Dlna));
     let wanted_lower = wanted.to_lowercase();
+    let wanted_ip = wanted.parse::<std::net::IpAddr>().ok();
     all.into_iter()
-        .find(|d| d.ip().to_string() == wanted || d.name().to_lowercase().contains(&wanted_lower))
+        .find(|d| Some(d.ip()) == wanted_ip || d.name().to_lowercase().contains(&wanted_lower))
         .with_context(|| format!("no Cast device or DLNA renderer matches '{wanted}'"))
 }
 

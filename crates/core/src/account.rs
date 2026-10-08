@@ -49,7 +49,7 @@ pub use actions::{AccountAction, Dialog, Done, Edit, Failure};
 pub use pages::entries;
 use pages::{PageEdit, entry_of, is_playlist_page, library_target, playlist_target};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -159,7 +159,14 @@ pub struct AccountState {
     next_op: u64,
     /// A move waiting for the next part of its playlist to load.
     deferred_move: Option<DeferredMove>,
+    /// Songs listed in Liked music. YouTube Music's rows sometimes rate a
+    /// liked song `INDIFFERENT` (on an artist page, even in Liked music
+    /// itself); for these songs such a read doesn't unlike them.
+    liked_list: HashSet<String>,
 }
+
+/// The Liked music list, whose rows are liked whatever they say.
+const LIKED_LIST: &str = "browse:FEmusic_liked_videos:";
 
 impl AccountState {
     /// Changes still waiting for YouTube Music's answer.
@@ -217,6 +224,9 @@ impl AccountState {
     /// YouTube Music says `id` is `mark` (a fresh page or watch-next).
     fn heard(&mut self, id: &str, mark: Mark) {
         if !self.read_wins(id, mark) {
+            return;
+        }
+        if mark == Mark::Like(LikeStatus::Indifferent) && self.liked_list.contains(id) {
             return;
         }
         if self
@@ -904,6 +914,15 @@ impl AccountState {
         match result {
             Ok(done) => {
                 if let Some(mark) = pending.mark {
+                    match mark {
+                        Mark::Like(LikeStatus::Like) => {
+                            self.liked_list.insert(pending.subject.clone());
+                        }
+                        Mark::Like(_) => {
+                            self.liked_list.remove(&pending.subject);
+                        }
+                        Mark::Saved(_) | Mark::Subscribed(_) => {}
+                    }
                     self.accepted
                         .insert(pending.subject.clone(), (Instant::now(), mark));
                     self.confirmed.set(&pending.subject, mark);
@@ -1004,6 +1023,29 @@ impl AccountState {
         }
     }
 
+    /// Rows of Liked music (a saved copy, a fresh one or more of its rows)
+    /// are liked songs, whatever rating each row carries.
+    fn read_liked_list<P: CachedPage>(&mut self, pages: &HashMap<String, P>, key: &str) {
+        if key != LIKED_LIST {
+            return;
+        }
+        let Some(page) = pages.get(key).and_then(CachedPage::page) else {
+            return;
+        };
+        let ids: Vec<String> = page
+            .shelves
+            .iter()
+            .flat_map(|s| &s.items)
+            .filter_map(|i| i.track.as_ref())
+            .map(|t| t.video_id.clone())
+            .collect();
+        for id in ids {
+            if self.liked_list.insert(id.clone()) {
+                self.heard(&id, Mark::Like(LikeStatus::Like));
+            }
+        }
+    }
+
     /// A copy of the page cached under `key` arrived (saved when `cached`,
     /// else fresh) and is in `host.pages`. What a fresh copy says about
     /// likes, library and subscriptions becomes what the app shows (the
@@ -1016,6 +1058,7 @@ impl AccountState {
         cached: bool,
     ) -> Effects {
         let mut effects = Effects::default();
+        self.read_liked_list(host.pages, key);
         if !cached && let Some(page) = host.pages.get(key).and_then(CachedPage::page) {
             let mut heard: Vec<(String, Mark)> = page
                 .shelves
@@ -1069,6 +1112,7 @@ impl AccountState {
     /// the rows after the one it was dropped on is made now.
     pub fn more_arrived<P: CachedPage>(&mut self, host: &mut Host<'_, P>, key: &str) -> Effects {
         let mut effects = Effects::default();
+        self.read_liked_list(host.pages, key);
         if self.deferred_move.as_ref().is_none_or(|d| d.key != key) {
             return effects;
         }
@@ -1122,5 +1166,136 @@ impl DeferredMove {
             AccountAction::Move { set_video_id, .. } => Some(set_video_id),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
+mod tests {
+    use super::*;
+    use crate::model::{Item, ItemKind, Shelf, ShelfStyle};
+
+    struct Loaded(Page, Target);
+
+    impl CachedPage for Loaded {
+        fn page(&self) -> Option<&Page> {
+            Some(&self.0)
+        }
+        fn page_mut(&mut self) -> Option<&mut Page> {
+            Some(&mut self.0)
+        }
+        fn target(&self) -> &Target {
+            &self.1
+        }
+        fn start_more(&mut self, _shelf: usize) -> bool {
+            false
+        }
+    }
+
+    fn song(id: &str, like: LikeStatus) -> Item {
+        Item {
+            kind: ItemKind::Song,
+            title: id.into(),
+            subtitle: Vec::new(),
+            thumbnail: None,
+            target: None,
+            play: None,
+            track: Some(Track {
+                video_id: id.into(),
+                title: id.into(),
+                artists: Vec::new(),
+                album: None,
+                thumbnail: None,
+                duration: None,
+                like: Some(like),
+                set_video_id: None,
+            }),
+            index: None,
+            stripe: None,
+            editable: None,
+        }
+    }
+
+    fn page(rows: Vec<Item>) -> Page {
+        Page {
+            shelves: vec![Shelf {
+                title: String::new(),
+                strapline: None,
+                style: ShelfStyle::List,
+                items: rows,
+                more: None,
+                continuation: None,
+            }],
+            ..Page::default()
+        }
+    }
+
+    fn arrive(
+        state: &mut AccountState,
+        pages: &mut HashMap<String, Loaded>,
+        target: Target,
+        rows: Vec<Item>,
+    ) {
+        let key = target.key();
+        pages.insert(key.clone(), Loaded(page(rows), target));
+        let send = |_: Command| {};
+        let mut host = Host {
+            pages,
+            send: &send,
+            signed_in: true,
+        };
+        state.page_arrived(&mut host, &key, false);
+    }
+
+    fn shown(state: &AccountState, item: &Item) -> LikeStatus {
+        state.marks.like(item.track.as_ref().unwrap())
+    }
+
+    #[test]
+    fn songs_in_liked_music_stay_liked_where_rows_say_otherwise() {
+        let mut state = AccountState::default();
+        let mut pages = HashMap::new();
+        // Liked music lists a song whose own row says INDIFFERENT.
+        arrive(
+            &mut state,
+            &mut pages,
+            Target::browse("FEmusic_liked_videos"),
+            vec![
+                song("a", LikeStatus::Like),
+                song("b", LikeStatus::Indifferent),
+            ],
+        );
+        assert_eq!(
+            shown(&state, &song("b", LikeStatus::Indifferent)),
+            LikeStatus::Like
+        );
+        // An artist page and watch-next rate both songs INDIFFERENT later.
+        arrive(
+            &mut state,
+            &mut pages,
+            Target::browse("UCartist"),
+            vec![
+                song("a", LikeStatus::Indifferent),
+                song("c", LikeStatus::Indifferent),
+            ],
+        );
+        state.likes_fetched(vec![("b".into(), LikeStatus::Indifferent)]);
+        assert_eq!(
+            shown(&state, &song("a", LikeStatus::Indifferent)),
+            LikeStatus::Like
+        );
+        assert_eq!(
+            shown(&state, &song("b", LikeStatus::Indifferent)),
+            LikeStatus::Like
+        );
+        // Songs Liked music doesn't list keep the rating their rows carry.
+        assert_eq!(
+            shown(&state, &song("c", LikeStatus::Indifferent)),
+            LikeStatus::Indifferent
+        );
     }
 }

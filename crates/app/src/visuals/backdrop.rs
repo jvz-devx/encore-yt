@@ -91,7 +91,7 @@ impl Backdrop {
     /// due or the still picture changed.
     pub fn update(
         &mut self,
-        tick: &Tick,
+        tick: &Tick<'_>,
         panel: Bounds<Pixels>,
         cover: Option<(&SharedString, &Cover)>,
         shadow: Option<Shadow>,

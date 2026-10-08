@@ -113,7 +113,7 @@ impl Vis {
     /// the 3D scenes.
     pub fn update(
         &mut self,
-        tick: &Tick,
+        tick: &Tick<'_>,
         place: Place,
         palette: &[[f32; 4]; 4],
         video_id: Option<&str>,
@@ -226,10 +226,13 @@ impl Vis {
     }
 
     /// A 3D scene's next frame, filling Now Playing's panel or the scene.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "scene submission borrows the layer's audio, layout and palette for one frame"
+    )]
     fn update_scene(
         &mut self,
-        tick: &Tick,
+        tick: &Tick<'_>,
         place: Place,
         kind: SceneKind,
         palette: &[[f32; 4]; 4],
@@ -312,7 +315,7 @@ impl Vis {
 
     /// Moves the scope to the newest samples, with a point every 2.5
     /// output pixels across `width`.
-    fn listen(&mut self, tick: &Tick, v: &config::Visualizer, width: u32, dt: f32) {
+    fn listen(&mut self, tick: &Tick<'_>, v: &config::Visualizer, width: u32, dt: f32) {
         let rate = tick
             .tap
             .map_or(0, |tap| tap.recent(SPAN, &mut self.samples));

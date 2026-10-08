@@ -233,7 +233,7 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
 - S3, low, deliberately kept: stdout's short signed-in/cancelled status is
   the parent-process protocol. Its scoped lint allowance is intentional.
 
-## Visuals, deferred implementation
+## Visuals, formerly deferred implementation
 
 - V5, medium, fixed: private `pipeline_cache.rs` owns the disk boundary.
   A versioned envelope checks adapter/driver identity, exact payload length
@@ -241,7 +241,10 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
   bounded to 64 MiB. Unix reads require a private directory, a private
   regular file with the directory's owner, and matching opened inode;
   symlinks are rejected. Writes use exclusive mode-0600 temporary files,
-  sync and atomic rename. Old unwrapped caches are discarded. Windows
+  sync and atomic rename. Old unwrapped caches are discarded. A legacy
+  permissive GPU directory is tightened only inside its private owned parent
+  before newly generated data is saved; it is never trusted for loading.
+  Windows
   relies on the per-user directory's inherited ACL, not a Unix mode check.
   The explicit trust assumption is a non-hostile local cache owner and
   privileged software. The checksum detects accidental corruption, not
@@ -250,26 +253,45 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
   the SAFETY comment records this assumption, rather than treating adapter
   compatibility as integrity. Foreign/imported caches are unsupported.
   Tests cover every changed/truncated envelope byte, extra bytes, wrong
-  identity, private modes, symlinks, GPU reload and corrupt-cache fallback.
+  identity, private modes, symlinks, legacy-directory migration, oversized
+  files, GPU reload and corrupt-cache fallback. Other-driver caches are no
+  longer removed through an unvalidated filename prefix; stale driver files
+  remain a disk-retention tradeoff, not input accepted by another driver.
 - V1, medium, fixed: poisoned spectrum locks reset partial publication,
   clear poison and report once, then accept subsequent hops. Real,
   imaginary and power-spectrum storage is reused. All five shader effects
   encode their fixed uniform blocks into stack arrays without float/byte
   vectors. A regression compares every reused FFT result with the previous
   allocating calculation and checks scratch addresses/capacities.
-- V2, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `app/src/visuals/frames.rs` expects image-size consistency; effects
-  discard paint errors. Separate teardown-only failures from invalid frames.
-- V3, low, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  App visuals configuration/effects mix responsibilities in large modules;
-  visualizer/pipeline argument-count allowances lack reasons.
-- V4, low, fixed in the renderer crate: borrowed `SceneParams<'_>` and
-  `VisualizerParams<'_>` paths are explicit. Its root lifetime and panic
-  allowances are removed; only named regression-test modules allow
-  assertion expects with reasons. CLI example stdout remains intentional.
+- V2, medium, fixed: `frames.rs` rejects zero/overflowing dimensions and
+  short or overlong BGRA buffers before replacing the shown image. Invalid
+  frames log once per owner. Atlas retirement errors are reported separately;
+  GPUI 0.3.8 currently returns `Ok` unconditionally from `drop_image`.
+  Paint failures report once per layer, including dissolves and cover flight, instead of
+  discarding the result. Weak-entity updates still ignore cancellation when
+  the view is gone, which is teardown rather than a damaged frame. Synthetic
+  tests cover dimensions, exact byte length and unchanged valid BGRA bytes.
+- V3, low, fixed: `config/store.rs` owns settings storage/persistence;
+  `effects/paint.rs` owns the canvas snapshot, painting and slot geometry.
+  The effects scheduler retains animation/resource lifetime decisions.
+  Pipeline-cache persistence is separate from pipeline compilation. Public
+  configuration paths remain available through explicit re-exports; private
+  paint data is visible only to its parent. The remaining configuration
+  catalogue/defaults/presets/clamping stay together because they define one
+  serialized settings model; splitting each enum by length would obscure
+  that model. Scene submission and pipeline descriptor argument allowances
+  now explain their frame/resource composition boundary. The dissolve
+  allowance already had its frame-state reason and is deliberately kept.
+- V4, low, fixed: borrowed `SceneParams<'_>`, `VisualizerParams<'_>` and
+  app `Tick<'_>` paths are explicit. The renderer root lifetime and panic
+  allowances and the app visuals-module panic allowance are removed; only
+  named regression-test modules allow assertion expects with reasons. CLI
+  example stdout remains intentional. The separate app-wide GPUI callback
+  lifetime decision W5 remains, not a visuals deferral.
 
 `6180dd0` introduced the deferred root exceptions. The renderer crate now
-inherits the workspace's panic and lifetime lints without those exceptions.
+inherits the workspace's panic and lifetime lints without those exceptions;
+the app visuals module inherits the panic lints too.
 
 ## Workspace decisions
 

@@ -31,11 +31,6 @@ mod startup;
 mod theme;
 mod update;
 mod views;
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    reason = "deferred to the visuals task: docs/gpui/CODE-QUALITY.md V2 and V3"
-)]
 mod visuals;
 
 #[cfg(test)]

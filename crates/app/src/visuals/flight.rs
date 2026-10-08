@@ -117,7 +117,9 @@ impl Render for Flight {
                         window.paint_drop_shadows(bounds, corners, &shadows);
                         if let Some(image) = image {
                             let fitted = super::dissolve::cover_fit(bounds, &image);
-                            let _ = window.paint_image(bounds, fitted, corners, image, 0, false);
+                            super::frames::PaintLayer::Flight.report(
+                                window.paint_image(bounds, fitted, corners, image, 0, false),
+                            );
                         }
                     }
                     if t < 1. {

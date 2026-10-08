@@ -182,10 +182,11 @@ click "${SEEK_MID[@]}"
 if wait_log 'seek to [0-9.]+s' 5; then
     to="$(grep -oE 'seek to [0-9.]+' "$log" | tail -1 | grep -oE '[0-9.]+$' || true)"
     pause 1.5
-    # The engine's decoder logs where the seek landed.
-    at="$(grep -oE 'seek to [0-9.]+s landed at [0-9.]+s' "$log" | tail -1 | grep -oE '[0-9.]+s$' | tr -d s || true)"
+    # The engine's decoder logs where the audio plays from after the seek
+    # (it decodes from an earlier point and drops what comes before).
+    at="$(grep -oE 'seek to [0-9.]+s plays from [0-9.]+s' "$log" | tail -1 | grep -oE '[0-9.]+s$' | tr -d s || true)"
     at="${at:-0}"
-    if awk -v a="$at" -v t="$to" 'BEGIN { exit !(a >= t - 1 && a <= t + 5) }'; then
+    if awk -v a="$at" -v t="$to" 'BEGIN { exit !(a >= t - 0.1 && a <= t + 0.5) }'; then
         pass "seek to ${to}s, the decoder at ${at}s"
     else
         fail "seek to ${to}s, but the decoder is at ${at}s"

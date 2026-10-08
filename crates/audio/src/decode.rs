@@ -264,7 +264,15 @@ impl Decoding {
             let channels = decoded.spec().channels().count().max(1);
             decoded.copy_to_vec_interleaved::<f32>(&mut self.samples);
             to_stereo(&self.samples, channels, &mut self.stereo);
-            trim_to_target(&mut self.stereo, self.codec_rate, &mut self.skip_until, pts);
+            let target = self.skip_until;
+            if let Some(start) =
+                trim_to_target(&mut self.stereo, self.codec_rate, &mut self.skip_until, pts)
+            {
+                log::info!(
+                    "decode {}: seek to {target:.3}s plays from {start:.3}s",
+                    self.job.shared.id
+                );
+            }
             if let Pushed::Interrupted(control) = self.emit()?
                 && self.handle(control)?
             {
@@ -434,16 +442,21 @@ fn seek_anchor(
     Ok(0.0)
 }
 
-fn trim_to_target(stereo: &mut Vec<f32>, rate: u32, target: &mut f64, pts: Time) {
+/// Drops the decoded audio before a seek's `target`. Returns where the kept
+/// audio starts once the target is reached (`None` while still before it,
+/// or when no seek is pending).
+fn trim_to_target(stereo: &mut Vec<f32>, rate: u32, target: &mut f64, pts: Time) -> Option<f64> {
     if *target <= 0.0 {
-        return;
+        return None;
     }
     let late = *target - pts.as_secs_f64();
     let frames = (stereo.len() / 2).min((late * f64::from(rate)).max(0.0) as usize);
     stereo.drain(..frames * 2);
-    if frames * 2 < stereo.len() || late <= 0.0 {
-        *target = 0.0;
+    if stereo.is_empty() && late > 0.0 {
+        return None;
     }
+    *target = 0.0;
+    Some(pts.as_secs_f64() + frames as f64 / f64::from(rate))
 }
 
 /// Pushes all of `samples`, waiting while the ring is full; a control

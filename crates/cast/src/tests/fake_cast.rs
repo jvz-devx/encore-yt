@@ -23,6 +23,10 @@ struct Seen {
     messages: Vec<String>,
     /// Bytes the "player" fetched from the relay.
     fetched: Vec<u8>,
+    payloads: Vec<Value>,
+    finished: bool,
+    replaced: bool,
+    busy: bool,
 }
 
 async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
@@ -49,6 +53,9 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
         );
         tls.write_all(&ping.frame().unwrap()).await.unwrap();
         let mut content = String::new();
+        let mut running = false;
+        let mut position = 0.0;
+        let mut playing = true;
         loop {
             let mut len = [0u8; 4];
             if tls.read_exact(&mut len).await.is_err() {
@@ -63,24 +70,70 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
                 .unwrap()
                 .messages
                 .push(format!("{} {kind}", short(&msg.namespace)));
+            seen.lock().unwrap().payloads.push(payload.clone());
             let id = payload["requestId"].clone();
             let reply = match (msg.namespace.as_str(), kind.as_str()) {
-                (NS_RECEIVER, "GET_STATUS") => Some(receiver_status(id, false)),
-                (NS_RECEIVER, "LAUNCH") => Some(receiver_status(id, true)),
-                (NS_RECEIVER, "STOP") => Some(receiver_status(id, false)),
+                (NS_RECEIVER, "GET_STATUS") => {
+                    let s = seen.lock().unwrap();
+                    let mut reply = receiver_status(id, running || s.busy);
+                    if s.replaced {
+                        reply["status"]["applications"][0]["sessionId"] = json!("another-sender");
+                    }
+                    Some(reply)
+                }
+                (NS_RECEIVER, "LAUNCH") => {
+                    running = true;
+                    Some(receiver_status(id, true))
+                }
+                (NS_RECEIVER, "STOP") => {
+                    running = false;
+                    Some(receiver_status(id, false))
+                }
                 (NS_MEDIA, "LOAD") => {
                     assert_eq!(msg.destination, "web-7");
                     content = payload["media"]["contentId"].as_str().unwrap().to_owned();
                     let (_, bytes) = super::fetch(&content, Some("bytes=0-")).await;
                     seen.lock().unwrap().fetched = bytes;
-                    Some(media_status(id, "PLAYING", 0.0))
+                    position = payload["currentTime"].as_f64().unwrap();
+                    playing = payload["autoplay"].as_bool().unwrap();
+                    Some(media_status(
+                        id,
+                        if playing { "PLAYING" } else { "PAUSED" },
+                        position,
+                    ))
                 }
                 (NS_MEDIA, "SEEK") => {
                     let at = payload["currentTime"].as_f64().unwrap();
+                    position = at;
                     super::fetch(&content, Some("bytes=40000-")).await;
                     Some(media_status(id, "PLAYING", at))
                 }
-                (NS_MEDIA, "PAUSE") => Some(media_status(id, "PAUSED", 30.0)),
+                (NS_MEDIA, "PAUSE" | "PLAY") => {
+                    playing = kind == "PLAY";
+                    Some(media_status(
+                        id,
+                        if playing { "PLAYING" } else { "PAUSED" },
+                        position,
+                    ))
+                }
+                (NS_MEDIA, "SET_VOLUME" | "GET_STATUS") => {
+                    let finished = seen.lock().unwrap().finished;
+                    let mut reply = media_status(
+                        id,
+                        if finished {
+                            "IDLE"
+                        } else if playing {
+                            "PLAYING"
+                        } else {
+                            "PAUSED"
+                        },
+                        position,
+                    );
+                    if finished {
+                        reply["status"][0]["idleReason"] = json!("FINISHED");
+                    }
+                    Some(reply)
+                }
                 _ => None,
             };
             if let Some(reply) = reply {
@@ -91,6 +144,139 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
         }
     });
     addr
+}
+
+fn device(addr: SocketAddr) -> crate::Device {
+    crate::Device::Cast(crate::mdns::CastDevice {
+        name: "Local Cast receiver".into(),
+        model: "Test".into(),
+        id: "fake".into(),
+        addr,
+        status: String::new(),
+    })
+}
+
+#[tokio::test]
+async fn remote_session_keeps_position_pause_volume_and_finish_on_the_receiver() {
+    use crate::discovery::Policy;
+    use crate::session::{Connection, Session};
+    let file = TestFile::new(80_000);
+    let seen = Arc::new(Mutex::new(Seen::default()));
+    let addr = fake_device(seen.clone()).await;
+    let Connection::Ready(mut session) =
+        Session::connect(&device(addr), Policy { local_only: true }, false)
+            .await
+            .unwrap()
+    else {
+        panic!("idle fake should connect")
+    };
+    let media = Media {
+        content_type: "audio/webm".into(),
+        title: "Song".into(),
+        duration: Some(180.0),
+        ..Media::default()
+    };
+    let status = session
+        .load(Source::File(file.path.clone()), &media, 12.0, true, 35.0)
+        .await
+        .unwrap();
+    assert_eq!(status.position, 12.0);
+    assert!(status.playing);
+    session.pause(true).await.unwrap();
+    assert!(!session.poll().await.unwrap().playing);
+    session.seek(30.0).await.unwrap();
+    session.pause(false).await.unwrap();
+    session.volume(25.0).await.unwrap();
+    assert_eq!(session.poll().await.unwrap().position, 30.0);
+    seen.lock().unwrap().finished = true;
+    assert!(session.poll().await.unwrap().finished);
+    session.stop().await.unwrap();
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.fetched, file.bytes);
+    let load = seen.payloads.iter().find(|v| v["type"] == "LOAD").unwrap();
+    assert_eq!(load["currentTime"], 12.0);
+    assert!(
+        load["media"]["contentId"]
+            .as_str()
+            .unwrap()
+            .starts_with("http://127.0.0.1:")
+    );
+    assert!(
+        seen.payloads
+            .iter()
+            .any(|v| v["type"] == "SET_VOLUME" && v["volume"]["level"] == 0.25)
+    );
+}
+
+#[tokio::test]
+async fn busy_cast_receiver_is_not_launched_without_confirmation() {
+    let seen = Arc::new(Mutex::new(Seen {
+        busy: true,
+        ..Seen::default()
+    }));
+    let addr = fake_device(seen.clone()).await;
+    let result = crate::session::Session::connect(
+        &device(addr),
+        crate::discovery::Policy { local_only: true },
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(result, crate::session::Connection::Busy(_)));
+    let seen = seen.lock().unwrap();
+    assert!(
+        !seen
+            .payloads
+            .iter()
+            .any(|v| matches!(v["type"].as_str(), Some("LAUNCH" | "LOAD" | "STOP")))
+    );
+}
+
+#[tokio::test]
+async fn replaced_cast_session_is_reported_as_lost_not_finished() {
+    let seen = Arc::new(Mutex::new(Seen::default()));
+    let addr = fake_device(seen.clone()).await;
+    let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
+        &device(addr),
+        crate::discovery::Policy { local_only: true },
+        false,
+    )
+    .await
+    .unwrap() else {
+        panic!("idle fake")
+    };
+    let file = TestFile::new(80_000);
+    session
+        .load(
+            Source::File(file.path.clone()),
+            &Media {
+                content_type: "audio/webm".into(),
+                ..Media::default()
+            },
+            0.0,
+            true,
+            50.0,
+        )
+        .await
+        .unwrap();
+    seen.lock().unwrap().replaced = true;
+    assert!(
+        session
+            .poll()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("replaced")
+    );
+    drop(session);
+    assert!(
+        !seen
+            .lock()
+            .unwrap()
+            .payloads
+            .iter()
+            .any(|v| v["type"] == "STOP")
+    );
 }
 
 fn short(namespace: &str) -> &str {

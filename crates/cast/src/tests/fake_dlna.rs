@@ -24,6 +24,9 @@ struct State {
     volume: String,
     fetched: usize,
     actions: Vec<String>,
+    controls: bool,
+    paused: bool,
+    position: Option<String>,
 }
 
 const DESCRIPTION: &str = r#"<?xml version="1.0"?>
@@ -125,14 +128,35 @@ async fn handle(request: &http::Request, state: &Mutex<State>) -> (u16, String) 
             String::new()
         }
         ("/dev/avt", "GetTransportInfo") => {
-            let playing = state.lock().unwrap().playing;
-            let now = if playing { "PLAYING" } else { "STOPPED" };
+            let s = state.lock().unwrap();
+            let now = if s.paused {
+                "PAUSED_PLAYBACK"
+            } else if s.playing {
+                "PLAYING"
+            } else {
+                "STOPPED"
+            };
             format!(
                 "<CurrentTransportState>{now}</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus>"
             )
         }
         ("/dev/avt", "GetPositionInfo") => {
-            "<RelTime>0:00:12</RelTime><TrackDuration>0:03:00</TrackDuration>".to_owned()
+            let position = state
+                .lock()
+                .unwrap()
+                .position
+                .clone()
+                .unwrap_or_else(|| "0:00:12".into());
+            format!("<RelTime>{position}</RelTime><TrackDuration>0:03:00</TrackDuration>")
+        }
+        ("/dev/avt", "Pause" | "Seek") if state.lock().unwrap().controls => {
+            let mut s = state.lock().unwrap();
+            if action == "Pause" {
+                s.paused = true;
+            } else {
+                s.position = Some(args.text_of("Target").into());
+            }
+            String::new()
         }
         ("/rc", "SetVolume") => {
             state.lock().unwrap().volume = args.text_of("DesiredVolume").to_owned();
@@ -154,6 +178,52 @@ async fn handle(request: &http::Request, state: &Mutex<State>) -> (u16, String) 
          <u:{action}Response xmlns:u=\"x\">{out}</u:{action}Response></s:Body></s:Envelope>"
     );
     (200, body)
+}
+
+#[tokio::test]
+async fn dlna_remote_session_loads_seeks_pauses_changes_volume_and_stops() {
+    let state = Arc::new(Mutex::new(State {
+        controls: true,
+        ..State::default()
+    }));
+    let ssdp = fake_renderer(state.clone()).await;
+    let renderer = dlna::scan(ssdp, Duration::from_millis(100))
+        .await
+        .unwrap()
+        .remove(0);
+    let device = crate::Device::Dlna(renderer);
+    let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
+        &device,
+        crate::discovery::Policy { local_only: true },
+        false,
+    )
+    .await
+    .unwrap() else {
+        panic!("local renderer")
+    };
+    assert!(!session.supports("audio/webm"));
+    assert!(session.supports("audio/mp4"));
+    let file = TestFile::new(50_000);
+    let metadata = crate::castv2::Media {
+        title: "Local song".into(),
+        content_type: "audio/mp4".into(),
+        ..Default::default()
+    };
+    session
+        .load(Source::File(file.path.clone()), &metadata, 17.0, true, 45.0)
+        .await
+        .unwrap();
+    assert_eq!(session.poll().await.unwrap().position, 17.0);
+    session.pause(true).await.unwrap();
+    assert!(!session.poll().await.unwrap().playing);
+    session.seek(35.0).await.unwrap();
+    session.volume(22.0).await.unwrap();
+    session.stop().await.unwrap();
+    let s = state.lock().unwrap();
+    assert_eq!(s.fetched, file.bytes.len());
+    assert_eq!(s.volume, "22");
+    assert_eq!(s.position.as_deref(), Some("0:00:35"));
+    assert_eq!(s.meta_title, "Local song");
 }
 
 #[tokio::test]

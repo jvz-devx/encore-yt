@@ -49,13 +49,18 @@ pub async fn scan(target: SocketAddr, wait: Duration) -> Result<Vec<Renderer>> {
 
 pub(crate) fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .user_agent("Linux/1 UPnP/1.1 encore-yt/0.1")
         .build()
         .context("build DLNA HTTP client")
 }
 
-async fn describe(http: &reqwest::Client, location: &str, ip: IpAddr) -> Result<Option<Renderer>> {
+pub async fn describe(
+    http: &reqwest::Client,
+    location: &str,
+    ip: IpAddr,
+) -> Result<Option<Renderer>> {
     let response = http
         .get(location)
         .send()

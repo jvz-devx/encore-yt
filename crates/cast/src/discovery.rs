@@ -1,4 +1,4 @@
-//! A combined device list and the fail-closed loopback policy used by checks.
+//! A combined device list and the fail-closed local-host policy used by checks.
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -27,8 +27,8 @@ impl Policy {
             return Ok(());
         }
         ensure!(
-            device.ip().is_loopback(),
-            "only loopback stand-ins are allowed"
+            local_address(device.ip()),
+            "only stand-ins on this computer are allowed"
         );
         if let Device::Dlna(r) = device {
             for url in [
@@ -40,14 +40,14 @@ impl Policy {
             .into_iter()
             .flatten()
             {
-                check_loopback_url(url)?;
+                check_local_url(url)?;
             }
         }
         Ok(())
     }
 }
 
-fn check_loopback_url(url: &str) -> Result<IpAddr> {
+fn check_local_url(url: &str) -> Result<IpAddr> {
     let url = reqwest::Url::parse(url).context("invalid stand-in URL")?;
     ensure!(url.scheme() == "http", "stand-in must use HTTP");
     let ip: IpAddr = url
@@ -55,9 +55,19 @@ fn check_loopback_url(url: &str) -> Result<IpAddr> {
         .context("stand-in has no host")?
         .trim_matches(['[', ']'])
         .parse()
-        .context("stand-in must have a literal loopback address")?;
-    ensure!(ip.is_loopback(), "stand-in URL is not loopback");
+        .context("stand-in must have a literal local address")?;
+    ensure!(local_address(ip), "stand-in URL is not on this computer");
     Ok(ip)
+}
+
+/// libupnp refuses loopback interfaces. A renderer started on this machine
+/// may therefore use its LAN address. Binding a socket verifies that the
+/// address belongs to this host without sending a packet or accepting a
+/// remote device. Unspecified and multicast addresses are never targets.
+fn local_address(ip: IpAddr) -> bool {
+    !ip.is_unspecified()
+        && !ip.is_multicast()
+        && (ip.is_loopback() || std::net::UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok())
 }
 
 /// mDNS and SSDP run concurrently. One protocol failing does not hide the other.
@@ -79,7 +89,7 @@ pub async fn scan(policy: Policy, wait: Duration) -> Result<Vec<Device>> {
             devices.push(device);
         }
         if let Ok(location) = std::env::var("ENCORE_DLNA_TEST_URL") {
-            let ip = check_loopback_url(&location)?;
+            let ip = check_local_url(&location)?;
             let http = reqwest::Client::builder()
                 .timeout(Duration::from_secs(5))
                 .redirect(reqwest::redirect::Policy::none())
@@ -123,10 +133,10 @@ mod tests {
             "http://receiver.test",
             "https://127.0.0.1",
         ] {
-            assert!(check_loopback_url(url).is_err());
+            assert!(check_local_url(url).is_err());
         }
-        assert!(check_loopback_url("http://127.0.0.1:1234/device.xml").is_ok());
-        assert!(check_loopback_url("http://[::1]:1234/device.xml").is_ok());
+        assert!(check_local_url("http://127.0.0.1:1234/device.xml").is_ok());
+        assert!(check_local_url("http://[::1]:1234/device.xml").is_ok());
         let d = Device::Cast(mdns::CastDevice {
             name: "Real device".into(),
             model: String::new(),

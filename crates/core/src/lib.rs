@@ -25,6 +25,7 @@ pub mod account;
 pub mod auth;
 pub mod backend;
 pub mod browsers;
+pub mod casting;
 pub mod desktop;
 pub mod discord;
 pub mod equalizer;

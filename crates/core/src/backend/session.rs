@@ -2,6 +2,21 @@ use super::*;
 
 impl super::Worker {
     pub(super) fn connect(&mut self) {
+        // Stand-in checks must never inspect browser credentials or sign in,
+        // including Firefox profiles stored outside XDG_CONFIG_HOME.
+        if encore_cast::discovery::Policy::from_env().local_only {
+            self.client.set_session(None);
+            self.client.set_page_id(None);
+            self.sink.send(Event::Profiles {
+                list: Vec::new(),
+                current: None,
+            });
+            self.sink.send(Event::Account(Account::SignedOut {
+                reason: "Local casting test".into(),
+            }));
+            self.prepare_restored();
+            return;
+        }
         self.last_connect = Some(Instant::now());
         self.sink.send(Event::Account(Account::Checking));
         let client = self.client.clone();

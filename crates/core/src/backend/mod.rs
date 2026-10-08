@@ -14,6 +14,7 @@
 
 mod account;
 mod audition;
+mod casting;
 mod deck;
 mod pages;
 mod playback;
@@ -146,6 +147,13 @@ impl Drop for Backend {
 }
 
 enum Internal {
+    Cast {
+        stamp: u64,
+        message: casting::Message,
+    },
+    CastDevices {
+        result: anyhow::Result<Vec<encore_cast::Device>>,
+    },
     Connected(Account),
     AuthFailed,
     Started {
@@ -282,6 +290,7 @@ struct Worker {
     session_writer: Option<resume::Writer>,
     /// The other decks: Smooth mixes and Audition.
     decks: deck::Decks,
+    cast: casting::Cast,
 }
 
 impl Worker {
@@ -336,6 +345,7 @@ impl Worker {
             last_save: Instant::now(),
             session_writer: None,
             decks: deck::Decks::new(settings.mixes),
+            cast: casting::Cast::new(),
         }
     }
 
@@ -353,6 +363,7 @@ impl Worker {
         self.restore_session().await;
         self.connect();
         let mut stopped = None;
+        let mut cast_scan = tokio::time::interval(Duration::from_secs(8));
         loop {
             tokio::select! {
                 command = commands.recv() => match command {
@@ -361,6 +372,7 @@ impl Worker {
                 },
                 Some(message) = internal.recv() => self.internal(message).await,
                 Some((serial, event)) = player_events.recv() => self.deck_event(serial, event).await,
+                _ = cast_scan.tick(), if self.cast.scan_open => self.scan_cast(),
                 Some(done) = shutdown.recv() => {
                     stopped = Some(done);
                     break;
@@ -368,6 +380,9 @@ impl Worker {
             }
         }
         self.save_session(true);
+        if let Some(remote) = self.cast.remote.take() {
+            remote.shutdown().await;
+        }
         self.flush_session().await;
         if let Some(done) = stopped {
             // The shutdown caller may have reached its timeout already.
@@ -379,6 +394,16 @@ impl Worker {
 
     async fn command(&mut self, command: Command) {
         match command {
+            Command::CastScan(open) => {
+                self.cast.scan_open = open;
+                if open {
+                    self.scan_cast();
+                }
+            }
+            Command::CastConnect { id, kind, takeover } => {
+                self.connect_cast(&id, kind, takeover).await
+            }
+            Command::CastDisconnect => self.disconnect_cast(),
             Command::Page { target, seq } => self.load_page(target, seq),
             Command::More {
                 key,
@@ -504,7 +529,9 @@ impl Worker {
                 });
             }
             Command::TogglePause => {
-                if self.state.loading {
+                if self.casting() {
+                    self.cast_control(casting::Request::Pause(self.state.playing));
+                } else if self.state.loading {
                     // Resolving: nothing to pause yet.
                 } else if let (Some(player), false) = (self.main.clone(), self.idle) {
                     if self.state.playing {
@@ -530,6 +557,9 @@ impl Worker {
             Command::Seek(seconds) => self.seek(seconds).await,
             Command::Volume(volume) => {
                 self.state.volume = volume.clamp(0.0, 100.0);
+                if self.casting() {
+                    self.cast_control(casting::Request::Volume(self.state.volume));
+                }
                 self.apply_volumes().await;
                 self.emit(true);
                 self.save_session(false);
@@ -674,7 +704,11 @@ impl Worker {
             Command::SleepTimer(choice) => self.set_sleep(choice).await,
             Command::Equalizer(equalizer) => self.set_equalizer(equalizer).await,
             Command::Normalize(on) => self.set_normalize(on).await,
-            Command::Audition { track, start } => self.audition(track, start).await,
+            Command::Audition { track, start } => {
+                if !self.casting() {
+                    self.audition(track, start).await
+                }
+            }
             Command::EndAudition => self.end_audition().await,
             Command::Mixes(mixes) => self.set_mixes(mixes).await,
             Command::QuickSearch(query) => {

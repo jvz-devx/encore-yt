@@ -45,6 +45,7 @@ sha2.workspace = true
 rquickjs = "0.14"
 # The audio engine (docs/gpui/AUDIO.md).
 encore-audio.workspace = true
+encore-cast.workspace = true
 
 # Windows has no system SQLite to link; build it in.
 [target.'cfg(windows)'.dependencies]

@@ -2180,6 +2180,7 @@ dependencies = [
  "directories",
  "discord-rich-presence",
  "encore-audio",
+ "encore-cast",
  "fastrand",
  "ksni",
  "log",

@@ -15,6 +15,7 @@ extern crate gpui_kit as gpui;
 mod account;
 mod app;
 mod assets;
+mod casting;
 mod desktop;
 mod extras;
 mod likes;
@@ -56,7 +57,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
     fastframe_log::Logging::new("encore-yt", update::VERSION)
-        .filter("encore_core=info,encore_yt=info,encore_audio=info,warn")
+        .filter("encore_core=info,encore_yt=info,encore_audio=info,encore_cast=info,warn")
         .file(paths.cache.join("encore-yt.log"))
         .panic_log(paths.cache.join("panics.log"))
         .init()

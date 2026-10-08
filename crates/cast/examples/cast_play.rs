@@ -24,9 +24,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use encore_cast::castv2::{self, Client, DEFAULT_MEDIA_RECEIVER, Media};
-use encore_cast::dlna::{self, Renderer, Track};
+use encore_cast::dlna::{Renderer, Track};
 use encore_cast::relay::{Relay, Source};
-use encore_cast::{Device, local_ip_for, mdns, ssdp};
+use encore_cast::{Device, discovery, local_ip_for};
 
 struct Options {
     seconds: u64,
@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
         .clone()
         .unwrap_or_else(|| mime_for(&options.file).to_owned());
     let device = find(&options.device).await?;
+    discovery::Policy::from_env().check(&device)?;
     println!(
         "device: {} ({}, {})",
         device.name(),
@@ -149,12 +150,7 @@ fn mime_for(path: &std::path::Path) -> &'static str {
 
 async fn find(wanted: &str) -> Result<Device> {
     let wait = Duration::from_secs(3);
-    let (cast, renderers) =
-        tokio::join!(mdns::scan(wait), dlna::scan(ssdp::MULTICAST.parse()?, wait));
-    let all = cast?
-        .into_iter()
-        .map(Device::Cast)
-        .chain(renderers?.into_iter().map(Device::Dlna));
+    let all = discovery::scan(discovery::Policy::from_env(), wait).await?;
     let wanted_lower = wanted.to_lowercase();
     let wanted_ip = wanted.parse::<std::net::IpAddr>().ok();
     all.into_iter()

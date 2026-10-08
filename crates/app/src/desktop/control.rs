@@ -92,6 +92,10 @@ impl MusicApp {
     /// Esc: closes the topmost of a menu, Play anything, the shortcuts,
     /// Now Playing and Up next. `false` when nothing was open.
     pub fn close_top_layer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.cast.open {
+            self.show_cast(false, cx);
+            return true;
+        }
         if self.close_account_layer(window, cx) {
             return true;
         }
@@ -114,6 +118,9 @@ impl MusicApp {
 
     /// Closes the menu, Play anything and the shortcuts.
     pub fn close_layers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cast.open {
+            self.show_cast(false, cx);
+        }
         if self.desktop.layers.menu.is_some() {
             self.close_menu(window, cx);
         }

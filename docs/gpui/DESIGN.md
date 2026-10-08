@@ -233,6 +233,15 @@ skip back/forward). A play triangle sits 2 px right of centre (optical).
   ("Nothing playing" in `text_faint` when empty). Transport: shuffle, previous,
   the 40 px `primary` play disc (spinner while loading), next, repeat.
   Volume: icon by level and a 112 px slider in `text_muted`.
+- **Cast picker** (`views/player/casting.rs`): the Cast ghost button sits
+  before Autoplay. It opens a `size::CAST_PICKER` popover above the bar on
+  `overlay`, `radius LG`, `elevation::high`, with `LG` padding. Device rows
+  use `size::ROW`, `radius MD`, a speaker/TV/group icon, name `type_label`
+  and protocol `type_small` muted. The active device has a check and
+  `selected` fill; the button and "Playing on …" line use `signal` only
+  after a session is connected. Busy Cast receivers require Replace or
+  Cancel before Encore launches its receiver. Stop casting returns to the
+  local deck; closing the picker only stops discovery refreshes.
 - **Seek bar**: at most 600 wide between the elapsed time and the length
   (`type_caption().tabular()` in `text_faint`). The effects layer draws it
   (M9, `visuals::bar`, over the cover's palette glow): the played part is a

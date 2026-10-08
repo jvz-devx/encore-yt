@@ -9,10 +9,12 @@
 
 pub mod castv2;
 pub mod device;
+pub mod discovery;
 pub mod dlna;
 mod http;
 pub mod mdns;
 pub mod relay;
+pub mod session;
 pub mod ssdp;
 mod sync;
 mod xml;

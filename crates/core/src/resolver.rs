@@ -222,6 +222,23 @@ impl Drop for Landing {
 }
 
 impl Resolver {
+    /// A DLNA renderer that lacks Opus needs AAC instead. Keep this lookup
+    /// out of the normal Opus cache so local playback retains its best stream.
+    pub async fn cast_aac(self: &Arc<Self>, video_id: &str) -> Result<Stream> {
+        let stream = self.request(video_id).wait().await?;
+        if fake_stream().is_some() || matches!(stream.itag, 140 | 141) {
+            return Ok(stream);
+        }
+        let native = self
+            .native
+            .get()
+            .context("the stream resolver isn't ready")?;
+        let (streams, _) = native.streams(video_id, self.signed_in(), 6).await?;
+        streams
+            .into_iter()
+            .find(|s| matches!(s.itag, 140 | 141))
+            .context("no AAC audio stream is available for this device")
+    }
     /// Starts with the streams saved by an earlier run that are still valid.
     pub fn new(scratch: PathBuf) -> Self {
         let deadline = now() + MARGIN;

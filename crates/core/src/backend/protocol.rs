@@ -5,6 +5,14 @@ use crate::model::{Account, Lyrics, Page, Playback, Sleep, Target, Track};
 use crate::parse::More;
 
 pub enum Command {
+    /// Discover devices while the picker is open; false stops refreshing.
+    CastScan(bool),
+    CastConnect {
+        id: String,
+        kind: crate::casting::Kind,
+        takeover: bool,
+    },
+    CastDisconnect,
     /// Open a page: cached copy first, then fresh. `seq` identifies the
     /// request; only the newest one's answer is used.
     Page {
@@ -117,6 +125,7 @@ pub enum Command {
 }
 
 pub enum Event {
+    Cast(crate::casting::State),
     Account(Account),
     Page {
         key: String,

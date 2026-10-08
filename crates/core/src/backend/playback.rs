@@ -104,6 +104,14 @@ impl super::Worker {
             return;
         };
         self.generation += 1;
+        if self.casting() {
+            self.cast.play_on_load = true;
+            // A finished remote transport is already stopped. DLNA may
+            // reject Pause there, which would turn natural EOF into a loss.
+            if self.state.playing {
+                self.cast_control(super::casting::Request::Pause(true));
+            }
+        }
         self.pos = Some(pos);
         self.queue.reached(pos);
         self.current_entry = None;
@@ -146,9 +154,16 @@ impl super::Worker {
     pub(super) fn resolve_current(&mut self, video_id: &str) {
         let generation = self.generation;
         let request = self.resolver.request(video_id);
+        let aac = self.casting() && self.cast.aac;
+        let resolver = self.resolver.clone();
+        let video_id = video_id.to_owned();
         let tx = self.internal_tx.clone();
         let task = tokio::spawn(async move {
-            let stream = request.wait().await;
+            let stream = if aac {
+                resolver.cast_aac(&video_id).await
+            } else {
+                request.wait().await
+            };
             let _ = tx.send(Internal::Started { generation, stream });
         });
         if let Some(old) = self.resolving.replace(task.abort_handle()) {
@@ -160,6 +175,9 @@ impl super::Worker {
     }
 
     pub(super) fn fetch_watch_info(&self, video_id: &str) {
+        if crate::resolver::fake_stream().is_some() {
+            return;
+        }
         let generation = self.generation;
         let client = self.client.clone();
         let tx = self.internal_tx.clone();
@@ -182,6 +200,9 @@ impl super::Worker {
     /// player response, for its loudness) and is appended to the player's playlist
     /// so the change is gapless; the one after it is prepared as a guess.
     pub(super) fn prefetch(&mut self) {
+        if self.casting() {
+            return;
+        }
         let Some(pos) = self.pos else { return };
         if let Some(after) = self.track_at(pos + 2) {
             let id = after.video_id.clone();
@@ -310,6 +331,10 @@ impl super::Worker {
 
     pub(super) async fn seek(&mut self, seconds: f64) {
         let seconds = seconds.max(0.0);
+        if self.casting() {
+            self.cast_control(super::casting::Request::Seek(seconds));
+            return;
+        }
         self.finish_blend().await;
         if let (Some(player), Some(_)) = (&self.main, self.current_entry) {
             player.seek(seconds);
@@ -381,6 +406,8 @@ impl super::Worker {
 
     pub(super) async fn internal(&mut self, message: Internal) {
         match message {
+            Internal::Cast { stamp, message } => self.cast_message(stamp, message).await,
+            Internal::CastDevices { result } => self.cast_devices(result),
             Internal::Connected(account) => {
                 self.sink.send(Event::Account(account));
                 self.prepare_restored();
@@ -403,13 +430,26 @@ impl super::Worker {
                 };
                 match stream {
                     Ok(stream) => {
+                        if self.casting() {
+                            self.load_cast(stream);
+                            return;
+                        }
                         let Some(player) = self.ensure_main().await else {
                             return;
                         };
                         // `Replace` empties the playlist, including any track queued behind.
                         self.appended = None;
-                        let (options, gain) =
+                        let (mut options, gain) =
                             self.file_options(&track.video_id, &stream, self.resume_at);
+                        if self.cast.resume_paused.is_some() {
+                            options.start = self.resume_at.map(Start::Seconds);
+                            if self.cast.resume_paused == Some(true) {
+                                // Pause before the mixer sees the replacement,
+                                // not after its first frame has started.
+                                self.paused = true;
+                                player.set_pause(true);
+                            }
+                        }
                         match player.load(&stream.url, LoadMode::Replace, &options).await {
                             Ok(entry) => {
                                 log::info!(
@@ -419,7 +459,7 @@ impl super::Worker {
                                 );
                                 self.resume_at = None;
                                 self.current_entry = Some(entry);
-                                player.set_pause(false);
+                                player.set_pause(self.cast.resume_paused.take().unwrap_or(false));
                                 self.state.format = Some(resolver::describe(stream.itag));
                                 self.state.gain = gain;
                                 self.emit(true);
@@ -637,7 +677,7 @@ impl super::Worker {
 
     /// Adds the current song to the account's history, with the tracking
     /// URL of the player response fetched when it started if there is one.
-    fn report_play(&self) {
+    pub(super) fn report_play(&self) {
         if crate::resolver::fake_stream().is_some() {
             return;
         }
@@ -701,6 +741,9 @@ impl super::Worker {
     }
 
     pub(super) async fn main_event(&mut self, event: PlayerEvent) {
+        if self.casting() {
+            return;
+        }
         match event {
             PlayerEvent::Position(position) => {
                 // Before the current file loads, positions belong to the previous one.

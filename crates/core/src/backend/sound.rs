@@ -79,6 +79,9 @@ impl super::Worker {
 
     /// Fetches a song's player response unless it is known.
     pub(super) fn fetch_player(&self, video_id: &str) {
+        if crate::resolver::fake_stream().is_some() {
+            return;
+        }
         if self.players.contains_key(video_id) {
             return;
         }
@@ -353,6 +356,9 @@ impl super::Worker {
         self.sleep_stamp.fetch_add(1, Ordering::SeqCst);
         self.state.sleep = None;
         self.finish_blend().await;
+        if self.casting() {
+            self.cast_control(super::casting::Request::Pause(true));
+        }
         if let (Some(player), false) = (&self.main, self.idle) {
             player.set_pause(true);
         }

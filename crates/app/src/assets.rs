@@ -82,7 +82,11 @@ gpui_kit::assets::icon_assets!(
         FolderOpen,
         ExternalLink,
         RotateCcw,
-        Info
+        Info,
+        Cast,
+        Speaker,
+        Tv,
+        Group
     ]
 );
 

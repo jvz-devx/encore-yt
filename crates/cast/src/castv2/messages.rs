@@ -53,6 +53,10 @@ pub fn stop(request_id: u64, session_id: &str) -> Value {
 /// LOAD for the Default Media Receiver: a buffered (seekable) stream with
 /// music metadata (`metadataType` 3 is MusicTrackMediaMetadata).
 pub fn load(request_id: u64, session_id: &str, media: &Media) -> Value {
+    load_at(request_id, session_id, media, 0.0, true)
+}
+
+pub fn load_at(request_id: u64, session_id: &str, media: &Media, at: f64, playing: bool) -> Value {
     let mut metadata = json!({
         "metadataType": 3,
         "title": media.title,
@@ -77,8 +81,8 @@ pub fn load(request_id: u64, session_id: &str, media: &Media) -> Value {
         "requestId": request_id,
         "sessionId": session_id,
         "media": info,
-        "autoplay": true,
-        "currentTime": 0,
+        "autoplay": playing,
+        "currentTime": at,
     })
 }
 
@@ -163,6 +167,7 @@ pub struct MediaStatus {
     /// FINISHED, CANCELLED, INTERRUPTED or ERROR when IDLE.
     pub idle_reason: Option<String>,
     pub current_time: f64,
+    pub volume: Option<f64>,
 }
 
 impl MediaStatus {
@@ -174,6 +179,7 @@ impl MediaStatus {
             player_state: str_of(&s["playerState"]),
             idle_reason: s["idleReason"].as_str().map(str::to_owned),
             current_time: s["currentTime"].as_f64().unwrap_or(0.0),
+            volume: s["volume"]["level"].as_f64(),
         })
     }
 }

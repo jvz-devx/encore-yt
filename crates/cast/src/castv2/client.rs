@@ -149,6 +149,23 @@ impl Client {
         Ok(ReceiverStatus::parse(&reply))
     }
 
+    /// Device volume, used only for an explicitly authorized check's cleanup.
+    /// Normal playback controls use the media session's own volume instead.
+    pub async fn receiver_volume(&self, level: f64, muted: bool) -> Result<ReceiverStatus> {
+        anyhow::ensure!(
+            level.is_finite() && (0.0..=1.0).contains(&level),
+            "invalid receiver volume"
+        );
+        let reply = self.request(PLATFORM, NS_RECEIVER, |id| serde_json::json!({
+            "type": "SET_VOLUME", "requestId": id, "volume": { "level": level, "muted": muted }
+        })).await?;
+        anyhow::ensure!(
+            reply["type"] == "RECEIVER_STATUS",
+            "receiver volume request refused"
+        );
+        Ok(ReceiverStatus::parse(&reply))
+    }
+
     /// Launches `app_id` (or finds it already running) and connects to it.
     pub async fn launch(&self, app_id: &str) -> Result<App> {
         let reply = self
@@ -168,9 +185,19 @@ impl Client {
     }
 
     pub async fn load(&self, app: &App, media: &Media) -> Result<MediaStatus> {
+        self.load_at(app, media, 0.0, true).await
+    }
+
+    pub async fn load_at(
+        &self,
+        app: &App,
+        media: &Media,
+        at: f64,
+        playing: bool,
+    ) -> Result<MediaStatus> {
         let reply = self
             .request(&app.transport_id, NS_MEDIA, |id| {
-                messages::load(id, &app.session_id, media)
+                messages::load_at(id, &app.session_id, media, at, playing)
             })
             .await?;
         if reply["type"] != "MEDIA_STATUS" {
@@ -191,6 +218,7 @@ impl Client {
                 messages::media_command(id, kind, media_session_id)
             })
             .await?;
+        anyhow::ensure!(reply["type"] == "MEDIA_STATUS", "media request refused");
         Ok(MediaStatus::parse(&reply))
     }
 
@@ -205,7 +233,25 @@ impl Client {
                 messages::seek(id, media_session_id, seconds)
             })
             .await?;
+        anyhow::ensure!(reply["type"] == "MEDIA_STATUS", "seek request refused");
         Ok(MediaStatus::parse(&reply))
+    }
+
+    pub async fn volume(&self, app: &App, media_session_id: i64, level: f64) -> Result<()> {
+        let reply = self
+            .request(&app.transport_id, NS_MEDIA, |id| {
+                messages::media_volume(id, media_session_id, level.clamp(0.0, 1.0))
+            })
+            .await?;
+        anyhow::ensure!(reply["type"] == "MEDIA_STATUS", "volume request refused");
+        if let Some(actual) = MediaStatus::parse(&reply).and_then(|s| s.volume) {
+            anyhow::ensure!(
+                (actual - level.clamp(0.0, 1.0)).abs() <= 0.025,
+                "the device didn't change media volume"
+            );
+            log::info!("cast media volume confirmed at {actual:.3}");
+        }
+        Ok(())
     }
 
     /// Stops the app on the device (the receiver returns to its idle screen).

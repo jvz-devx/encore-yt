@@ -40,6 +40,7 @@ pub struct MusicApp {
     pub paths: Paths,
     pub pages: Pages,
     pub player: Player,
+    pub cast: crate::casting::CastUi,
     pub account: AccountUi,
     /// Settings' category, tabs and search (M24).
     pub settings: crate::settings::SettingsNav,
@@ -140,6 +141,7 @@ impl MusicApp {
             paths,
             pages,
             player,
+            cast: crate::casting::CastUi::default(),
             account,
             settings: crate::settings::SettingsNav::new(cx),
             sign_in: crate::sign_in::SignIn::new(),
@@ -203,6 +205,7 @@ impl MusicApp {
         cx: &mut Context<Self>,
     ) -> bool {
         match event {
+            Event::Cast(state) => self.cast_changed(state, cx),
             Event::Playback(playback) => {
                 return match window {
                     Some(window) => self.on_playback(playback, window, cx),

@@ -35,6 +35,7 @@ manual_string_new = "warn"
 # Versions shared by more than one crate; each crate adds its own features.
 [workspace.dependencies]
 encore-core = { path = "crates/core" }
+encore-cast = { path = "crates/cast" }
 encore-audio = { path = "crates/audio" }
 encore-visuals = { path = "crates/visuals" }
 anyhow = "1"

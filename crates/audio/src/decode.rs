@@ -126,21 +126,25 @@ enum Pushed {
     Interrupted(Control),
 }
 
-fn run(job: Job) -> Result<()> {
+fn open_format(job: &Job) -> Result<Box<dyn FormatReader>> {
     let source = match local_path(&job.url) {
         Some(path) => HttpSource::local(path)?,
         None => HttpSource::open(&job.client, &job.url, job.headers.clone())?,
     };
     *job.stats.lock().unwrap_or_else(|e| e.into_inner()) = Some(source.stats_handle());
     let mss = MediaSourceStream::new(Box::new(source), Default::default());
-    let format = symphonia::default::get_probe()
+    symphonia::default::get_probe()
         .probe(
             &hint(&job.url),
             mss,
             FormatOptions::default(),
             MetadataOptions::default(),
         )
-        .context("unsupported container")?;
+        .context("unsupported container")
+}
+
+fn run(job: Job) -> Result<()> {
+    let format = open_format(&job)?;
     let track = format
         .default_track(TrackType::Audio)
         .context("no audio track")?;
@@ -260,7 +264,7 @@ impl Decoding {
             let channels = decoded.spec().channels().count().max(1);
             decoded.copy_to_vec_interleaved::<f32>(&mut self.samples);
             to_stereo(&self.samples, channels, &mut self.stereo);
-            self.drop_before_target(pts);
+            trim_to_target(&mut self.stereo, self.codec_rate, &mut self.skip_until, pts);
             if let Pushed::Interrupted(control) = self.emit()?
                 && self.handle(control)?
             {
@@ -280,38 +284,14 @@ impl Decoding {
         }
     }
 
-    fn drop_before_target(&mut self, pts: Time) {
-        if self.skip_until <= 0.0 {
-            return;
-        }
-        let late = self.skip_until - pts.as_secs_f64();
-        let frames = (self.stereo.len() / 2).min((late * self.codec_rate as f64).max(0.0) as usize);
-        self.stereo.drain(..frames * 2);
-        if frames * 2 < self.stereo.len() || late <= 0.0 {
-            self.skip_until = 0.0;
-        }
-    }
-
     fn seek(&mut self, to: f64, replace: bool) -> Result<()> {
-        let from = (to - PREROLL).max(0.0);
-        let time = Time::try_from_secs_f64(from).context("seek time")?;
-        let seeked = self.format.seek(
-            SeekMode::Accurate,
-            SeekTo::Time {
-                time,
-                track_id: Some(self.track_id),
-            },
+        let actual = seek_anchor(&mut self.format, self.track_id, self.time_base, to, || {
+            open_format(&self.job)
+        })?;
+        log::info!(
+            "decode {}: seek to {to:.3}s anchored at {actual:.3}s",
+            self.job.shared.id
         );
-        match seeked {
-            Ok(seeked) => log::info!(
-                "decode {}: seek to {to:.3}s landed at {:.3}s",
-                self.job.shared.id,
-                self.time_base
-                    .calc_time_saturating(seeked.actual_ts)
-                    .as_secs_f64()
-            ),
-            Err(e) => return Err(anyhow!(e).context("seek")),
-        }
         self.decoder.reset();
         self.resampler = new_resampler(self.codec_rate, self.job.rate)?;
         self.skip_until = to;
@@ -414,6 +394,58 @@ impl Decoding {
     }
 }
 
+/// A seek result may point at the following WebM cue even in Accurate mode.
+/// Never start decoding after the requested time: back off to an earlier cue
+/// and use `trim_to_target` to trim the decoded PCM. At the beginning,
+/// reopen without seeking because the first cue can itself be several seconds
+/// into the stream. Bound cue attempts before falling back to a fresh reader.
+fn seek_anchor(
+    format: &mut Box<dyn FormatReader>,
+    track_id: u32,
+    time_base: TimeBase,
+    to: f64,
+    mut reopen: impl FnMut() -> Result<Box<dyn FormatReader>>,
+) -> Result<f64> {
+    let latest = (to - PREROLL).max(0.0);
+    let mut from = latest;
+    for _ in 0..8 {
+        if from <= 0.0 {
+            break;
+        }
+        *format = reopen()?;
+        let seeked = format
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time: Time::try_from_secs_f64(from).context("seek time")?,
+                    track_id: Some(track_id),
+                },
+            )
+            .context("seek")?;
+        let actual = time_base
+            .calc_time_saturating(seeked.actual_ts)
+            .as_secs_f64();
+        if actual <= latest {
+            return Ok(actual);
+        }
+        from = (from - (actual - from).max(PREROLL) - PREROLL).max(0.0);
+    }
+    *format = reopen()?;
+    Ok(0.0)
+}
+
+fn trim_to_target(stereo: &mut Vec<f32>, rate: u32, target: &mut f64, pts: Time) {
+    if *target <= 0.0 {
+        return;
+    }
+    let late = *target - pts.as_secs_f64();
+    let frames = (stereo.len() / 2).min((late * f64::from(rate)).max(0.0) as usize);
+    stereo.drain(..frames * 2);
+    if frames * 2 < stereo.len() || late <= 0.0 {
+        *target = 0.0;
+    }
+}
+
 /// Pushes all of `samples`, waiting while the ring is full; a control
 /// message interrupts the wait.
 fn push(ring: &mut Producer<f32>, samples: &[f32], control: &Receiver<Control>) -> Pushed {
@@ -477,4 +509,119 @@ pub(crate) fn hint(url: &str) -> Hint {
         hint.with_extension(ext);
     }
     hint
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "offline fixture assertions")]
+mod seek_tests {
+    use super::*;
+
+    fn fixture() -> Result<Box<dyn FormatReader>> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/cast-seek.webm");
+        let file = std::fs::File::open(path)?;
+        symphonia::default::get_probe()
+            .probe(
+                &hint(path),
+                MediaSourceStream::new(Box::new(file), Default::default()),
+                FormatOptions::default(),
+                MetadataOptions::default(),
+            )
+            .context("fixture")
+    }
+
+    #[test]
+    fn cast_handoffs_decode_from_before_the_target_not_the_following_webm_cue() {
+        for target in [0.5, 6.76, 50.76] {
+            let mut format = fixture().unwrap();
+            let track = format.default_track(TrackType::Audio).unwrap();
+            let (id, base) = (track.id, track.time_base.unwrap());
+            let actual = seek_anchor(&mut format, id, base, target, fixture).unwrap();
+            assert!(
+                actual <= (target - PREROLL).max(0.0),
+                "anchor {actual} skips target {target}"
+            );
+            let packet = format.next_packet().unwrap().unwrap();
+            let first = base.calc_time_saturating(packet.pts).as_secs_f64();
+            assert!(
+                first <= target,
+                "first packet {first} skips requested audio at {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn handoff_pcm_contains_the_requested_time_not_just_the_requested_clock() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/cast-seek-chirp.webm"
+        );
+        let fresh = || {
+            symphonia::default::get_probe()
+                .probe(
+                    &hint(path),
+                    MediaSourceStream::new(
+                        Box::new(std::fs::File::open(path)?),
+                        Default::default(),
+                    ),
+                    FormatOptions::default(),
+                    MetadataOptions::default(),
+                )
+                .context("chirp fixture")
+        };
+        let mut format = fresh().unwrap();
+        let track = format.default_track(TrackType::Audio).unwrap();
+        let (id, base) = (track.id, track.time_base.unwrap());
+        let params = track
+            .codec_params
+            .as_ref()
+            .unwrap()
+            .audio()
+            .unwrap()
+            .clone();
+        let rate = params.sample_rate.unwrap();
+        let mut decoder = CODECS
+            .make_audio_decoder(&params, &AudioDecoderOptions::default())
+            .unwrap();
+        let target = 50.76;
+        seek_anchor(&mut format, id, base, target, fresh).unwrap();
+        let mut skip = target;
+        let (mut samples, mut stereo, mut mono) = (Vec::new(), Vec::new(), Vec::new());
+        while mono.len() < (rate / 5) as usize {
+            let packet = format.next_packet().unwrap().unwrap();
+            if packet.track_id != id {
+                continue;
+            }
+            let decoded = decoder.decode(&packet).unwrap();
+            let channels = decoded.spec().channels().count();
+            decoded.copy_to_vec_interleaved::<f32>(&mut samples);
+            to_stereo(&samples, channels, &mut stereo);
+            trim_to_target(
+                &mut stereo,
+                rate,
+                &mut skip,
+                base.calc_time_saturating(packet.pts),
+            );
+            mono.extend(
+                stereo
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|f| (f[0] + f[1]) * 0.5),
+            );
+        }
+        let crossings: Vec<f64> = mono
+            .windows(2)
+            .enumerate()
+            .filter(|(_, w)| w[0] <= 0.0 && w[1] > 0.0)
+            .map(|(i, w)| i as f64 + f64::from(-w[0] / (w[1] - w[0])))
+            .collect();
+        let frequency = (crossings.len() - 1) as f64 * f64::from(rate)
+            / (crossings.last().unwrap() - crossings[0]);
+        let middle = target + mono.len() as f64 / f64::from(rate) * 0.5;
+        let expected = 200.0 + 20.0 * middle;
+        assert!(
+            (frequency - expected).abs() < 3.0,
+            "PCM frequency {frequency} instead of {expected} means the content is not at {target}s"
+        );
+    }
 }

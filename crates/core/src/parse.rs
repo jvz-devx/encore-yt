@@ -673,6 +673,50 @@ use crate::model::{LibraryToggle, LikeStatus, Subscription};
 
 /// The requested song's rating, from the player's like button in `next`.
 fn watch_like(v: &Value) -> Option<(String, LikeStatus)> {
+    let mutations = array(at(
+        v,
+        &["frameworkUpdates", "entityBatchUpdate", "mutations"],
+    ));
+    let rating = array(at(
+        v,
+        &[
+            "playerOverlays",
+            "playerOverlayRenderer",
+            "videoActionBar",
+            "videoActionBarViewModel",
+            "buttons",
+        ],
+    ))
+    .iter()
+    .find_map(|button| {
+        let segmented = at(
+            button,
+            &["buttonViewModel", "segmentedLikeDislikeButtonViewModel"],
+        )?;
+        let key = segmented
+            .get("likeButtonViewModel")
+            .and_then(|like| find(like, "likeStatusEntityKey"))
+            .and_then(Value::as_str)
+            .or_else(|| {
+                segmented
+                    .get("dislikeButtonViewModel")
+                    .and_then(|dislike| find(dislike, "dislikeEntityKey"))
+                    .and_then(Value::as_str)
+            })?;
+        // Other songs can have rating mutations in the same response.
+        let entity = mutations
+            .iter()
+            .filter_map(|mutation| at(mutation, &["payload", "likeStatusEntity"]))
+            .find(|entity| str_at(entity, &["key"]) == Some(key))?;
+        Some((
+            str_at(v, &["currentVideoEndpoint", "watchEndpoint", "videoId"])?.to_owned(),
+            like_status(entity.get("likeStatus"))?,
+        ))
+    });
+    if rating.is_some() {
+        return rating;
+    }
+
     let button = array(at(
         v,
         &["playerOverlays", "playerOverlayRenderer", "actions"],
@@ -726,4 +770,150 @@ fn account_header(v: &Value, page: &mut Page) {
                 subscribed: s.get("subscribed").and_then(Value::as_bool) == Some(true),
             })
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn watch_rating_response(model: Value, mutations: Value) -> Value {
+        json!({
+            "currentVideoEndpoint": {"watchEndpoint": {"videoId": "aaaaaaaaaaa"}},
+            "playerOverlays": {"playerOverlayRenderer": {
+                "videoActionBar": {"videoActionBarViewModel": {"buttons": [
+                    {"buttonViewModel": {"buttonViewModel": {"title": "Share"}}},
+                    {"buttonViewModel": {"segmentedLikeDislikeButtonViewModel": model}}
+                ]}}
+            }},
+            "frameworkUpdates": {"entityBatchUpdate": {"mutations": mutations}}
+        })
+    }
+
+    #[test]
+    fn watch_like_entity_ratings() {
+        for (name, status) in [
+            ("LIKE", LikeStatus::Like),
+            ("DISLIKE", LikeStatus::Dislike),
+            ("INDIFFERENT", LikeStatus::Indifferent),
+        ] {
+            for model in [
+                json!({"likeButtonViewModel": {"likeButtonViewModel": {
+                    "likeStatusEntityKey": "playing-song-rating"
+                }}}),
+                json!({"dislikeButtonViewModel": {"dislikeButtonViewModel": {
+                    "dislikeEntityKey": "playing-song-rating"
+                }}}),
+            ] {
+                let response = watch_rating_response(
+                    model,
+                    json!([
+                        {"payload": {"likeStatusEntity": {
+                            "key": "playing-song-rating", "likeStatus": name
+                        }}}
+                    ]),
+                );
+                assert_eq!(
+                    watch_next(&response).like,
+                    Some(("aaaaaaaaaaa".to_owned(), status))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn watch_like_matches_referenced_entity() {
+        let response = watch_rating_response(
+            json!({"likeButtonViewModel": {"likeButtonViewModel": {
+                "likeStatusEntityKey": "playing-song-rating"
+            }}}),
+            json!([
+                {"payload": {"likeStatusEntity": {
+                    "key": "another-song-rating", "likeStatus": "DISLIKE"
+                }}},
+                {"payload": {"otherEntity": {"key": "playing-song-rating"}}},
+                {"payload": {"likeStatusEntity": {
+                    "key": "playing-song-rating", "likeStatus": "LIKE"
+                }}},
+                {"payload": {"likeStatusEntity": {
+                    "key": "third-song-rating", "likeStatus": "INDIFFERENT"
+                }}}
+            ]),
+        );
+        assert_eq!(
+            watch_next(&response).like,
+            Some(("aaaaaaaaaaa".to_owned(), LikeStatus::Like))
+        );
+    }
+
+    #[test]
+    fn watch_like_requires_referenced_rating_and_video_id() {
+        let mut response = watch_rating_response(
+            json!({"likeButtonViewModel": {"likeButtonViewModel": {
+                "likeStatusEntityKey": "playing-song-rating"
+            }}}),
+            json!([{ "payload": {"likeStatusEntity": {
+                "key": "another-song-rating", "likeStatus": "LIKE"
+            }}}]),
+        );
+        assert_eq!(watch_next(&response).like, None);
+
+        let entity = &mut response["frameworkUpdates"]["entityBatchUpdate"]["mutations"][0]["payload"]
+            ["likeStatusEntity"];
+        entity["key"] = json!("playing-song-rating");
+        entity["likeStatus"] = json!("UNKNOWN");
+        assert_eq!(watch_next(&response).like, None);
+
+        response["frameworkUpdates"]["entityBatchUpdate"]["mutations"][0]["payload"]["likeStatusEntity"]
+            ["likeStatus"] = json!("LIKE");
+        let mut unreferenced = response.clone();
+        unreferenced["playerOverlays"] = Value::Null;
+        assert_eq!(watch_next(&unreferenced).like, None);
+
+        response["currentVideoEndpoint"] = Value::Null;
+        assert_eq!(watch_next(&response).like, None);
+        assert_eq!(watch_next(&json!({})).like, None);
+    }
+
+    #[test]
+    fn watch_like_legacy_fallback() {
+        for (name, status) in [
+            ("LIKE", LikeStatus::Like),
+            ("DISLIKE", LikeStatus::Dislike),
+            ("INDIFFERENT", LikeStatus::Indifferent),
+        ] {
+            let response = json!({"playerOverlays": {"playerOverlayRenderer": {
+                "actions": [{"likeButtonRenderer": {
+                    "target": {"videoId": "bbbbbbbbbbb"}, "likeStatus": name
+                }}]
+            }}});
+            assert_eq!(
+                watch_next(&response).like,
+                Some(("bbbbbbbbbbb".to_owned(), status))
+            );
+        }
+
+        let mut response = watch_rating_response(
+            json!({"likeButtonViewModel": {"likeButtonViewModel": {
+                "likeStatusEntityKey": "playing-song-rating"
+            }}}),
+            json!([{ "payload": {"likeStatusEntity": {
+                "key": "playing-song-rating", "likeStatus": "LIKE"
+            }}}]),
+        );
+        response["playerOverlays"]["playerOverlayRenderer"]["actions"] = json!([
+            {"likeButtonRenderer": {
+                "target": {"videoId": "bbbbbbbbbbb"}, "likeStatus": "DISLIKE"
+            }}
+        ]);
+        assert_eq!(
+            watch_next(&response).like,
+            Some(("aaaaaaaaaaa".to_owned(), LikeStatus::Like))
+        );
+        response["frameworkUpdates"] = Value::Null;
+        assert_eq!(
+            watch_next(&response).like,
+            Some(("bbbbbbbbbbb".to_owned(), LikeStatus::Dislike))
+        );
+    }
 }

@@ -509,18 +509,34 @@ test ran during these measurements. Other agents were using the machine.
 
 | Run | Pre-M21 CPU | Final CPU | Pre-M21 GPU | Final GPU |
 |---|---|---|---|---|
-| 1 | 8.4% | 7.7% | 30.6% | 28.2% |
-| 2 | 8.0% | 7.7% | 32.0% | 30.5% |
+| 1 | 8.5% | 8.3% | 29.2% | 30.8% |
+| 2 | 8.7% | 9.1% | 29.9% | 25.7% |
 
 CPU is percent of one core; GPU is render busy for the whole desktop.
 The app-closed GPU baseline was 8.9%. Final steady-state logs show about
 19 to 20 window frames and 10 backdrop frames per second. No frame rate,
-particle count or animation was reduced to get these numbers. Windows'
+particle count or animation was reduced to get these numbers. The final
+CPU is 0.2 point below and 0.4 point above the paired pre-M21 run. Windows'
 30 fps and macOS's display-paced defaults are unchanged.
 
-Local evidence in `artifacts/`: `perf/opt-measure.txt`,
+Local evidence in `artifacts/`: `perf/final-gamut-measure.txt`,
 `perf/closed-baseline.txt`, the `pre-1` and `branch-profile-1` perf traces,
-and `gpui/pre-opt-{1,2}` / `gpui/opt-{1,2}` captures and logs.
+and `gpui/pre-final-{1,2}` / `gpui/final-{1,2}` captures and logs. Before
+the maximum-glow correction below, the same CPU changes measured 7.7%
+twice against 8.4% and 8.0%; the final table includes the corrected shader.
+
+Maximum player-bar glow exposed a hard magenta contour. The strip's gamut
+correction reduced chroma in 30% steps, so neighbouring pixels could land
+on different steps. It now interpolates between the last out-of-gamut
+colour and the first in-gamut colour to reach the boundary continuously.
+A final linear-RGB luminance correction keeps the text budget after that
+mapping. Colours already in gamut skip the interpolation.
+
+The GPU regression renders maximum-strength red, blue and magenta glows
+in both looks and checks adjacent pixels across the glow's rise. The old
+shader failed with a 12-step channel jump; the corrected shader stays
+within five, including dither. The contrast test also covers zero,
+Default's 0.55, 1 and maximum 2 strength under red, blue, white and magenta.
 
 Captures (`artifacts/gpui/`, gitignored): `v-np-*` and `v-full-*` (each
 style in Now Playing and the full window), `v-stage-mirrored`,

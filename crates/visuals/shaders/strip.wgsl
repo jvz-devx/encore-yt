@@ -176,14 +176,33 @@ fn glow(p: vec2<f32>) -> vec3<f32> {
     // Near white there is little room for colour: give up chroma, not
     // lightness, until it fits sRGB.
     var rgb = oklab_to_linear(lab);
+    var outside = rgb;
     for (var i = 0; i < 6; i++) {
         if max(rgb.r, max(rgb.g, rgb.b)) <= 1.0 && min(rgb.r, min(rgb.g, rgb.b)) >= 0.0 {
+            if i > 0 {
+                // The two chroma steps bracket the gamut edge. Interpolate
+                // to that edge instead of exposing a 30% chroma jump as a
+                // contour when a neighbouring pixel needs one more step.
+                let delta = outside - rgb;
+                let room = select(rgb, vec3<f32>(1.0) - rgb, delta > vec3<f32>(0.0));
+                let reach = room / max(abs(delta), vec3<f32>(1e-6));
+                let blend = clamp(min(reach.r, min(reach.g, reach.b)), 0.0, 1.0);
+                rgb = mix(rgb, outside, blend);
+            }
             break;
         }
+        outside = rgb;
         lab = vec3<f32>(lab.x, lab.yz * 0.7);
         rgb = oklab_to_linear(lab);
     }
-    return rgb;
+    // Gamut reduction can move luminance even at fixed OKLab lightness.
+    // Enforce the text budget once more in linear RGB, continuously and
+    // without leaving the gamut we just found.
+    let y = dot(rgb, LUMA);
+    if light {
+        return mix(rgb, vec3<f32>(1.0), max(0.0, (y_base - y) / max(1.0 - y, 1e-6)));
+    }
+    return rgb * min(1.0, DARK_CAP / max(y, 1e-6));
 }
 
 fn round_rect(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, r: f32) -> f32 {

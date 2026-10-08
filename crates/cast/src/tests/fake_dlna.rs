@@ -27,6 +27,7 @@ struct State {
     controls: bool,
     paused: bool,
     position: Option<String>,
+    seek_ignored: bool,
 }
 
 const DESCRIPTION: &str = r#"<?xml version="1.0"?>
@@ -121,10 +122,13 @@ async fn handle(request: &http::Request, state: &Mutex<State>) -> (u16, String) 
             let mut s = state.lock().unwrap();
             s.fetched = body.len();
             s.playing = true;
+            s.paused = false;
             String::new()
         }
         ("/dev/avt", "Stop") => {
-            state.lock().unwrap().playing = false;
+            let mut s = state.lock().unwrap();
+            s.playing = false;
+            s.paused = false;
             String::new()
         }
         ("/dev/avt", "GetTransportInfo") => {
@@ -153,7 +157,7 @@ async fn handle(request: &http::Request, state: &Mutex<State>) -> (u16, String) 
             let mut s = state.lock().unwrap();
             if action == "Pause" {
                 s.paused = true;
-            } else {
+            } else if !s.seek_ignored {
                 s.position = Some(args.text_of("Target").into());
             }
             String::new()
@@ -218,12 +222,60 @@ async fn dlna_remote_session_loads_seeks_pauses_changes_volume_and_stops() {
     assert!(!session.poll().await.unwrap().playing);
     session.seek(35.0).await.unwrap();
     session.volume(22.0).await.unwrap();
+    session.pause(false).await.unwrap();
+    assert!(session.poll().await.unwrap().playing);
     session.stop().await.unwrap();
     let s = state.lock().unwrap();
     assert_eq!(s.fetched, file.bytes.len());
     assert_eq!(s.volume, "22");
     assert_eq!(s.position.as_deref(), Some("0:00:35"));
     assert_eq!(s.meta_title, "Local song");
+}
+
+#[tokio::test]
+async fn dlna_seek_requires_position_evidence_not_only_a_soap_acknowledgement() {
+    let state = Arc::new(Mutex::new(State {
+        controls: true,
+        seek_ignored: true,
+        ..State::default()
+    }));
+    let ssdp = fake_renderer(state).await;
+    let renderer = dlna::scan(ssdp, Duration::from_millis(100))
+        .await
+        .unwrap()
+        .remove(0);
+    let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
+        &crate::Device::Dlna(renderer),
+        crate::discovery::Policy { local_only: true },
+        false,
+    )
+    .await
+    .unwrap() else {
+        panic!("local renderer")
+    };
+    let file = TestFile::new(50_000);
+    session
+        .load(
+            Source::File(file.path.clone()),
+            &crate::castv2::Media {
+                content_type: "audio/mp4".into(),
+                ..Default::default()
+            },
+            0.0,
+            true,
+            40.0,
+        )
+        .await
+        .unwrap();
+    assert!(
+        session
+            .seek(35.0)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("didn't move")
+    );
+    session.stop().await.unwrap();
 }
 
 #[tokio::test]

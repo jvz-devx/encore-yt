@@ -49,6 +49,7 @@ pub async fn scan(target: SocketAddr, wait: Duration) -> Result<Vec<Renderer>> {
 
 pub(crate) fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
+        .pool_max_idle_per_host(0)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .user_agent("Linux/1 UPnP/1.1 encore-yt/0.1")

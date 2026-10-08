@@ -106,7 +106,11 @@ impl super::Worker {
         self.generation += 1;
         if self.casting() {
             self.cast.play_on_load = true;
-            self.cast_control(super::casting::Request::Pause(true));
+            // A finished remote transport is already stopped. DLNA may
+            // reject Pause there, which would turn natural EOF into a loss.
+            if self.state.playing {
+                self.cast_control(super::casting::Request::Pause(true));
+            }
         }
         self.pos = Some(pos);
         self.queue.reached(pos);
@@ -171,6 +175,9 @@ impl super::Worker {
     }
 
     pub(super) fn fetch_watch_info(&self, video_id: &str) {
+        if crate::resolver::fake_stream().is_some() {
+            return;
+        }
         let generation = self.generation;
         let client = self.client.clone();
         let tx = self.internal_tx.clone();
@@ -432,8 +439,17 @@ impl super::Worker {
                         };
                         // `Replace` empties the playlist, including any track queued behind.
                         self.appended = None;
-                        let (options, gain) =
+                        let (mut options, gain) =
                             self.file_options(&track.video_id, &stream, self.resume_at);
+                        if self.cast.resume_paused.is_some() {
+                            options.start = self.resume_at.map(Start::Seconds);
+                            if self.cast.resume_paused == Some(true) {
+                                // Pause before the mixer sees the replacement,
+                                // not after its first frame has started.
+                                self.paused = true;
+                                player.set_pause(true);
+                            }
+                        }
                         match player.load(&stream.url, LoadMode::Replace, &options).await {
                             Ok(entry) => {
                                 log::info!(

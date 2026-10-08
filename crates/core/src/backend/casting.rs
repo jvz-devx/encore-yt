@@ -446,7 +446,7 @@ mod tests {
 
     #[tokio::test]
     async fn finished_song_advances_the_remote_queue_once_and_repeat_one_reloads() {
-        let (mut w, _) = worker();
+        let (mut w, mut commands) = worker();
         let end = || Message::Status {
             generation: 0,
             status: Status {
@@ -458,6 +458,10 @@ mod tests {
         w.cast_message(4, end()).await;
         assert_eq!(w.pos, Some(1));
         assert_eq!(w.generation, 1);
+        assert!(
+            commands.try_recv().is_err(),
+            "EOF must not Pause an already stopped renderer"
+        );
         w.cast_message(4, end()).await;
         assert_eq!(w.pos, Some(1), "an old EOF cannot skip another song");
         let (mut w, _) = worker();

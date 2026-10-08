@@ -25,6 +25,7 @@ struct Seen {
     fetched: Vec<u8>,
     payloads: Vec<Value>,
     finished: bool,
+    finished_empty: bool,
     replaced: bool,
     busy: bool,
 }
@@ -118,6 +119,7 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
                 }
                 (NS_MEDIA, "SET_VOLUME" | "GET_STATUS") => {
                     let finished = seen.lock().unwrap().finished;
+                    let empty = seen.lock().unwrap().finished_empty && kind == "GET_STATUS";
                     let mut reply = media_status(
                         id,
                         if finished {
@@ -132,6 +134,21 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
                     if finished {
                         reply["status"][0]["idleReason"] = json!("FINISHED");
                     }
+                    if finished && empty {
+                        let event = CastMessage::new(
+                            "web-7",
+                            &msg.source,
+                            NS_MEDIA,
+                            media_status(json!(0), "IDLE", position).to_string(),
+                        );
+                        let mut payload: Value =
+                            serde_json::from_str(event.payload.as_deref().unwrap()).unwrap();
+                        payload["status"][0]["idleReason"] = json!("FINISHED");
+                        let event =
+                            CastMessage::new("web-7", &msg.source, NS_MEDIA, payload.to_string());
+                        tls.write_all(&event.frame().unwrap()).await.unwrap();
+                        reply["status"] = json!([]);
+                    }
                     Some(reply)
                 }
                 _ => None,
@@ -144,6 +161,42 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
         }
     });
     addr
+}
+
+#[tokio::test]
+async fn cast_finished_broadcast_survives_an_empty_polled_media_status() {
+    let seen = Arc::new(Mutex::new(Seen::default()));
+    let addr = fake_device(seen.clone()).await;
+    let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
+        &device(addr),
+        crate::discovery::Policy { local_only: true },
+        false,
+    )
+    .await
+    .unwrap() else {
+        panic!("idle fake")
+    };
+    let file = TestFile::new(80_000);
+    session
+        .load(
+            Source::File(file.path.clone()),
+            &Media {
+                content_type: "audio/webm".into(),
+                ..Default::default()
+            },
+            0.0,
+            true,
+            50.0,
+        )
+        .await
+        .unwrap();
+    {
+        let mut seen = seen.lock().unwrap();
+        seen.finished = true;
+        seen.finished_empty = true;
+    }
+    assert!(session.poll().await.unwrap().finished);
+    session.stop().await.unwrap();
 }
 
 fn device(addr: SocketAddr) -> crate::Device {

@@ -45,6 +45,10 @@ pub async fn call(
     };
     let response = http
         .post(control_url)
+        // libupnp renderers can close a pooled HTTP connection between
+        // requests without advertising it. A fresh connection avoids a
+        // non-idempotent POST retry or a false session loss.
+        .header("Connection", "close")
         .header("Content-Type", r#"text/xml; charset="utf-8""#)
         .header("SOAPACTION", format!("\"{service}#{action}\""))
         .body(envelope(service, action, args))

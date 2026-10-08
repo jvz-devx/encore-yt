@@ -130,6 +130,9 @@ impl Session {
                 self.update_cast(status)?;
             }
             Receiver::Dlna(r) => {
+                // Some renderers retain PAUSED_PLAYBACK across SetURI and
+                // refuse Play on the replacement. Reset the transport first.
+                r.stop().await?;
                 r.set_uri(&dlna::Track {
                     url: media.url,
                     mime: media.content_type,
@@ -145,7 +148,7 @@ impl Session {
                 }
                 r.play().await?;
                 if at > 0.0 {
-                    r.seek(Duration::from_secs_f64(at)).await?;
+                    seek_dlna(r, at).await?;
                 }
                 if !playing {
                     r.pause().await?;
@@ -186,18 +189,23 @@ impl Session {
     pub async fn poll(&mut self) -> Result<Status> {
         match &mut self.receiver {
             Receiver::Cast { client, app, media } => {
-                // Drain old broadcasts before asking for the authoritative current
-                // status, so a previous song's FINISHED cannot advance the new one.
-                while client.events.try_recv().is_ok() {}
+                let id = media.context("no song loaded")?;
+                // Some receivers clear their media status after broadcasting
+                // FINISHED. Retain only broadcasts for this loaded session.
+                let mut broadcast = drain_media(client, app, id);
                 let receiver = client.receiver_status().await?;
                 ensure!(
                     receiver.apps.iter().any(|a| a.session_id == app.session_id),
                     "another app replaced the casting session"
                 );
-                let id = media.context("no song loaded")?;
-                let status = client
-                    .media(app, "GET_STATUS", id)
-                    .await?
+                let status = client.media(app, "GET_STATUS", id).await?;
+                if let Some(next) = drain_media(client, app, id) {
+                    broadcast = Some(next);
+                }
+                let status = status
+                    .or_else(|| {
+                        broadcast.filter(|s| s.player_state == "IDLE" && s.idle_reason.is_some())
+                    })
                     .context("the device ended the media session")?;
                 ensure!(
                     status.media_session_id == id,
@@ -262,7 +270,7 @@ impl Session {
                     .seek(app, media.context("no song loaded")?, seconds)
                     .await?;
             }
-            Receiver::Dlna(r) => r.seek(Duration::from_secs_f64(seconds)).await?,
+            Receiver::Dlna(r) => seek_dlna(r, seconds).await?,
         }
         self.status.position = seconds;
         Ok(())
@@ -295,4 +303,37 @@ impl Session {
             Receiver::Dlna(r) => r.stop().await,
         }
     }
+}
+
+/// SOAP can acknowledge a seek before the decoder is ready, or without
+/// moving at all. Retry while it prerolls, and accept only device position
+/// evidence. UPnP REL_TIME has whole-second precision.
+async fn seek_dlna(renderer: &dlna::Renderer, seconds: f64) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    loop {
+        renderer.seek(Duration::from_secs_f64(seconds)).await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let (position, _) = renderer.position().await?;
+        if position.is_some_and(|p| (p - seconds).abs() <= 1.5) {
+            return Ok(());
+        }
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "the device accepted the seek but didn't move"
+        );
+    }
+}
+
+fn drain_media(client: &mut Client, app: &App, id: i64) -> Option<MediaStatus> {
+    let mut latest = None;
+    while let Ok(event) = client.events.try_recv() {
+        if event.namespace == castv2::messages::NS_MEDIA
+            && event.source == app.transport_id
+            && let Some(status) = MediaStatus::parse(&event.payload)
+            && status.media_session_id == id
+        {
+            latest = Some(status);
+        }
+    }
+    latest
 }

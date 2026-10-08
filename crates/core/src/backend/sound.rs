@@ -79,6 +79,9 @@ impl super::Worker {
 
     /// Fetches a song's player response unless it is known.
     pub(super) fn fetch_player(&self, video_id: &str) {
+        if crate::resolver::fake_stream().is_some() {
+            return;
+        }
         if self.players.contains_key(video_id) {
             return;
         }

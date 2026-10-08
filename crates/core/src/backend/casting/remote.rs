@@ -175,9 +175,7 @@ async fn run(
             send(Message::Ended {
                 generation,
                 status,
-                error: Some(
-                    "Lost the connection to the device. Playback is back on this computer.".into(),
-                ),
+                error: Some("Casting stopped. Try connecting again.".into()),
                 loaded,
             });
             return;

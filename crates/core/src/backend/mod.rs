@@ -248,7 +248,7 @@ struct Worker {
     /// A track failed while offline; it plays when the connection returns.
     waiting_for_network: bool,
     /// Account writes, made one at a time in the order asked (`account.rs`).
-    account_writes: Option<mpsc::UnboundedSender<account::Write>>,
+    account_writes: Option<mpsc::Sender<account::Write>>,
     state: Playback,
     last_emit: Instant,
     /// The player's pause and idle states: playing means neither.

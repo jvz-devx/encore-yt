@@ -14,6 +14,7 @@ use crate::innertube::Edited;
 /// YouTube Music lists most changes within ~1.5 s, subscriptions within ~3 s
 /// (docs/integration.md § Verified facts).
 const SETTLE: Duration = Duration::from_secs(3);
+const MAX_WRITES: usize = 128;
 
 /// One account write: its operation number, the edit, and the pages to
 /// fetch again once it shows.
@@ -26,7 +27,7 @@ pub(super) struct Write {
 impl super::Worker {
     pub(super) fn account_edit(&mut self, op: u64, edit: Edit, refresh: Vec<Target>) {
         let writes = self.account_writes.get_or_insert_with(|| {
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::channel(MAX_WRITES);
             tokio::spawn(writer(
                 self.client.clone(),
                 self.sink.clone(),
@@ -35,7 +36,12 @@ impl super::Worker {
             ));
             tx
         });
-        let _ = writes.send(Write { op, edit, refresh });
+        if let Err(failure) = enqueue(writes, Write { op, edit, refresh }) {
+            self.sink.send(Event::AccountEdited {
+                op,
+                result: Err(failure),
+            });
+        }
     }
 
     /// The account's rating of a song, fetched fresh.
@@ -57,7 +63,7 @@ async fn writer(
     client: Arc<Client>,
     sink: Sink,
     internal: mpsc::UnboundedSender<Internal>,
-    mut writes: mpsc::UnboundedReceiver<Write>,
+    mut writes: mpsc::Receiver<Write>,
 ) {
     while let Some(Write { op, edit, refresh }) = writes.recv().await {
         let started = Instant::now();
@@ -95,6 +101,19 @@ async fn writer(
             });
         }
     }
+}
+
+fn enqueue(writes: &mpsc::Sender<Write>, write: Write) -> Result<(), Failure> {
+    writes.try_send(write).map_err(|error| {
+        Failure::Refused(match error {
+            mpsc::error::TrySendError::Full(_) => {
+                "Too many account changes are waiting. Try again shortly.".into()
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                "The account writer stopped. Reconnect and try again.".into()
+            }
+        })
+    })
 }
 
 enum Answer {
@@ -201,4 +220,28 @@ async fn run(client: &Client, edit: Edit) -> Result<Done, Answer> {
         Edit::Delete { playlist_id } => client.delete_playlist(&playlist_id).await?,
     }
     Ok(Done::Ok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(op: u64) -> Write {
+        Write {
+            op,
+            edit: Edit::Delete {
+                playlist_id: "synthetic".into(),
+            },
+            refresh: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn full_and_closed_queues_reject_the_edit_for_rollback() {
+        let (tx, rx) = mpsc::channel(1);
+        assert!(enqueue(&tx, write(1)).is_ok());
+        assert!(matches!(enqueue(&tx, write(2)), Err(Failure::Refused(_))));
+        drop(rx);
+        assert!(matches!(enqueue(&tx, write(3)), Err(Failure::Refused(_))));
+    }
 }

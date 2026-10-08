@@ -35,6 +35,7 @@ pub fn sheet(
         Route::Browser => browser(&sign_in.step, &c, cx),
         Route::File => file(app, &c, cx),
         Route::Paste => paste(app, &c, cx),
+        Route::Window => window(&sign_in.step, &c, cx),
     };
     let panel = widgets::floating(&c)
         .id("sign-in-sheet")
@@ -68,6 +69,7 @@ fn header(route: Route, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElem
         Route::Browser => "Sign in with your browser",
         Route::File => "Import a cookies file",
         Route::Paste => "Paste cookies",
+        Route::Window => "Sign in in a window",
     };
     h_flex()
         .gap(space::SM)
@@ -141,7 +143,18 @@ fn choose(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
                     false,
                     c,
                     cx,
-                )),
+                ))
+                .when(crate::sign_in_window::enabled(), |list| {
+                    list.child(route_row(
+                        Route::Window,
+                        IconName::Globe,
+                        "Sign in in a window (test)",
+                        "Opens a small sign-in window inside Encore. Needs the encore-yt-signin helper.",
+                        false,
+                        c,
+                        cx,
+                    ))
+                }),
         )
         .child(
             h_flex()
@@ -244,6 +257,27 @@ fn browser(step: &Step, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
             .child(try_again(c, cx)),
         Step::Failed(reason) => col.child(alert(reason, c)).child(try_again(c, cx)),
         Step::Connecting { .. } | Step::Saving | Step::Idle => col
+            .children(progress(step, c))
+            .child(h_flex().justify_end().child(cancel(c, cx))),
+    }
+    .into_any_element()
+}
+
+/// The sign-in window route: waits for its helper, shows why it ended.
+fn window(step: &Step, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
+    let col = v_flex().gap(space::LG);
+    match step {
+        Step::Waiting { .. } => col
+            .child(working("Waiting for you to sign in", c))
+            .child(paragraph(
+                "Sign in to Google in the window that opened. It closes by itself once you're in.",
+                c,
+            ))
+            .child(h_flex().justify_end().child(cancel(c, cx))),
+        Step::Failed(reason) => col
+            .child(alert(reason, c))
+            .child(h_flex().justify_end().child(cancel(c, cx))),
+        _ => col
             .children(progress(step, c))
             .child(h_flex().justify_end().child(cancel(c, cx))),
     }

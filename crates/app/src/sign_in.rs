@@ -30,6 +30,8 @@ pub enum Route {
     Browser,
     File,
     Paste,
+    /// The sign-in window (M31 spike, `ENCORE_SIGNIN_WINDOW=1`).
+    Window,
 }
 
 pub enum Step {
@@ -62,6 +64,10 @@ pub struct SignIn {
     pub paste: Option<Entity<InputState>>,
     pub path: Option<Entity<InputState>>,
     poll: Option<Task<()>>,
+    /// The sign-in window's process, killed when this is dropped.
+    pub(crate) window: Option<crate::sign_in_window::Helper>,
+    /// The cookie file the window wrote, removed once the backend saved it.
+    pub(crate) window_file: Option<PathBuf>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -74,6 +80,8 @@ impl SignIn {
             paste: None,
             path: None,
             poll: None,
+            window: None,
+            window_file: None,
             _subscriptions: Vec::new(),
         }
     }
@@ -82,6 +90,10 @@ impl SignIn {
     /// no browser profile or cookie file holds a sign-in to reconnect with.
     pub fn needed(account: &Account, profiles: &[Profile]) -> bool {
         matches!(account, Account::SignedOut { .. }) && profiles.is_empty()
+    }
+
+    pub(crate) fn set_poll(&mut self, task: Task<()>) {
+        self.poll = Some(task);
     }
 
     pub fn busy(&self) -> bool {
@@ -134,6 +146,7 @@ impl MusicApp {
     /// Back to the three routes, stopping whatever the open one was doing.
     pub fn sign_in_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sign_in.poll = None;
+        self.sign_in.window = None;
         self.sign_in.route = Route::Choose;
         self.sign_in.step = Step::Idle;
         self.account.focus.focus(window, cx);
@@ -146,6 +159,7 @@ impl MusicApp {
         match route {
             Route::Browser => self.sign_in_with_browser(cx),
             Route::Paste => focus(self.sign_in.paste.as_ref(), window, cx),
+            Route::Window => self.sign_in_with_window(cx),
             Route::File | Route::Choose => self.account.focus.focus(window, cx),
         }
         cx.notify();
@@ -248,7 +262,7 @@ impl MusicApp {
         self.import_cookies(path, cx);
     }
 
-    fn import_cookies(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    pub(crate) fn import_cookies(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.sign_in.step = Step::Saving;
         self.send(Command::ImportCookies(path));
         cx.notify();
@@ -271,6 +285,9 @@ impl MusicApp {
         saved: Result<Profile, String>,
         _cx: &mut Context<Self>,
     ) {
+        if let Some(file) = self.sign_in.window_file.take() {
+            let _ = std::fs::remove_file(file);
+        }
         if !matches!(self.sign_in.step, Step::Saving) {
             return;
         }

@@ -43,6 +43,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\encore-yt.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\encore-yt.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\THIRD-PARTY.txt"; DestDir: "{app}"; Flags: ignoreversion
+; The M31 sign-in window helper, when the build made it.
+Source: "{#SourceDir}\encore-yt-signin.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [InstallDelete]
 ; ytfast-gpui, as the app was called before the rename: its folder and shortcuts.

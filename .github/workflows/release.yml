@@ -81,6 +81,14 @@ jobs:
           ENCORE_VERSION: ${{ env.VERSION }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p encore-yt
 
+      # The sign-in window helper (M31, a test the app offers only with
+      # ENCORE_SIGNIN_WINDOW=1). Windows and macOS only: on Linux it would make
+      # WebKitGTK a package dependency. A failure here doesn't stop the release.
+      - name: Build the sign-in helper (Windows, macOS)
+        if: runner.os != 'Linux'
+        continue-on-error: true
+        run: cargo build --release --locked --target ${{ matrix.target }} -p encore-signin
+
       # Linux: AppImage, .deb and .rpm. The app plays and resolves streams
       # itself (Rust audio engine and resolver), so nothing else is bundled.
       - name: Stage the binary (Linux)
@@ -138,6 +146,8 @@ jobs:
           src=dist/windows
           mkdir -p $src
           cp target/${{ matrix.target }}/release/encore-yt.exe $src/
+          helper=target/${{ matrix.target }}/release/encore-yt-signin.exe
+          if [ -f "$helper" ]; then cp "$helper" $src/; fi
           cp packaging/icons/encore-yt.ico packaging/THIRD-PARTY.txt $src/
           ls -la $src
           # -mx=9: deflate with more passes; still a plain zip (docs/gpui/SIZE.md).
@@ -163,6 +173,8 @@ jobs:
           app="dmg/Encore.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp target/${{ matrix.target }}/release/encore-yt "$app/Contents/MacOS/"
+          helper=target/${{ matrix.target }}/release/encore-yt-signin
+          if [ -f "$helper" ]; then cp "$helper" "$app/Contents/MacOS/"; fi
           # The macOS the executable was built for (Rust's default target).
           minos=$(otool -l "$app/Contents/MacOS/encore-yt" | awk '/LC_BUILD_VERSION/{b=1} b && $1=="minos"{print $2; exit}')
           minos=${minos:-11.0}

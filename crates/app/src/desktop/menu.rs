@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use encore_core::account::AccountAction;
 use encore_core::backend::Command;
-use encore_core::model::{Header, Item, ItemKind, LikeStatus, Run, Target, Track};
+use encore_core::model::{Item, ItemKind, LikeStatus, Run, Target, Track};
 use gpui_kit::assets::IconName;
 use gpui_kit::*;
 
@@ -85,22 +85,6 @@ impl Subject {
             }),
             ItemKind::Artist => Some(Subject::Artist { page: browse? }),
             _ => None,
-        }
-    }
-
-    /// The menu for a page's header: the album, playlist or artist itself.
-    #[allow(dead_code, reason = "for a header ⋮ once M1/M3 place one")]
-    pub fn of_header(header: &Header, page: &Target) -> Self {
-        let artist = header.subscription.is_some()
-            || matches!(page, Target::Browse { id, .. } if id.starts_with("UC"));
-        if artist {
-            Subject::Artist { page: page.clone() }
-        } else {
-            Subject::Collection {
-                page: Some(page.clone()),
-                play: header.play.clone(),
-                artists: artist_runs(&header.subtitle),
-            }
         }
     }
 

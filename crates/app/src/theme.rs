@@ -369,8 +369,14 @@ impl<T: Styled + Sized> Type for T {}
 /// and keeps following the desktop while the app runs.
 pub fn init(asking: Asking, cx: &mut App) {
     let portal = match asking.0 {
-        Some(thread) => thread.join().ok().flatten(),
-        None => portal::Portal::connect(),
+        Some(thread) => match thread.join() {
+            Ok(portal) => portal,
+            Err(_) => {
+                log::warn!("desktop appearance worker panicked; using the default theme");
+                None
+            }
+        },
+        None => None,
     };
     setup(portal, cx);
 }
@@ -383,7 +389,13 @@ pub struct Asking(Option<std::thread::JoinHandle<Option<portal::Portal>>>);
 /// Starts reading the desktop's look; [`init`] takes the answer.
 pub fn ask_desktop() -> Asking {
     let thread = std::thread::Builder::new().name("encore-portal".into());
-    Asking(thread.spawn(portal::Portal::connect).ok())
+    Asking(match thread.spawn(portal::Portal::connect) {
+        Ok(thread) => Some(thread),
+        Err(error) => {
+            log::warn!("couldn't start desktop appearance worker: {error}");
+            None
+        }
+    })
 }
 
 /// The look without the desktop's portal (D-Bus), for the UI tests.

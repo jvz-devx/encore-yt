@@ -227,7 +227,7 @@ fn launch(exe: &Path, receipt: &Path) -> Result<()> {
             bail!("The new version quit before its window opened ({status})");
         }
         if start.elapsed() > APP_START {
-            let _ = child.kill();
+            super::handoff::stop_child(&mut child);
             bail!("The new version didn't open its window within a minute");
         }
         std::thread::sleep(POLL);

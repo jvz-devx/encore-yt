@@ -428,8 +428,9 @@ by default), a halo quad only for the near and large ones, a twinkle over
 seconds, brighter near the wave, and lifted at most half the reaction by
 the music's smoothed level. First tried as a full-size frame of the
 visualiser shader: 7% CPU and 12% GPU at 30 fps here, mostly the read-back
-and upload, so they became quads (about 300 at amount 1; each costs GPUI
-about 2 µs of CPU a frame, which is why there aren't more).
+and upload, so they became quads, about 300 at amount 1. Initially each
+quad cost GPUI about 2 µs of CPU a frame. They now share one paint layer;
+see the CPU follow-up below.
 
 **Visualiser.** `encore_visuals::Visualizer` (`visualizer.wgsl`, compiled
 with the other pipelines, so warm-up and the pipeline cache cover it) draws
@@ -476,6 +477,50 @@ closed 8.9%):
 
 \* Before the backdrop went to every other frame. The default costs the
 GPU what main did; the sparkles add about 1.3 points of one core.
+
+### Now Playing CPU follow-up (2026-10-08)
+
+The sparkles share one GPUI paint layer and mix their four tints once per
+frame. Their hashes, positions, radii, twinkle, depth, clocks and frame
+rates are unchanged. Halos wider than five device pixels use a blurred
+disc rather than a flat one; the default preset never reaches that size.
+
+`perf record -e cpu-clock:u -F 999 -g --call-graph dwarf,8192` over ten
+seconds of Now Playing still put 14% of the branch's samples in GPUI's
+bounds-tree insertion after the sparkle batching, against 18% before M21.
+The waveform and spectrum were still inserting each bar separately. They
+now each share one paint layer, preserving the bars and their order.
+Batching alone left a 0.5 to 0.6 point CPU gap in two alternating pairs.
+
+There was also a build-profile difference: pre-M21 compiled GPUI at
+opt-level 3, while the later download-size profile compiled its CPU paint
+path at `s`. `gpui-pre` now joins `gpui-pre-wgpu` in the speed-critical
+crate overrides. The rest of the size profile stays unchanged. In the
+profiling binary this adds 0.77 MB of text against the batched `s` build;
+release installer size was not measured here.
+
+Final measurements used `scripts/gpui-measure.sh`, profiling builds, a
+1280x1000 window, dark look, Default at Linux's 20 fps, and Now Playing
+with Up next. Each run used fresh signed-out config/cache/runtime folders
+and the same local test audio through `ENCORE_FAKE_STREAM`, shown as
+"Lose Yourself to Dance". The pre-M21 build is 142d187. Runs alternated
+pre-M21, final, pre-M21, final under the desktop lock; no local build or
+test ran during these measurements. Other agents were using the machine.
+
+| Run | Pre-M21 CPU | Final CPU | Pre-M21 GPU | Final GPU |
+|---|---|---|---|---|
+| 1 | 8.4% | 7.7% | 30.6% | 28.2% |
+| 2 | 8.0% | 7.7% | 32.0% | 30.5% |
+
+CPU is percent of one core; GPU is render busy for the whole desktop.
+The app-closed GPU baseline was 8.9%. Final steady-state logs show about
+19 to 20 window frames and 10 backdrop frames per second. No frame rate,
+particle count or animation was reduced to get these numbers. Windows'
+30 fps and macOS's display-paced defaults are unchanged.
+
+Local evidence in `artifacts/`: `perf/opt-measure.txt`,
+`perf/closed-baseline.txt`, the `pre-1` and `branch-profile-1` perf traces,
+and `gpui/pre-opt-{1,2}` / `gpui/opt-{1,2}` captures and logs.
 
 Captures (`artifacts/gpui/`, gitignored): `v-np-*` and `v-full-*` (each
 style in Now Playing and the full window), `v-stage-mirrored`,

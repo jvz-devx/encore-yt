@@ -23,7 +23,10 @@ crates/app/Cargo.toml): symphonia and its codec and format crates, the libopus
 adapter and opusic-sys (libopus is C; cc takes cargo's opt-level), rubato,
 realfft, rustfft, audioadapter*, cpal, encore-audio, encore-visuals, wgpu,
 wgpu-core, wgpu-hal, wgpu-types, naga and gpui-pre-wgpu (GPUI's renderer,
-which draws the effects' frames). Generic code is instantiated in the crate
+which draws the effects' frames). The 2026-10-08 Now Playing CPU follow-up
+also keeps gpui-pre's scene ordering and cached-view replay at 3; see
+VISUALS.md for the alternating profiling measurements. The release sizes
+above predate that addition. Generic code is instantiated in the crate
 that uses it, so these crates' uses of core, alloc and hashbrown stay at 3
 too. Panics still unwind. opt-level "z" wasn't tried: "s" already met the
 CPU bar, and each variant is a full rebuild.

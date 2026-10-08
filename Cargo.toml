@@ -87,6 +87,10 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.gpui-pre-wgpu]
 opt-level = 3
+# Scene ordering and cached-view replay run on every animated frame, too.
+# Keep GPUI's CPU paint path at the same level as its GPU renderer.
+[profile.release.package.gpui-pre]
+opt-level = 3
 
 # Release speed without release build times, for CPU/GPU measurements and
 # visual checks of the effects: `cargo build --profile profiling`. It keeps

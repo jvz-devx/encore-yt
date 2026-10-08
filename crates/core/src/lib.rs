@@ -24,6 +24,7 @@ pub fn app_id() -> &'static str {
 pub mod account;
 pub mod auth;
 pub mod backend;
+pub mod browsers;
 pub mod desktop;
 pub mod discord;
 pub mod equalizer;

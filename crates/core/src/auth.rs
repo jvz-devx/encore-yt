@@ -210,6 +210,33 @@ pub fn supported_browsers() -> Vec<&'static str> {
     names
 }
 
+/// The supported browsers that have a profile directory on this system,
+/// for the sign-in sheet's browser route (see `browsers`).
+pub(crate) fn installed_browsers() -> Vec<&'static str> {
+    let Some(base) = directories::BaseDirs::new() else {
+        return Vec::new();
+    };
+    let config = browser_config_dir(&base);
+    let mut names: Vec<&'static str> = BROWSERS
+        .iter()
+        .filter(|b| config.join(b.dir).is_dir())
+        .map(|b| b.name)
+        .chain(
+            GECKOS
+                .iter()
+                .filter(|g| gecko_base(&base).join(g.dir).is_dir())
+                .map(|g| g.name.trim_end_matches(" Flatpak")),
+        )
+        .collect();
+    let mut seen = Vec::new();
+    names.retain(|n| {
+        let new = !seen.contains(n);
+        seen.push(*n);
+        new
+    });
+    names
+}
+
 #[derive(Clone)]
 pub struct Cookie {
     pub host: String,

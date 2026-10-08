@@ -117,7 +117,7 @@ NEXT=(689 943)             # player bar
 SEEK_MID=(640 976)         # the seek bar's middle
 PLAYER_SONG=(150 955)      # player bar song: opens and closes Now Playing
 LYRICS_TAB=(1029 117)      # Now Playing's Lyrics tab
-UP_NEXT=(1097 946)         # player bar: Up next
+UP_NEXT=(1057 944)         # player bar: Up next (the queue button, left of the volume)
 
 echo "== smoke: release build, signed out, fresh state in $state"
 "$input" setup

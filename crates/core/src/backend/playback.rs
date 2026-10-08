@@ -616,7 +616,7 @@ impl super::Worker {
         self.stop_tail().await;
         if !self.retried {
             self.retried = true;
-            self.resolver.forget(&track.video_id);
+            self.resolver.forget(&track.video_id).await;
             self.resolve_current(&track.video_id);
             return;
         }

@@ -54,6 +54,7 @@ const SPECULATIVE_SLOTS: usize = 2;
 const BACKLOG: usize = 8;
 /// A cached URL is used until this many seconds before it expires.
 const MARGIN: u64 = 600;
+const MAX_CACHED: usize = 512;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Cached {
@@ -77,6 +78,20 @@ impl Cached {
 }
 
 type Outcome = Option<Result<Stream, String>>;
+
+fn prune_cache(cache: &mut HashMap<String, Cached>, deadline: u64) {
+    cache.retain(|_, entry| entry.expires > deadline);
+    while cache.len() > MAX_CACHED {
+        let Some(key) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.expires)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        cache.remove(&key);
+    }
+}
 
 /// One resolve, shared by everyone who wants its song.
 struct Flight {
@@ -212,10 +227,11 @@ impl Resolver {
         let deadline = now() + MARGIN;
         let saved: HashMap<String, Cached> =
             crate::paths::read_json(&scratch.join("streams.json")).unwrap_or_default();
-        let cache: HashMap<String, Cached> = saved
+        let mut cache: HashMap<String, Cached> = saved
             .into_iter()
             .filter(|(_, c)| c.expires > deadline)
             .collect();
+        prune_cache(&mut cache, deadline);
         if !cache.is_empty() {
             log::info!("{} saved streams still valid", cache.len());
         }
@@ -265,7 +281,7 @@ impl Resolver {
 
     /// Drops `video_id`'s stream after it failed to play; the next resolve
     /// goes without the account.
-    pub fn forget(&self, video_id: &str) {
+    pub async fn forget(self: &Arc<Self>, video_id: &str) {
         {
             let mut failed = self.failed.lock().recover();
             if failed.len() > 256 {
@@ -277,7 +293,7 @@ impl Resolver {
         if let (Some(gone), Some(native)) = (gone, self.native.get()) {
             native.stream_failed(&gone.url);
         }
-        self.save();
+        self.save().await;
     }
 
     /// The best stream the account can get, for playback.
@@ -440,7 +456,7 @@ impl Resolver {
             }
             let outcome = match result {
                 Ok((stream, signed_in)) => {
-                    this.store(&id, &stream, signed_in);
+                    this.store(&id, &stream, signed_in).await;
                     Ok(stream)
                 }
                 Err(error) => Err(format!("{error:#}")),
@@ -455,23 +471,34 @@ impl Resolver {
         flight
     }
 
-    fn store(&self, video_id: &str, stream: &Stream, signed_in: bool) {
-        self.cache.lock().recover().insert(
-            video_id.to_owned(),
-            Cached {
-                itag: stream.itag,
-                url: stream.url.clone(),
-                user_agent: stream.user_agent.clone(),
-                expires: stream.expires,
-                signed_in,
-            },
-        );
-        self.save();
+    async fn store(self: &Arc<Self>, video_id: &str, stream: &Stream, signed_in: bool) {
+        {
+            let mut cache = self.cache.lock().recover();
+            cache.insert(
+                video_id.to_owned(),
+                Cached {
+                    itag: stream.itag,
+                    url: stream.url.clone(),
+                    user_agent: stream.user_agent.clone(),
+                    expires: stream.expires,
+                    signed_in,
+                },
+            );
+            prune_cache(&mut cache, now() + MARGIN);
+        }
+        self.save().await;
     }
 
     /// Writes the valid streams to the runtime directory, readable only by
     /// the user (the URLs are tied to the account).
-    fn save(&self) {
+    async fn save(self: &Arc<Self>) {
+        let this = self.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || this.save_blocking()).await {
+            log::warn!("stream cache writer stopped: {error}");
+        }
+    }
+
+    fn save_blocking(&self) {
         let _turn = self.saving.lock().recover();
         let bytes = {
             let cache = self.cache.lock().recover();
@@ -480,7 +507,10 @@ impl Resolver {
                 cache.iter().filter(|(_, c)| c.expires > deadline).collect();
             match serde_json::to_vec(&valid) {
                 Ok(bytes) => bytes,
-                Err(_) => return,
+                Err(error) => {
+                    log::warn!("couldn't serialize resolved streams: {error}");
+                    return;
+                }
             }
         };
         let path = self.scratch.join("streams.json");
@@ -510,5 +540,33 @@ impl Resolver {
         // use it) is asked again next time.
         let account = signed_in && (failed || client != crate::streams::VISIONOS.name);
         Ok((stream, account))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_pruning_drops_expired_and_soonest_expiring_entries() {
+        let mut cache: HashMap<_, _> = (0..MAX_CACHED + 10)
+            .map(|n| {
+                (
+                    n.to_string(),
+                    Cached {
+                        itag: 251,
+                        url: "https://example.invalid/audio".into(),
+                        user_agent: None,
+                        expires: n as u64,
+                        signed_in: false,
+                    },
+                )
+            })
+            .collect();
+        prune_cache(&mut cache, 4);
+        assert_eq!(cache.len(), MAX_CACHED);
+        assert!(!cache.contains_key("9"));
+        assert!(cache.contains_key("10"));
+        assert!(cache.values().all(|entry| entry.expires > 4));
     }
 }

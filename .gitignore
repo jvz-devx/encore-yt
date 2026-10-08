@@ -3,3 +3,5 @@
 # Never commit account material.
 *cookies*.txt
 /notes
+# Local symbol index, never source.
+/.codegraph/

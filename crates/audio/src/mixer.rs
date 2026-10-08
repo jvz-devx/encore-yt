@@ -394,6 +394,7 @@ mod tests {
 
     #[test]
     fn large_callbacks_reuse_scratch_and_keep_frame_positions() {
+        let _tap = crate::tap::test_lock();
         let (mut commands, rx) = RingBuffer::new(8);
         let (events, mut received) = RingBuffer::new(8);
         let mut mixer = Mixer::new(48_000, rx, events);
@@ -424,6 +425,7 @@ mod tests {
 
     #[test]
     fn full_event_ring_retries_transitions_without_consuming_samples() {
+        let _tap = crate::tap::test_lock();
         let (mut commands, rx) = RingBuffer::new(8);
         let (mut events, mut received) = RingBuffer::new(1);
         events
@@ -456,6 +458,7 @@ mod tests {
 
     #[test]
     fn malformed_channel_layout_is_silent() {
+        let _tap = crate::tap::test_lock();
         let (_commands, rx) = RingBuffer::new(8);
         let (events, _received) = RingBuffer::new(8);
         let mut mixer = Mixer::new(48_000, rx, events);

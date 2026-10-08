@@ -125,6 +125,7 @@ echo "== smoke: release build, signed out, fresh state in $state"
 # socket), with Wayland, PipeWire, PulseAudio and D-Bus named by full path.
 XDG_CONFIG_HOME="$state/config" XDG_CACHE_HOME="$state/cache" \
     XDG_RUNTIME_DIR="$state/run" \
+    RUST_LOG="encore_core=info,encore_yt=info,encore_audio=info,warn" \
     WAYLAND_DISPLAY="$wayland" \
     PIPEWIRE_RUNTIME_DIR="$desktop_run" PULSE_SERVER="unix:$desktop_run/pulse/native" \
     DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$desktop_run/bus}" \
@@ -179,10 +180,10 @@ wait_log 'now playing .*\(queue 3\)' 15 && pass "Next: song 3" || fail "Next did
 pause 3
 click "${SEEK_MID[@]}"
 if wait_log 'seek to [0-9.]+s' 5; then
-    to="$(grep -oE 'seek to [0-9.]+' "$log" | tail -1 | grep -oE '[0-9.]+$')"
+    to="$(grep -oE 'seek to [0-9.]+' "$log" | tail -1 | grep -oE '[0-9.]+$' || true)"
     pause 1.5
     # The engine's decoder logs where the seek landed.
-    at="$(grep -oE 'seek to [0-9.]+s landed at [0-9.]+s' "$log" | tail -1 | grep -oE '[0-9.]+s$' | tr -d s)"
+    at="$(grep -oE 'seek to [0-9.]+s landed at [0-9.]+s' "$log" | tail -1 | grep -oE '[0-9.]+s$' | tr -d s || true)"
     at="${at:-0}"
     if awk -v a="$at" -v t="$to" 'BEGIN { exit !(a >= t - 1 && a <= t + 5) }'; then
         pass "seek to ${to}s, the decoder at ${at}s"

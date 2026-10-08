@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
     fastframe_log::Logging::new("encore-yt", update::VERSION)
-        .filter("encore_core=info,encore_yt=info,warn")
+        .filter("encore_core=info,encore_yt=info,encore_audio=info,warn")
         .file(paths.cache.join("encore-yt.log"))
         .panic_log(paths.cache.join("panics.log"))
         .init()

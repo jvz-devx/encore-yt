@@ -1,175 +1,307 @@
 # Rust code-quality review
 
-Audit started 2026-10-08 at `98bd893` on `quality`. Scope includes all six
-workspace crates, examples and tests. `crates/visuals` and
-`crates/app/src/visuals` are review-only while another task owns them.
+Reviewed from `98bd893` on the `quality` branch, 2026-10-08. Scope is all
+six workspace crates, including examples and tests. Findings are ordered
+by risk within each crate. Each item records its fix or an explicit
+retention decision. Visuals implementation findings are deferred under
+the orchestrator's ownership instruction.
 
-The initial command is `cargo clippy --workspace --all-targets -- -W
-clippy::pedantic -W clippy::nursery`. Text searches cover panic sites,
-discarded errors, casts, unsafe blocks, lint allowances, channels and large
-modules. CodeGraph supplies symbol and caller context. Findings below are
-ordered by risk within each crate. Open entries are work in progress, not
-accepted debt. Fixed entries will carry the implementing commit.
+The baseline command was:
+
+```sh
+cargo clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery
+```
+
+CodeGraph caller analysis, pattern searches, module reads and focused
+regressions supplement the compiler audit. Raw diagnostics remain in
+ignored `artifacts/quality-clippy.txt`, not in Git.
 
 ## Core
 
-- C1, high, fixed in `58e20a4`: HTTP client construction now returns a
-  startup error. Resolver, solver and stream caches recover container guards
-  after a worker panic and report it instead of panicking during cleanup.
-- C2, medium, fixed in `f0b9d55`: the discarded player-setter results
-  were always `Ok(())`. Setters now return unit synchronously; only actual
-  fallible loading keeps a result. Dead equalizer error branches are gone.
-- C3, medium, open: inspect cache limits and blocking persistence in
-  `resolver.rs`, `jsc.rs`, `streams.rs` and backend tasks.
-- C4, medium, open: `auth.rs`, `account.rs`, `parse.rs`, `streams.rs` and
-  `backend/mod.rs` exceed 800 lines and mix responsibilities. Split by
-  responsibility without changing their public interfaces.
-- C5, medium, open: audit external numeric conversions, secret-file I/O,
-  process cleanup and error context across platform paths and examples.
-- C6, high, fixed in `58e20a4`: the Discord socket test mutated process
-  environment while parallel tests were running. It now runs in a child
-  with the synthetic socket directory set before process startup.
-- C7, high, fixed in `70a9f20`: cookie and stream-cache writers shared
-  predictable temporary paths and could reuse permissive files. Atomic
-  writes now reserve unique private files exclusively. Concurrent writes
-  leave a whole final file with mode 0600 and no temporary files.
+- C1, high, fixed in `58e20a4`: HTTP client construction could panic.
+  `Client::new` now returns an error, and every repository caller handles
+  it. Cache and snapshot lock poisoning is reported and recovered rather
+  than causing another panic during cleanup. Receiver and downloaded-file
+  extraction no longer relies on unchecked expects.
+- C6, high, fixed in `58e20a4`: the Discord test changed process
+  environment while other test threads were running. Its socket test now
+  runs in a child process with the environment set before startup.
+- C7, high, fixed in `70a9f20`: cookie and stream-cache writes could share
+  temporary paths or reuse permissive files. The atomic writer reserves
+  unique private files exclusively. Concurrent writes leave a complete
+  final file with Unix mode 0600.
+- C8, high, fixed in `1b61f32`: cookie imports accepted lookalike domain
+  suffixes and invalid expiry fields. Schema-24 decryption accepted a
+  missing or wrong host digest. Synthetic regressions cover rejection.
+- C9, high, fixed in `08d62ed`: browser snapshots inherited source file
+  permissions, ignored WAL failures and relied on success-path cleanup.
+  Snapshots now use exclusive mode-0600 creation, retain ownership records
+  for cleanup on every exit, and never remove a path they failed to create.
+  Keyring lookup/close failures are no longer hidden as missing entries.
+- C10, high, fixed in `8537f04`: the JS solver had an unbounded job queue
+  and no execution deadline. It now queues at most eight jobs, skips
+  cancelled queued work and interrupts each solve after 30 seconds.
+  Signature probes are checked before conversion; failure bookkeeping is
+  bounded. A synthetic infinite loop proves interruption and reuse.
+- C11, high, fixed in `ee2e57d`: account writes accumulated without a cap,
+  and a closed writer could leave optimistic changes pending forever.
+  The queue holds 128 writes; rejected operations receive a stamped
+  refusal so the frontend can roll back.
+- C5, medium, fixed in `5e6eccb`: colour/session-index casts could wrap,
+  and extreme playback positions could overflow Discord timestamps.
+  Checked conversions and saturating timestamp arithmetic have boundary
+  regressions. Other media-time float casts are retained where Rust's
+  saturation is intended; format itags are selected from the fixed
+  supported-itag list before their conversion.
+- C3, medium, fixed in `784ecaf`, `6a94318`, `f4021e7` and `8841516`:
+  resolver caches could accumulate entries, and filesystem work ran on
+  async workers. Resolved streams are capped at 512 unexpired entries;
+  refresh bookkeeping at 64 player versions. Player/solver/page-cache I/O
+  uses async operations or the blocking pool. Settings and cookie imports
+  use the blocking pool. Session saves retain one pending snapshot and
+  flush it before acknowledging shutdown.
+- C2, medium, fixed in `f0b9d55`: discarded player-setter results looked
+  fallible but always returned `Ok(())`. These commands now return unit
+  synchronously; loading stays fallible. Unreachable equalizer error
+  branches were removed.
+- C4, medium, fixed in `f5407e2`, `dc9eaae`, `28a0772`, `a950888`,
+  `6a94318` and `1b61f32`: unrelated responsibilities shared large
+  modules. Private modules now own backend protocol data, browser metadata,
+  cookie codecs/cryptography, account action data and page projection,
+  JSON traversal and item parsing, format selection and solver downloads.
+  Public import paths remain available through explicit re-exports.
+  Account overlay tests cover idempotence and unrelated-page isolation.
+- C12, medium, deliberately kept: the remaining backend control/event
+  mailboxes are lossless internal transports, not network-facing queues.
+  Replacing their synchronous send contract with blocking sends or silent
+  drops would change shutdown, playback and UI delivery. These queues
+  remain unbounded by type; no hard memory bound is claimed. Network-fed
+  Cast queues, solver jobs and account writes now have explicit limits.
+- C13, medium, deliberately kept: persistent page/cover caches preserve
+  offline results across launches. This pass bounds runtime caches but
+  does not invent a disk-retention policy that deletes previously cached
+  content. Disk growth remains a documented tradeoff.
+- C14, low, deliberately kept: the remaining long account transaction
+  ledger, native stream coordinator and playback state machine keep
+  coupled state transitions together. Their large exhaustive dispatch
+  functions are single-purpose. Splitting them by line count would spread
+  private invariants and expose more mutable state. Auth's remaining
+  import pipeline includes its local snapshot regression tests.
+- C15, low, fixed in `f288a5a`: lost backend commands and missing shutdown
+  acknowledgements now get diagnostics. Sends to a caller that already
+  timed out, and task replies after receiver cancellation, remain normal
+  teardown cases.
+- C16, low, deliberately kept: `player::shared` holds an async mutex while
+  opening the engine on a blocking worker. It serializes construction of
+  the single process-wide audio engine. No standard mutex is held across
+  this await.
 
 ## App
 
-- P1, high, open: inspect blocking work in sign-in process lifecycle,
-  preference loading, desktop integration and update handoff.
-- P2, medium, fixed in `70a9f20`: motion, prefetch and update preferences
-  share a JSON reader with core settings and resolver state. It reports
-  corruption/read failure without dumping contents; missing files default.
-- P3, medium, open: `desktop/palette.rs` combines command definitions,
-  catalogue ranking and UI orchestration in 879 lines.
-- P4, low, open: unexplained `too_many_arguments` allowances in account
-  sign-in and visuals-settings views; review render-path clones and public
-  visibility.
+- P1, high, fixed in `d236dd7` and `ff3a56b`: sign-in process launch,
+  pipe reads and child reaping could block the UI; preferences were
+  written synchronously during interaction. The helper has one worker
+  owner and a bounded cancellation/result path. Motion, prefetch, recent
+  collections and update preferences use coalescing background writers.
+  Explicit quit-hook flushes retain the last value even when Drop is not
+  run. Tests cover cancellation, status reads and final-value persistence.
+- P5, high, fixed in `497ccb4`: visited pages, scroll/animation handles
+  and hover history accumulated for the whole session. The page cache is
+  capped at 128 while protecting navigation history and library pages.
+  Associated handles are evicted together. Hover resolution history is
+  capped at 512, old hover-fetch timestamps expire, and portal delivery
+  uses a bounded channel. A headless regression checks protected pages.
+- P6, medium, fixed in `b4d5803`: timed-out update children were killed
+  without reaping, and cleanup failures were discarded. They are now
+  reaped and failures reported. A failed desktop worker no longer falls
+  back to a synchronous portal connection. A synthetic process test checks
+  reaping; actual installs and platform services were not run.
+- P2, medium, fixed in `70a9f20`: settings readers treated unreadable or
+  corrupt files exactly like missing files. Motion, prefetch, updates,
+  core settings and resolver state share a reader that reports the
+  operation/location without dumping contents. Missing files still default.
+  Recent collections use the same policy in `497ccb4`.
+- P3, medium, fixed in `e35efbf`: palette command matching/ranking and UI
+  orchestration shared 879 lines. Matching now consumes borrowed page
+  snapshots in its own module. Public result paths are preserved; library
+  items are no longer collected just to iterate. Pure ranking and existing
+  headless palette tests pass.
+- P4, low, fixed in `f378c16`, `497ccb4` and `b4d5803`: unexplained
+  argument-count allowances now state their UI composition boundary.
+  An unused header-menu constructor and stale dead-code suppressions were
+  removed. Tabular font features are initialized once instead of allocating
+  each render; playlist-id comparisons borrow strings.
+- P7, low, deliberately kept: initial preference reads and joins of
+  startup workers occur before the first window is ready, so the first
+  frame has the right settings. Final preference/backend flushes may
+  block during quit to preserve durability. Neither is a per-frame path.
+  Updater extraction/probing sleeps run on a blocking worker or in the
+  separate helper process, not during UI rendering.
+- P8, low, deliberately kept: GPUI entity updates may fail when their view
+  is gone; those cancellation results remain ignored. Render elements own
+  strings/images and asynchronous closures own captured state, so their
+  necessary clones remain. Design-system tokens remain a consistent
+  catalogue even when no current view consumes every token.
+- P9, low, deliberately kept: updater inherited-descriptor cleanup already
+  has a `SAFETY:` comment. It runs from `update::intercept` before logging,
+  background workers or the UI start, and leaves standard descriptors
+  alone. No new unsafe code was added.
 
 ## Audio
 
-- A1, high, fixed in `4b71f5a`: oversized output callbacks reuse fixed
-  stereo scratch in chunks. Regression checks preserve samples and frame
-  timestamps while keeping the scratch pointer and capacity unchanged.
-- A2, high, fixed in `4b71f5a`: full event rings now delay and retry state
-  transitions without blocking the callback. End events retain their
-  original timestamps.
-- A3, medium, fixed in `4b71f5a`: first-callback logging moved to the output
-  owner thread; output failures carry operation context.
-- A4, high, partly fixed in `f482f3f`: checked seek arithmetic, validated
-  byte ranges, fallible allocation and a 512 MiB compressed-source limit
-  replace unchecked network-sized allocation. Invalid deck indices no
-  longer reach array indexing. Decoder/padding numeric review remains open.
-- A5, low, fixed in `f482f3f`: missing example arguments return an error;
-  the queued track id is bound directly.
-- A6, medium, fixed in `f482f3f`: HTTP intervals merge in place and decoder
-  resampling reuses scratch. Failed event-thread startup stops the output
-  thread; decoder-thread creation errors propagate to the load caller.
-- A7, medium, open: public event and decoder-control channels still use
-  unbounded standard channels. Review capacity and shutdown behavior.
+- A1, high, fixed in `4b71f5a`: large device callbacks resized scratch
+  storage. Rendering now uses fixed-size stereo chunks. Regression checks
+  preserve samples and timestamps while keeping scratch address/capacity.
+- A2, high, fixed in `4b71f5a`: a full event ring silently lost playback
+  transitions. It now retries without blocking the callback, retaining
+  original end timestamps.
+- A4, high, fixed in `f482f3f` and `ed78519`: network-sized allocations,
+  signed seek arithmetic and unchecked media ranges could overflow or
+  allocate unreasonable buffers. Compressed sources are capped at 512 MiB
+  with fallible allocation. Byte ranges and deck indices are checked,
+  zero codec rates rejected, and padding endpoints use checked addition.
+- A9, high, fixed in `8ace7ba`: stalled range requests could wait
+  indefinitely; empty responses could restart without consuming retries.
+  Each request has a 30-second deadline and empty bodies use the existing
+  retry budget. Local fake-server regressions cover both failures.
+- A3, medium, fixed in `4b71f5a`: first-callback logging moved to the
+  output-owner thread; output failures now include operation context.
+- A6, medium, fixed in `f482f3f`: range merging and resampling allocated
+  repeatedly; failed startup could leave an output thread waiting.
+  Intervals merge in place, decoder scratch is reused, startup cleans up,
+  decoder creation errors propagate and shutdown panics are reported.
+- A7, medium, deliberately kept: public event and decoder-control channels
+  retain their lossless non-blocking producer contract. The engine has a
+  fixed deck count and a dedicated event consumer; these messages do not
+  carry sample buffers. They are still unbounded by type. Adding a hard
+  bound needs an explicit overload policy that does not lose seeks/end
+  events or deadlock shutdown. The real-time command/sample/event rings
+  are bounded.
+- A5, low, fixed in `f482f3f`: the play example reports missing arguments
+  instead of panicking and binds the queued track id directly.
+- A8, low, deliberately kept: sample conversion to floating point is DSP
+  arithmetic, not an external array index. Internal buffer/deck indexing
+  follows validated layouts. Decoder/network retry sleeps run on their own
+  workers, never the output callback. First-use decoder allocations and
+  whole-waveform output storage remain outside that callback.
 
 ## Cast
 
-- K1, high, fixed in `885a465`: `http.rs` read an arbitrarily long line before enforcing
-  `MAX_HEAD`, and checks the terminator before the size limit. Invalid
-  Content-Length is silently treated as zero.
-- K2, high, fixed in `5fc4244`: `castv2/client.rs` retained timed-out or cancelled requests
-  in `pending`. Drop guards now remove them on every exit. Unsolicited
-  events are capped at 128, published sources at 128, recent access records
-  at 256 and active connections at 32. Reads and TLS setup have deadlines.
-- K3, medium, fixed in `885a465`: `castv2/proto.rs` truncated outgoing lengths and incoming
-  field sizes; a tenth varint byte can overflow `u64` silently.
-- K4, medium, fixed in `5fc4244`: relay/pending mutex poison panics, XML stack expects,
-  missing SOAP response defaults and discarded heartbeat/daemon errors
-  obscure failed operations.
-- K5, low, fixed in `5fc4244`: mDNS address selection allocated and sorted just to select
-  an IPv4 address; constant socket addresses are parsed with `expect`.
-- K6, kept: the Cast TLS writer uses an async mutex across writes. Whole
-  frames must stay serialized; a standard mutex would block the executor.
-  Self-signed receiver certificates are part of the documented Cast
-  protocol. Handshake signatures remain verified.
-- K7, medium, fixed in `5fc4244`: DLNA durations accepted NaN, infinity,
-  negative components and extra time fields. Reject these before they can
-  become playback positions; regression cases cover each form.
+- K1, high, fixed in `885a465`: HTTP headers were limited only after an
+  unbounded line read, and a terminating oversized line bypassed the limit.
+  Reading is now bounded before append; invalid Content-Length is an error.
+- K2, high, fixed in `5fc4244`: pending requests survived cancellation and
+  timeout, and relay/event resources were unbounded. Drop guards remove
+  pending requests. Broadcasts and published sources are capped at 128,
+  recent access records at 256, and active connections at 32. Request reads
+  and TLS setup have deadlines; dropping the relay aborts its connections.
+- K8, high, fixed in `cbcf664`: device XML could consume unbounded body
+  storage or deeply recursive tree ownership. Bodies are limited to 2 MiB
+  while receiving, and nesting to 64 elements. Tests cover advertised and
+  actual oversize and both normal/empty nested elements.
+- K3, medium, fixed in `885a465`: frame/field lengths could truncate, and
+  a tenth protobuf varint byte could overflow. Encoding is fallible and
+  bounded; decoding checks conversions and overflow.
+- K4, medium, fixed in `5fc4244`: poisoned container locks, XML expects,
+  missing SOAP responses and discarded daemon/heartbeat failures obscured
+  operation failures. These now recover or return/report contextual errors.
+- K7, medium, fixed in `5fc4244`: DLNA durations accepted non-finite,
+  negative or extra fields. Boundary tests cover their rejection.
+- K6, medium, deliberately kept: the TLS writer's async mutex serializes
+  complete frames across awaits. Cast's self-signed receiver certificates
+  are accepted by protocol design; handshake signatures remain verified.
+- K5, low, fixed in `5fc4244` and `ad351e2`: discovery no longer sorts
+  or collects just to select an address/device; socket literals use typed
+  constructors, and address comparison parses once instead of formatting
+  every candidate.
+- K9, low, deliberately kept: Cast/DLNA wire command and status strings
+  remain protocol values. Unknown receiver statuses must stay observable,
+  and the spike exposes arbitrary wire commands intentionally.
 
 ## Sign-in helper
 
-- S1, high, fixed in `64d754c`: exclusive creation refuses existing output
-  paths and symlinks. Tests check mode 0600 and unchanged existing content.
-- S2, medium, fixed in `64d754c`: cookie-read failures end with a sanitized
-  error. Output is written only after the window and its event loop close.
-- S3, kept: stdout's `signed in`/`cancelled` messages are the helper's
-  documented parent-process protocol, not debugging output.
+- S1, high, fixed in `64d754c`: output creation followed existing paths
+  and did not repair old permissions. Exclusive creation now refuses
+  existing files and symlinks. Synthetic tests check privacy and unchanged
+  existing content.
+- S2, medium, fixed in `64d754c`: cookie-read failure was retried forever.
+  It now reports a sanitized operation error, never cookie data. Output I/O
+  happens after the window/event loop closes.
+- S3, low, deliberately kept: stdout's short signed-in/cancelled status is
+  the parent-process protocol. Its scoped lint allowance is intentional.
 
-## Visuals, review-only
+## Visuals, deferred implementation
 
+- V5, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
+  `visuals/src/pipelines.rs::DiskCache::open` feeds disk bytes to unsafe
+  pipeline-cache creation. Its comment assumes unchanged `get_data`
+  output. Wgpu 29's local API safety documentation requires that origin;
+  adapter/header compatibility checks are not an integrity guarantee.
+  Review the cache trust policy and comment together.
 - V1, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `spectrum.rs` uses mutex `expect` calls and allocates FFT scratch in
-  `bands`; renderer, strip, scene and visualizer allocate uniform vectors
-  for each frame. Needs allocation and lock-policy changes in that task.
+  `spectrum.rs` has mutex expects and FFT scratch allocation; renderer,
+  strip, scene and visualizer allocate per-frame uniform vectors.
 - V2, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `app/src/visuals/frames.rs` expects image-size consistency;
-  `effects.rs` discards image-paint errors. Check which are teardown-only
-  and which should invalidate the frame or log once.
+  `app/src/visuals/frames.rs` expects image-size consistency; effects
+  discard paint errors. Separate teardown-only failures from invalid frames.
 - V3, low, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `app/src/visuals/config.rs` and `effects.rs` exceed 800 lines;
-  `visualizer.rs` and `visuals/src/pipelines.rs` have unexplained argument
-  count allowances. Keep frame scheduling, configuration and rendering
-  separate when those files are next changed.
+  App visuals configuration/effects mix responsibilities in large modules;
+  visualizer/pipeline argument-count allowances lack reasons.
 - V4, low, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `scene.rs` and `visualizer.rs` omit borrowed frame-parameter lifetimes.
-  The visuals crate alone allows this lint pending its task. The two CLI
-  examples explicitly allow their intended stdout reports.
+  Borrowed frame-parameter lifetime annotations remain implicit. A scoped
+  allowance records that deferral. CLI example stdout is intentional.
 
-The orchestrator authorized scoped lint annotations for these protected
-paths. Both visuals roots allow only the deferred panic lints, and the
-visuals crate inherits the workspace policy through its manifest. No
-rendering implementation was changed.
+`6180dd0` adds the authorized panic-lint exceptions at the two visuals
+roots, the lifetime exception in the visuals crate, and intended-output
+annotations for its examples. The manifest inherits workspace lints.
+Rendering implementations were not changed.
 
-## Workspace policy and verification
+## Workspace decisions
 
-- W1, medium, fixed in `f378c16` and `6180dd0`: every crate inherits shared
-  safety, panic, stdout, Rust idiom and five focused conversion/iterator
-  lints. Tests and CLI output have explicit reasons for their exceptions.
-  GPUI context lifetime elision is deliberately retained because the
-  borrowed callback context determines that lifetime. Protected visuals
-  exceptions are tracked under V1-V4; other production panic sites stay gated.
-- W2, kept: test assertions may panic. Optional fields in loose InnerTube
-  JSON and optional environment overrides may use `Option` defaults.
-  Each error-discarding production path still needs its own review.
-- W3, kept: CodeGraph's local index is ignored in `.gitignore`. The shared
-  worktree Git exclude is outside this task's permitted write directory.
+- W1, medium, fixed in `f378c16` and `6180dd0`: all six manifests inherit
+  workspace lints. Warnings cover unwrap/expect, dbg/todo, unintended stdout,
+  undocumented unsafe blocks, unsafe operations and Rust 2018 idioms.
+  Selected additional gates are checked conversions, cloned-instead-of-
+  copied, flat-map-option, filter-map-next and manual-string-new. Test
+  assertions and intentional binary output have reasoned local exceptions.
+- W2, low, deliberately kept: pedantic/nursery are audit tools, not blanket
+  gates. Must-use candidates, const suggestions, naming similarity,
+  redundant-pub-crate, documentation formatting, default-trait spelling,
+  exhaustive match length, closure spelling and display/DSP float precision
+  warnings do not by themselves establish defects. Required ownership
+  clones and explicit callback parameter lists remain.
+- W3, low, deliberately kept: optional InnerTube fields, unsupported
+  protocol alternatives, absent environment overrides and cache misses can
+  legitimately return None/default. Required operations now report errors.
+  Test unwraps remain assertions. Boolean toggle values stay booleans.
+- W4, low, deliberately kept: public facades used by the app, examples and
+  integration tests retain their paths. Items inside private modules remain
+  bounded by module privacy; the nursery suggestion to widen their
+  visibility was not followed. New implementation modules are private.
+- W5, low, deliberately kept: GPUI Context lifetime elision is allowed in
+  the app because the borrowed callback context determines the lifetime.
+  Other Rust idiom warnings stay enabled.
+- W6, low, deliberately kept: CodeGraph's index is ignored locally through
+  `.gitignore`; the shared Git exclude is outside the permitted directory.
 
-Baseline pedantic/nursery diagnostics are retained locally in
-`artifacts/quality-clippy.txt`. They include 130 audio library warnings,
-645 core library warnings, 128 cast library warnings, 229 visuals library
-warnings, 1,312 app binary warnings and 10 sign-in helper warnings. Counts
-overlap with test targets and are not a count of independent defects.
+## Verification
 
-`TMPDIR="$PWD/artifacts" just verify cast` passes 23 tests, formatting,
-check and Clippy with warnings denied at `5fc4244`. The configured
-pre-commit hook only checks `server/` paths and does not enforce this
-workspace's gates, so each gate is run explicitly.
+Baseline warnings included 130 audio-library, 645 core-library,
+128 Cast-library, 229 visuals-library, 1,312 app-binary and 10 sign-in-binary
+diagnostics. Test duplicates are not independent findings.
 
-Crate gates also pass for sign-in at `64d754c`, four tests; audio at
-`f482f3f`, 11 tests; and core at `58e20a4`, 31 unit and 16 integration tests.
-The offline resolver comparison returns early when no player captures are
-available, so that result does not prove a live YouTube challenge works.
-After private persistence changes, core passes 49 tests and app passes 38
-tests through their full gates. The visuals inheritance commit removes the
-previous protected-file lint failure.
+Every changed crate has passed `just verify <crate>`. Latest counts before
+the final workspace run are core 61, app 46, audio 13, Cast 25, sign-in 4
+and visuals 22. The visuals gate also validated seven shader entry files.
+The configured pre-commit hook only handles `server/` paths, so these gates
+were run explicitly.
 
-## Module boundaries under review
+Final `just verify-workspace`: pending. Temporary files and driver caches
+are redirected beneath ignored `artifacts/`. No release build, sign-in,
+real YouTube stream, account mutation, push, merge or tag was performed.
+`Cargo.lock` is unchanged.
 
-The Rust architecture review keeps public paths stable and splits only
-independent responsibilities. `backend/protocol` will own command/event
-data, used by the worker and UI through explicit backend re-exports.
-`auth/browser` will own platform browser metadata and installation lookup,
-used by cookie discovery and desktop browser reporting. Neither child
-depends on its parent's orchestration. Existing parser, auth, browser and
-headless UI tests are the behavior checks for those moves.
-
-Final verification is pending. No app, real stream, browser session or account
-request is needed for this pass. Final completion requires crate gates and
-`just verify-workspace`, not just the initial lint audit.
+Tests do not prove platform behavior that they do not exercise. The offline
+solver comparison returns early without captured players; GPU checks may
+skip unavailable backends. No claim is made about live accounts, real audio
+devices, native helper windows, Windows/macOS services or visual screenshots.

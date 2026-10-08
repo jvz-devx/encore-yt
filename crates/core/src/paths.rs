@@ -142,12 +142,12 @@ fn private_dir(dir: &Path) -> Result<()> {
 }
 
 /// Exclusive creation prevents following a pre-existing temporary symlink.
-fn private_file() -> std::fs::OpenOptions {
+pub(crate) fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options
+    options.open(path)
 }
 
 pub fn hash(text: &str) -> String {
@@ -165,7 +165,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     for _ in 0..16 {
         let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
         let temporary = path.with_extension(format!("tmp{}-{sequence}", std::process::id()));
-        let mut file = match private_file().open(&temporary) {
+        let mut file = match create_private(&temporary) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),

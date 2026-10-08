@@ -393,15 +393,43 @@ fn with_copy<T>(
     let read_no = READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let copy = scratch.join(format!("cookies-{}-{read_no}.sqlite", std::process::id()));
     let copy_wal = wal_of(&copy);
-    std::fs::copy(&candidate.cookies, &copy).context("copying the cookie database")?;
+    let mut copies = Copies::default();
+    copies
+        .copy(&candidate.cookies, &copy)
+        .context("copying the cookie database")?;
     let wal = wal_of(&candidate.cookies);
-    if wal.exists() {
-        let _ = std::fs::copy(&wal, &copy_wal);
+    if let Err(error) = copies.copy(&wal, &copy_wal)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(error).context("copying the cookie write-ahead log");
     }
-    let result = read(&copy);
-    let _ = std::fs::remove_file(&copy);
-    let _ = std::fs::remove_file(&copy_wal);
-    result
+    read(&copy)
+}
+
+#[derive(Default)]
+struct Copies(Vec<PathBuf>);
+
+impl Copies {
+    fn copy(&mut self, from: &Path, to: &Path) -> std::io::Result<()> {
+        let mut source = std::fs::File::open(from)?;
+        let mut copy = crate::paths::create_private(to)?;
+        // Register only files we created, before a potentially failing copy.
+        self.0.push(to.to_owned());
+        std::io::copy(&mut source, &mut copy)?;
+        Ok(())
+    }
+}
+
+impl Drop for Copies {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            if let Err(error) = std::fs::remove_file(path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                log::warn!("couldn't remove private browser snapshot: {error}");
+            }
+        }
+    }
 }
 
 /// What Encore can read from one browser profile, to diagnose sign-in.
@@ -741,4 +769,43 @@ fn cookie_file_cookies(path: &Path) -> Result<Vec<Cookie>> {
     file.read_to_string(&mut text)
         .with_context(|| format!("reading {shown}"))?;
     Ok(parse_netscape(&text))
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests copy synthetic bytes, never browser data"
+)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshots_are_private_and_cleanup_only_removes_owned_files() {
+        let dir = std::env::temp_dir().join(format!("encore-snapshot-test-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let source = dir.join("source");
+        let copy = dir.join("copy");
+        std::fs::write(&source, "synthetic bytes").unwrap();
+        {
+            let mut files = Copies::default();
+            files.copy(&source, &copy).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    std::fs::metadata(&copy).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            assert_eq!(std::fs::read(&copy).unwrap(), b"synthetic bytes");
+            let mut other = Copies::default();
+            assert!(other.copy(&source, &copy).is_err());
+            drop(other);
+            assert!(copy.exists());
+        }
+        assert!(!copy.exists());
+        assert!(source.exists());
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 }

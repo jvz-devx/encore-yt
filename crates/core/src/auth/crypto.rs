@@ -114,21 +114,23 @@ mod kwallet {
         }
         let folder = format!("{name} Keys");
         let entry = format!("{name} Safe Storage");
-        let found = proxy
-            .call::<_, _, bool>(
-                "hasEntry",
-                &(handle, folder.as_str(), entry.as_str(), APP_ID),
-            )
-            .unwrap_or(false);
-        let password = if found {
-            proxy.call::<_, _, String>(
-                "readPassword",
-                &(handle, folder.as_str(), entry.as_str(), APP_ID),
-            )
-        } else {
-            Ok(String::new())
-        };
-        let _ = proxy.call::<_, _, i32>("close", &(handle, false, APP_ID));
+        let found = proxy.call::<_, _, bool>(
+            "hasEntry",
+            &(handle, folder.as_str(), entry.as_str(), APP_ID),
+        );
+        let password = found.and_then(|found| {
+            if found {
+                proxy.call::<_, _, String>(
+                    "readPassword",
+                    &(handle, folder.as_str(), entry.as_str(), APP_ID),
+                )
+            } else {
+                Ok(String::new())
+            }
+        });
+        if let Err(error) = proxy.call::<_, _, i32>("close", &(handle, false, APP_ID)) {
+            log::warn!("couldn't close browser keyring handle: {error}");
+        }
         Ok(Some(password?.into_bytes()).filter(|p| !p.is_empty()))
     }
 }

@@ -244,8 +244,8 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
   sync and atomic rename. Old unwrapped caches are discarded. A legacy
   permissive GPU directory is tightened only inside its private owned parent
   before newly generated data is saved; it is never trusted for loading.
-  Windows
-  relies on the per-user directory's inherited ACL, not a Unix mode check.
+  Windows relies on the per-user directory's inherited ACL, not a Unix
+  mode check.
   The explicit trust assumption is a non-hostile local cache owner and
   privileged software. The checksum detects accidental corruption, not
   authenticated provenance or deliberate forgery by that owner. Wgpu 29
@@ -267,8 +267,8 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
   short or overlong BGRA buffers before replacing the shown image. Invalid
   frames log once per owner. Atlas retirement errors are reported separately;
   GPUI 0.3.8 currently returns `Ok` unconditionally from `drop_image`.
-  Paint failures report once per layer, including dissolves and cover flight, instead of
-  discarding the result. Weak-entity updates still ignore cancellation when
+  Paint failures report once per layer, including dissolves and cover
+  flight, instead of discarding the result. Weak-entity updates still ignore cancellation when
   the view is gone, which is teardown rather than a damaged frame. Synthetic
   tests cover dimensions, exact byte length and unchanged valid BGRA bytes.
 - V3, low, fixed: `config/store.rs` owns settings storage/persistence;
@@ -354,3 +354,26 @@ Tests do not prove platform behavior that they do not exercise. The offline
 solver comparison returns early without captured players; GPU checks may
 skip unavailable backends. No claim is made about live accounts, real audio
 devices, native helper windows, Windows/macOS services or visual screenshots.
+
+### Visuals-quality follow-up, 2026-10-08
+
+V1/V4/V5 are implemented in `7e3a426`, with the cache-directory upgrade
+regression in `803b86e`. V2/V3 and the app-side annotations are implemented
+in `09e7bcb`. `just verify-workspace` passed with 183 tests: audio 13,
+Cast 25, core 62, sign-in 4, visuals 32 and app 47. The nested Discord
+subprocess is counted only through its parent. All-target workspace Clippy
+with warnings denied, workspace formatting and seven shaders passed.
+The log is `artifacts/vq-verify-workspace.log`.
+
+The first run reached its 600-second command limit while compiling cold
+GTK/GPUI test dependencies. It did not report a compiler or test failure;
+the warm rerun completed successfully. Its log is
+`artifacts/vq-workspace-cold-timeout.log`. Source was frozen before the
+successful full gate; later changes record verification only.
+
+The final profiling binary is built from `09e7bcb`. Native signed-out
+before/after captures and CPU comparisons are recorded in `VISUALS.md`.
+No account mutation, real stream, release build or external Git mutation
+was used. `Cargo.lock` and shader sources are unchanged. The cache policy
+continues to trust its local owner; neither a cryptographic authenticity
+guarantee nor verified Windows ACL enforcement is claimed.

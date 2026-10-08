@@ -36,10 +36,7 @@ impl Default for Prefs {
 
 impl Prefs {
     pub fn load(path: &Path) -> Self {
-        std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        encore_core::paths::read_json(path).unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) {

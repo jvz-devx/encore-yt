@@ -14,7 +14,6 @@
 use crate::sync::Recover;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -211,10 +210,8 @@ impl Resolver {
     /// Starts with the streams saved by an earlier run that are still valid.
     pub fn new(scratch: PathBuf) -> Self {
         let deadline = now() + MARGIN;
-        let saved: HashMap<String, Cached> = std::fs::read(scratch.join("streams.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let saved: HashMap<String, Cached> =
+            crate::paths::read_json(&scratch.join("streams.json")).unwrap_or_default();
         let cache: HashMap<String, Cached> = saved
             .into_iter()
             .filter(|(_, c)| c.expires > deadline)
@@ -487,14 +484,7 @@ impl Resolver {
             }
         };
         let path = self.scratch.join("streams.json");
-        let temporary = self
-            .scratch
-            .join(format!("streams.json.tmp{}", std::process::id()));
-        let written = crate::paths::private_file()
-            .open(&temporary)
-            .and_then(|mut file| file.write_all(&bytes))
-            .and_then(|()| std::fs::rename(&temporary, &path));
-        if let Err(error) = written {
+        if let Err(error) = crate::paths::write_atomic(&path, &bytes) {
             log::warn!("couldn't save resolved streams: {error}");
         }
     }

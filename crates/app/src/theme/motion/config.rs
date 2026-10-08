@@ -177,9 +177,7 @@ const FASTEST: f32 = 4.0;
 
 impl Config {
     pub fn load(path: &Path) -> Self {
-        std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
+        encore_core::paths::read_json::<Self>(path)
             .map(Self::sane)
             .unwrap_or_default()
     }

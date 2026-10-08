@@ -36,10 +36,7 @@ pub struct Settings {
 impl Settings {
     /// Missing or damaged settings read as the defaults.
     pub fn load(paths: &Paths) -> Self {
-        std::fs::read(paths.config.join("settings.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        crate::paths::read_json(&paths.config.join("settings.json")).unwrap_or_default()
     }
 
     pub fn normalizes(&self) -> bool {

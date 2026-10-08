@@ -131,10 +131,7 @@ pub struct Prefetch {
 impl Prefetch {
     pub fn new(paths: &Paths, clock: BackgroundExecutor) -> Self {
         let path = paths.config.join("prefetch.json");
-        let on = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Prefs>(&bytes).ok())
-            .is_none_or(|p| p.hover);
+        let on = encore_core::paths::read_json::<Prefs>(&path).is_none_or(|p| p.hover);
         Self {
             on,
             path,
@@ -394,6 +391,11 @@ impl MusicApp {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use std::time::{Duration, Instant};
 

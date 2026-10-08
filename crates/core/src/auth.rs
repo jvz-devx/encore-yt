@@ -11,7 +11,6 @@
 //! app-bound key) is not read. Cookie values and that password are secrets:
 //! nothing here logs them.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
@@ -334,12 +333,7 @@ impl Session {
                 c.host, c.path, c.expires, c.name, c.value
             ));
         }
-        let temporary = path.with_extension("tmp");
-        let mut file = crate::paths::private_file().open(&temporary)?;
-        file.write_all(text.as_bytes())?;
-        drop(file);
-        std::fs::rename(&temporary, path)?;
-        Ok(())
+        crate::paths::write_atomic(path, text.as_bytes()).context("write private cookie file")
     }
 }
 

@@ -2220,6 +2220,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ashpd",
+ "embed-resource",
  "encore-core",
  "encore-visuals",
  "fastframe-log",

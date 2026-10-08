@@ -70,6 +70,10 @@ souvlaki = { version = "0.8.3", default-features = false }
 # The main window's HWND for the media controls; the version gpui-pre uses.
 raw-window-handle = "0.6"
 
+[build-dependencies]
+# Embeds the app icon in the Windows executable (build.rs); does nothing elsewhere.
+embed-resource = "3"
+
 # Linux packages (cargo-deb, cargo-generate-rpm), built by
 # .github/workflows/release.yml. The app lives in /usr/lib/encore-yt and
 # needs no other programs: it plays and resolves streams itself. cargo-deb

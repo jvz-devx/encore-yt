@@ -149,6 +149,23 @@ impl Client {
         Ok(ReceiverStatus::parse(&reply))
     }
 
+    /// Device volume, used only for an explicitly authorized check's cleanup.
+    /// Normal playback controls use the media session's own volume instead.
+    pub async fn receiver_volume(&self, level: f64, muted: bool) -> Result<ReceiverStatus> {
+        anyhow::ensure!(
+            level.is_finite() && (0.0..=1.0).contains(&level),
+            "invalid receiver volume"
+        );
+        let reply = self.request(PLATFORM, NS_RECEIVER, |id| serde_json::json!({
+            "type": "SET_VOLUME", "requestId": id, "volume": { "level": level, "muted": muted }
+        })).await?;
+        anyhow::ensure!(
+            reply["type"] == "RECEIVER_STATUS",
+            "receiver volume request refused"
+        );
+        Ok(ReceiverStatus::parse(&reply))
+    }
+
     /// Launches `app_id` (or finds it already running) and connects to it.
     pub async fn launch(&self, app_id: &str) -> Result<App> {
         let reply = self
@@ -227,6 +244,13 @@ impl Client {
             })
             .await?;
         anyhow::ensure!(reply["type"] == "MEDIA_STATUS", "volume request refused");
+        if let Some(actual) = MediaStatus::parse(&reply).and_then(|s| s.volume) {
+            anyhow::ensure!(
+                (actual - level.clamp(0.0, 1.0)).abs() <= 0.025,
+                "the device didn't change media volume"
+            );
+            log::info!("cast media volume confirmed at {actual:.3}");
+        }
         Ok(())
     }
 

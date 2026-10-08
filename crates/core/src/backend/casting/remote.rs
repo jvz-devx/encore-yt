@@ -172,6 +172,9 @@ async fn run(
         };
         if let Err(error) = result {
             log::warn!("cast session ended: {error:#}");
+            // A refused control can leave buffered audio running. Stop only
+            // our own session before handing playback back locally.
+            let _ = session.stop().await;
             send(Message::Ended {
                 generation,
                 status,

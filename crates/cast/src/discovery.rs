@@ -11,18 +11,30 @@ use crate::{Device, dlna, mdns, ssdp};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Policy {
     pub local_only: bool,
+    /// Maintainer-authorized final check. No other real device is allowed.
+    pub shield_only: bool,
 }
 
 impl Policy {
     pub fn from_env() -> Self {
+        let shield_only = std::env::var("ENCORE_CAST_SHIELD_ONLY").as_deref() == Ok("1");
         Self {
-            local_only: std::env::var("ENCORE_CAST_LOCAL_ONLY").as_deref() == Ok("1"),
+            local_only: !shield_only
+                && std::env::var("ENCORE_CAST_LOCAL_ONLY").as_deref() == Ok("1"),
+            shield_only,
         }
     }
 
     /// Check every control endpoint, not just the device's discovery address.
     /// No DNS or connection is made before this check.
     pub fn check(&self, device: &Device) -> Result<()> {
+        if self.shield_only {
+            ensure!(
+                matches!(device, Device::Cast(d) if !d.is_group() && (d.name.to_ascii_uppercase().contains("SHIELD") || d.model.to_ascii_uppercase().contains("SHIELD"))),
+                "only the NVIDIA Shield is allowed in this check"
+            );
+            return Ok(());
+        }
         if !self.local_only {
             return Ok(());
         }
@@ -72,6 +84,14 @@ fn local_address(ip: IpAddr) -> bool {
 
 /// mDNS and SSDP run concurrently. One protocol failing does not hide the other.
 pub async fn scan(policy: Policy, wait: Duration) -> Result<Vec<Device>> {
+    if policy.shield_only {
+        return Ok(mdns::scan(wait)
+            .await?
+            .into_iter()
+            .map(Device::Cast)
+            .filter(|d| policy.check(d).is_ok())
+            .collect());
+    }
     // Explicit local endpoints make desktop checks independent of multicast
     // routing. Overrides are accepted only with the fail-closed policy enabled.
     if policy.local_only {
@@ -144,6 +164,34 @@ mod tests {
             addr: "192.168.1.5:8009".parse().unwrap(),
             status: String::new(),
         });
-        assert!(Policy { local_only: true }.check(&d).is_err());
+        assert!(
+            Policy {
+                local_only: true,
+                shield_only: false
+            }
+            .check(&d)
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn shield_check_refuses_nest_minis_and_cast_groups() {
+        let policy = Policy {
+            local_only: false,
+            shield_only: true,
+        };
+        let mut d = mdns::CastDevice {
+            name: "Kitchen speaker".into(),
+            model: "Google Nest Mini".into(),
+            id: "fake".into(),
+            addr: "192.0.2.10:8009".parse().unwrap(),
+            status: String::new(),
+        };
+        assert!(policy.check(&Device::Cast(d.clone())).is_err());
+        d.name = "SHIELD".into();
+        d.model = "Google Cast Group".into();
+        assert!(policy.check(&Device::Cast(d.clone())).is_err());
+        d.model = "SHIELD Android TV".into();
+        assert!(policy.check(&Device::Cast(d)).is_ok());
     }
 }

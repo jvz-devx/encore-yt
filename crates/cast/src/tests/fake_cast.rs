@@ -57,6 +57,9 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
         let mut running = false;
         let mut position = 0.0;
         let mut playing = true;
+        let mut receiver_level = 0.3;
+        let mut receiver_muted = false;
+        let mut media_level = 1.0;
         loop {
             let mut len = [0u8; 4];
             if tls.read_exact(&mut len).await.is_err() {
@@ -90,6 +93,11 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
                     running = false;
                     Some(receiver_status(id, false))
                 }
+                (NS_RECEIVER, "SET_VOLUME") => {
+                    receiver_level = payload["volume"]["level"].as_f64().unwrap();
+                    receiver_muted = payload["volume"]["muted"].as_bool().unwrap();
+                    Some(receiver_status(id, running))
+                }
                 (NS_MEDIA, "LOAD") => {
                     assert_eq!(msg.destination, "web-7");
                     content = payload["media"]["contentId"].as_str().unwrap().to_owned();
@@ -118,6 +126,9 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
                     ))
                 }
                 (NS_MEDIA, "SET_VOLUME" | "GET_STATUS") => {
+                    if kind == "SET_VOLUME" {
+                        media_level = payload["volume"]["level"].as_f64().unwrap();
+                    }
                     let finished = seen.lock().unwrap().finished;
                     let empty = seen.lock().unwrap().finished_empty && kind == "GET_STATUS";
                     let mut reply = media_status(
@@ -153,7 +164,16 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
                 }
                 _ => None,
             };
-            if let Some(reply) = reply {
+            if let Some(mut reply) = reply {
+                if msg.namespace == NS_MEDIA
+                    && reply["status"].as_array().is_some_and(|s| !s.is_empty())
+                {
+                    reply["status"][0]["volume"] = json!({"level": media_level, "muted": false});
+                }
+                if msg.namespace == NS_RECEIVER {
+                    reply["status"]["volume"]["level"] = json!(receiver_level);
+                    reply["status"]["volume"]["muted"] = json!(receiver_muted);
+                }
                 let ns = msg.namespace.clone();
                 let out = CastMessage::new(&msg.destination, &msg.source, &ns, reply.to_string());
                 tls.write_all(&out.frame().unwrap()).await.unwrap();
@@ -164,12 +184,42 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
 }
 
 #[tokio::test]
+async fn receiver_volume_can_be_snapshotted_and_restored_without_launching_media() {
+    let seen = Arc::new(Mutex::new(Seen::default()));
+    let addr = fake_device(seen.clone()).await;
+    let client = Client::connect(addr).await.unwrap();
+    let original = client.receiver_status().await.unwrap();
+    assert_eq!(original.volume, Some(0.3));
+    assert_eq!(
+        client.receiver_volume(0.15, false).await.unwrap().volume,
+        Some(0.15)
+    );
+    let restored = client
+        .receiver_volume(original.volume.unwrap(), original.muted)
+        .await
+        .unwrap();
+    assert_eq!(restored.volume, original.volume);
+    assert_eq!(restored.muted, original.muted);
+    assert!(
+        !seen
+            .lock()
+            .unwrap()
+            .payloads
+            .iter()
+            .any(|p| matches!(p["type"].as_str(), Some("LAUNCH" | "LOAD")))
+    );
+}
+
+#[tokio::test]
 async fn cast_finished_broadcast_survives_an_empty_polled_media_status() {
     let seen = Arc::new(Mutex::new(Seen::default()));
     let addr = fake_device(seen.clone()).await;
     let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
         &device(addr),
-        crate::discovery::Policy { local_only: true },
+        crate::discovery::Policy {
+            local_only: true,
+            shield_only: false,
+        },
         false,
     )
     .await
@@ -216,11 +266,16 @@ async fn remote_session_keeps_position_pause_volume_and_finish_on_the_receiver()
     let file = TestFile::new(80_000);
     let seen = Arc::new(Mutex::new(Seen::default()));
     let addr = fake_device(seen.clone()).await;
-    let Connection::Ready(mut session) =
-        Session::connect(&device(addr), Policy { local_only: true }, false)
-            .await
-            .unwrap()
-    else {
+    let Connection::Ready(mut session) = Session::connect(
+        &device(addr),
+        Policy {
+            local_only: true,
+            shield_only: false,
+        },
+        false,
+    )
+    .await
+    .unwrap() else {
         panic!("idle fake should connect")
     };
     let media = Media {
@@ -270,7 +325,10 @@ async fn busy_cast_receiver_is_not_launched_without_confirmation() {
     let addr = fake_device(seen.clone()).await;
     let result = crate::session::Session::connect(
         &device(addr),
-        crate::discovery::Policy { local_only: true },
+        crate::discovery::Policy {
+            local_only: true,
+            shield_only: false,
+        },
         false,
     )
     .await
@@ -291,7 +349,10 @@ async fn replaced_cast_session_is_reported_as_lost_not_finished() {
     let addr = fake_device(seen.clone()).await;
     let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
         &device(addr),
-        crate::discovery::Policy { local_only: true },
+        crate::discovery::Policy {
+            local_only: true,
+            shield_only: false,
+        },
         false,
     )
     .await

@@ -198,7 +198,10 @@ async fn dlna_remote_session_loads_seeks_pauses_changes_volume_and_stops() {
     let device = crate::Device::Dlna(renderer);
     let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
         &device,
-        crate::discovery::Policy { local_only: true },
+        crate::discovery::Policy {
+            local_only: true,
+            shield_only: false,
+        },
         false,
     )
     .await
@@ -246,7 +249,10 @@ async fn dlna_seek_requires_position_evidence_not_only_a_soap_acknowledgement() 
         .remove(0);
     let crate::session::Connection::Ready(mut session) = crate::session::Session::connect(
         &crate::Device::Dlna(renderer),
-        crate::discovery::Policy { local_only: true },
+        crate::discovery::Policy {
+            local_only: true,
+            shield_only: false,
+        },
         false,
     )
     .await

@@ -10,6 +10,7 @@
 //! shaping or pixels, so a test sees an element's bounds, and its text only
 //! where the view puts that in its name. See docs/gpui/GPUI.md "UI tests".
 
+mod casting;
 mod home;
 mod keys;
 mod menu;

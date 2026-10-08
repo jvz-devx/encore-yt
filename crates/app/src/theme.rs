@@ -256,6 +256,9 @@ pub mod size {
     pub const CHIP: Pixels = px(36.);
     pub const ICON: Pixels = px(18.);
     pub const ICON_SM: Pixels = px(16.);
+    /// Cast device picker above the player bar.
+    pub const CAST_PICKER: Pixels = px(340.);
+    pub const CAST_LIST_MAX: Pixels = px(320.);
     /// The Settings modal at its largest, its category sidebar and the
     /// strip of key hints along its foot (M24).
     pub const SETTINGS_W: Pixels = px(1000.);

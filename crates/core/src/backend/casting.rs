@@ -86,7 +86,14 @@ impl Worker {
     }
 
     pub(super) async fn connect_cast(&mut self, id: &str, kind: Kind, takeover: bool) {
-        if self.current().is_none() || self.cast.remote.is_some() {
+        log::info!("cast: connection request for {kind:?} device {id}");
+        if self.cast.remote.is_some() {
+            self.emit_cast();
+            return;
+        }
+        if self.current().is_none() {
+            self.cast.state.error = Some("Choose a song to start casting".into());
+            self.emit_cast();
             return;
         }
         let Some(device) = self
@@ -96,16 +103,26 @@ impl Worker {
             .find(|d| d.id() == id && d.kind() == kind)
             .cloned()
         else {
+            self.cast.state.session = None;
+            self.cast.state.error =
+                Some("The device is no longer available. Find devices again.".into());
+            self.emit_cast();
             return;
         };
         if let Err(error) = self.cast.policy.check(&device) {
             log::warn!("cast device refused: {error:#}");
+            self.cast.state.session = None;
+            self.cast.state.error = Some("This device isn't allowed in this check.".into());
+            self.emit_cast();
             return;
         }
         // Only a response to the actual confirmation can take over a busy app.
         if takeover
             && !matches!(&self.cast.state.session, Some(Session::Confirm { device, .. }) if device.id == id && device.kind == kind)
         {
+            self.cast.state.session = None;
+            self.cast.state.error = Some("The device changed. Choose it again.".into());
+            self.emit_cast();
             return;
         }
         self.finish_blend().await;
@@ -383,6 +400,22 @@ mod tests {
             group: false,
         }));
         (worker, rx)
+    }
+
+    #[tokio::test]
+    async fn a_receiver_lost_between_discovery_and_click_reports_an_error() {
+        let (mut w, _) = worker();
+        w.cast.remote = None;
+        w.cast.state.session = None;
+        w.connect_cast("gone-receiver", Kind::Cast, false).await;
+        assert!(
+            w.cast
+                .state
+                .error
+                .as_deref()
+                .is_some_and(|s| s.contains("no longer available"))
+        );
+        assert!(!w.casting());
     }
 
     #[tokio::test]

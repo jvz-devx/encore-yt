@@ -32,6 +32,7 @@ pub fn side(
         .child(
             h_flex()
                 .gap(space::XS)
+                .child(super::casting::button(app, c, cx))
                 .child(
                     widgets::icon_button(
                         "autoplay",
@@ -103,6 +104,21 @@ fn volume(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoEl
 
 /// "Opus 256 kbps" under the controls; the itag in its tooltip.
 fn format(app: &MusicApp, c: &Colors) -> Option<impl IntoElement> {
+    if let Some(status) = super::casting::status(app) {
+        return Some(
+            div()
+                .id("format")
+                .debug_selector(|| format!("cast-status:{status}"))
+                .pr(space::XS)
+                .max_w_full()
+                .truncate()
+                .type_caption()
+                .tabular()
+                .text_color(c.signal)
+                .child(status.clone())
+                .tooltip(widgets::tooltip(status)),
+        );
+    }
     let full = app.player.playback.format.clone()?;
     let short = crate::playback::short_format(&full);
     Some(

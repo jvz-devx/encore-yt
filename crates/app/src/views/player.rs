@@ -2,6 +2,7 @@
 //! its own view ([`layer::PlayerBar`]), so the position can move without
 //! re-rendering the rest of the app.
 
+pub(crate) mod casting;
 pub(crate) mod layer;
 pub(super) mod links;
 mod side;

@@ -1,4 +1,220 @@
-# Casting spike (M35)
+# Casting (M35)
+
+## App integration
+
+The player bar's Cast button opens a list of Google Cast and DLNA devices.
+Opening the list starts mDNS and SSDP discovery; it refreshes every eight
+seconds while open. Device names, protocol and speaker/TV/group icons come
+from the discovery results. Close or Esc closes the list without ending
+playback. With no current song, the list asks you to choose one first.
+
+Choosing a device connects to the Default Media Receiver or AVTransport,
+then stops the local audio deck and loads the current song at its current
+position through the LAN relay. "Connecting…" changes to "Playing on
+<device>" once the receiver reports playback, or "Connected to <device>"
+while paused. A busy Cast receiver requires
+an explicit Replace confirmation before LAUNCH. Encore does not use the
+YouTube receiver or send signed googlevideo URLs to devices.
+
+The same player bar and desktop commands control play/pause, seek, volume,
+Next and Previous. The backend still owns the queue, shuffle, repeat and
+autoplay. The remote deck polls status every half second. Cast's explicit
+`IDLE/FINISHED`, or DLNA's transition to `STOPPED` after Play, advances the
+queue by loading another relay source. Repeat one reloads the same song.
+Smooth mixes and Audition stay local and are not used while casting.
+
+Stop casting reads the final position, stops Encore's own receiver session
+and reloads the same song locally at that position, preserving pause state.
+A lost connection or failed command uses the last confirmed position. A replaced Cast app
+is treated as lost and is not stopped. Old-session and old-song reports are
+stamped and cannot advance a newer queue or change its position.
+
+Ownership stays one-way:
+
+```text
+player bar / desktop commands
+          |
+          v
+core backend: queue, resolver, local/remote handoff
+          |
+          v
+remote I/O task: serialized controls, stamped status
+          |
+          v
+encore-cast session: Cast v2 / DLNA + LAN relay
+```
+
+`encore-cast` owns network protocols and relay lifetime, with no GPUI
+dependency. Core sends only device summaries and session state to the app.
+Each remote song replaces the published relay source. Cast keeps the
+resolver's normal audio preference; a DLNA renderer without WebM/Opus but
+with MP4 support gets an AAC stream instead, without changing the local
+stream cache. Unsupported formats fail back to local playback. The macOS
+bundle declares its local-network purpose and `_googlecast._tcp` service.
+
+### Safe local checks
+
+Never run control checks against a household speaker or TV. The app's
+`ENCORE_CAST_LOCAL_ONLY=1` mode bypasses browser credential discovery and
+sign-in, filters the device list and checks every control endpoint again
+before connecting. It accepts literal loopback or addresses assigned to
+this computer, verified by a local socket bind. Hostnames, unspecified
+addresses and remote LAN addresses are refused. SOAP clients do not follow
+redirects. This also supports gmrender-resurrect, whose libupnp refuses the
+loopback interface. Start your own instance with silent audio/video
+`fakesink` outputs and select only its name and UUID.
+
+Optional `ENCORE_CAST_TEST_ADDR=127.0.0.1:<port>` and
+`ENCORE_DLNA_TEST_URL=http://<this-computer>:<port>/description.xml` are
+accepted only in local-only mode. These point at stand-ins you started;
+they do not permit a remote device. Without them, the real mDNS/SSDP scan
+still runs, but its results are filtered to this computer.
+
+`scripts/cast-ui-check.sh dark|light` creates fresh config, cache and app
+runtime directories under the worktree's gitignored `artifacts/cast/`,
+seeds `crates/app/fixtures/cast-session.json`, sets `ENCORE_FAKE_STREAM` to
+the local silence fixture and disables update requests with
+`ENCORE_UPDATE_FEED=http://127.0.0.1:9/releases`. Invoke it inside
+`scripts/gpui-input.sh locked ...` and keep subsequent input and captures
+inside that lock. Generate its audio fixture first:
+
+```sh
+ffmpeg -f lavfi -i anullsrc=r=48000:cl=stereo -t 180 \
+  -c:a libopus -b:a 96k artifacts/cast/m35-silence.webm
+```
+
+Tests use loopback TLS Cast and SOAP/SSDP DLNA doubles. They fetch relay
+bytes, verify control payloads, refuse busy/replaced Cast sessions, and
+cover queue advance and local handoff. Headless GPUI tests exercise the
+real picker and player bar with a fake backend. No automated test controls
+real network devices or uses a signed-in stream. The authorized manual
+Shield exception below is separate from those automated checks.
+
+Known limits: AirPlay, transcoding, receiver-managed gapless queues and
+DLNA event subscriptions are not implemented. DLNA codecs and seeking
+remain renderer-dependent, particularly fragmented MP4. A long pause can
+outlive a resolved URL; the current relay does not re-resolve an expired
+source during a range request. The app must stay running while casting.
+Windows and macOS runtime behavior still needs those platforms; the
+stand-in and desktop checks here run on Linux.
+
+The backend check example requires `ENCORE_CAST_LOCAL_ONLY=1`,
+`ENCORE_FAKE_STREAM=<local file>` and the exact
+`ENCORE_CAST_TEST_UDN=uuid:<your-renderer-uuid>`. Run
+`cargo run -p encore-core --example cast_check` only against the renderer
+you started. It refuses cast errors so a silent fallback to local playback
+cannot count as a passing remote-control check. Use
+`--gstout-audiopipe='fakesink sync=true'` and
+`--gstout-videopipe='fakesink sync=true'` for gmrender. Plain `fakesink`
+consumes the file as fast as possible and is unsuitable for queue/position
+checks. DLNA song replacement sends Stop before SetAVTransportURI, and
+seek success requires the reported position to reach the target within
+UPnP's whole-second precision. An acknowledged but ineffective seek is
+reported as a failed remote command.
+
+### App verification on Linux, 2026-10-08
+
+The strict backend-to-gmrender check passed all 17 steps, including SSDP,
+remote pause/play/seek/volume, Next and Previous, natural EOF advancing the
+queue, and a paused return to the same song at 42 seconds. gmrender ran as
+our own separate process with real-time silent `fakesink sync=true` outputs.
+Its control log confirmed the URI changes, seeks and 25% volume. The check
+rejects any cast error instead of counting local fallback as success.
+
+The app walkthrough used fresh config/cache/runtime directories and the
+synthetic queue. The button, discovered device list and casting state were
+captured and inspected in both dark and light. Stop casting returned the
+paused song at 0:45. Terminating our renderer while paused at 0:50 returned
+the same song locally at 0:50, still paused. Captures stay in gitignored
+`artifacts/gpui/cast-{dark,light}-{button,devices,active}-final.png`; the
+return/loss captures are there too. Discovery refreshes have a fixed-height
+status row so they cannot move Stop casting under the pointer.
+
+#### Authorized Shield-only pass
+
+After the stand-in walkthrough, the maintainer explicitly allowed one
+real-device pass on the NVIDIA Shield and still prohibited every Nest Mini
+and other device. `ENCORE_CAST_SHIELD_ONLY=1` filters discovery and checks
+the control boundary again. It accepts only a non-group Google Cast device
+whose discovered name or model contains `SHIELD`. It also bypasses browser
+credential discovery and sign-in. No other real device was controlled.
+
+The discovered device was `SHIELD`, model `SHIELD Android TV`. Before the
+pass its receiver-reported device volume was 1.0, unmuted, with no Cast app
+running. The app used `ENCORE_FAKE_STREAM` with the locally generated
+WebM/Opus silence file, never a signed-in or YouTube stream.
+
+| Step | Observed result |
+| --- | --- |
+| Start casting the current song | Default Media Receiver loaded the relay URL; the Shield fetched the local WebM/Opus bytes and its position advanced. Initial setup took about five seconds. |
+| Pause and resume | The player bar switched to Connected to SHIELD while paused, then Playing on SHIELD after resume. |
+| Seek | A seek to about 45 seconds was reflected in the receiver-driven player bar. |
+| Low volume | MEDIA_STATUS confirmed media volume 0.190, 19%. This is stream volume, separate from the device's original 100% level. |
+| Next | Second local song started on SHIELD, made a new relay fetch and retained the 19% media volume. |
+| Stop casting | The second song was paused and sought to 50.76 seconds. Stop casting returned it to the local Rust deck with `Start::Seconds(50.76)`, still paused. The inspected captures show 0:50 before and after. |
+| Cleanup | Receiver volume was explicitly restored to 1.0, unmuted. A final receiver status reported no running Cast app. |
+
+The pass ran from connection at 12:13:54 UTC to local return at 12:15:33
+UTC, about 99 seconds, including pauses. All receiver-control steps passed;
+none needed a retry. There was no audible test signal because the fixture
+was silence. This verifies the Shield's WebM/Opus decoder and remote
+controls, not listening quality or a live googlevideo stream.
+
+The completion audit then found a local decoder issue that the silent
+fixture and player clock alone could not reveal. The requested handoff was
+50.76 seconds, but Symphonia 0.6.1's WebM seek returned a first packet at
+54.975 seconds. Both Accurate and Coarse modes did this. The audio decoder
+now uses a fresh reader while backing off until its anchor precedes the
+requested time, or reopens at the start when the first cue is too late,
+then trims decoded PCM to the target. A fresh reader also clears the
+demuxer's old buffered packets. The synthetic audio fixtures cover 0.5,
+6.76 and 50.76 seconds. A frequency-sweep PCM check proves that the actual
+decoded content, not only the player clock, matches the requested time.
+`cast_check --local-seek` rechecks only that native decoding path, with
+local test audio and no casting commands. The Shield pass was not repeated.
+
+`crates/cast/examples/shield_probe.rs` is the guarded read-only status and
+explicit volume-restore helper. Its default invocation does not launch or
+load anything. Captures and volume snapshots are in gitignored
+`artifacts/gpui/cast-shield-*.png` and `artifacts/cast/shield-*.json`; device
+addresses and session logs are not committed.
+
+#### Requested live-song demo and picker fix
+
+The maintainer then explicitly requested a live signed-out song on the
+Shield. A fresh branch build ran with fresh XDG directories,
+`ENCORE_CAST_SHIELD_ONLY=1`, the local disabled update feed and no
+`ENCORE_FAKE_STREAM`. Get Lucky, Official Audio, by Daft Punk was resolved
+signed out through VISIONOS as itag 251 and relayed to the Shield. Its
+MEDIA_STATUS confirmed 28% media volume and the player bar showed Playing
+on SHIELD. The maintainer confirmed that Default Media Receiver displayed
+the song and worked. No other real device was controlled.
+
+When the maintainer requested Stop, the cast and receiver app were closed,
+the receiver's original 1.0 unmuted volume was restored, and the demo app
+was quit so nothing continued locally. The cleanup status reported no Cast
+app running. Live-demo captures and logs stay under gitignored `artifacts/`.
+
+The reported no-op picker click was reproduced headlessly. When discovery
+inserted another device during a held mouse click, index-based row IDs
+changed even though the chosen row stayed under the pointer. Mouse release
+then sent no Connect command. Rows now use protocol plus stable device ID.
+The regression requires that held click to connect the same receiver, never
+a newly appeared one. Accepted clicks show Connecting immediately and an
+older discovery report cannot erase that feedback. A receiver missing from
+the backend's refreshed catalogue returns a plain error instead of silently
+ignoring the click. Frontend selections and backend requests are logged.
+
+Final verification passed `just verify cast` with 34 tests, `just verify
+core` with 72 tests, `just verify app` with 53 tests and `just verify audio`
+with 15 tests. `just verify-workspace` passed all 210 workspace tests,
+formatting, clippy and seven shaders. The Flatpak source generator was run
+after the lockfile's core-to-cast dependency change; its output was unchanged.
+The picker fix was also captured and inspected against our local renderer,
+and all check apps and stand-ins were stopped afterward. No visuals or 3D
+scene source was changed.
+
+## Spike findings
 
 How Encore can play to network speakers and TVs, what was proved on a real
 network on 2026-10-08, and what the real feature should be.
@@ -13,7 +229,7 @@ YouTube receiver.
 
 ## What was built
 
-`crates/cast` (package `encore-cast`, not linked into the app yet):
+The original spike in `crates/cast`, package `encore-cast`, supplied:
 
 | Module | What it does |
 |---|---|
@@ -92,9 +308,10 @@ itag 251, plus 9 requests to googlevideo from this machine; the URL was never se
 | The `ip` parameter changed | 403 (`ip` is among the signed `sparams`) |
 | Itag 140 | 302 to another googlevideo host |
 
-**Not tested:** a direct googlevideo URL on a device (the spike plays no
+**Not tested in the spike:** a direct googlevideo URL on a device (the spike plays no
 YouTube streams), the Android TV (it would wake the TV), Cast groups, Sonos or
-any TV's own renderer, AirPlay, IPv6, Windows and macOS. Cross-checks for
+any TV's own renderer, AirPlay, IPv6, Windows and macOS. The later authorized
+app pass above tested the Shield. Cross-checks for
 Windows and macOS stop at ring's C build, which needs the MSVC and Apple
 toolchains; CI has them.
 

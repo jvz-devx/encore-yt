@@ -28,5 +28,11 @@
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Encore finds speakers and TVs on your network and streams music to the device you choose.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_googlecast._tcp</string>
+  </array>
 </dict>
 </plist>

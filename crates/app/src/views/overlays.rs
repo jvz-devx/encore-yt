@@ -25,6 +25,7 @@ pub fn overlays(
     layers.extend(toast(app, cx));
     // The sleep timer and the equalizer, above the player bar.
     layers.extend(super::extras::panel(app, cx));
+    layers.extend(super::player::casting::picker(app, cx));
     if app.desktop.layers.help {
         layers.push(shortcuts::sheet(window, cx));
     }

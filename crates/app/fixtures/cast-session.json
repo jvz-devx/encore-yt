@@ -1,0 +1,18 @@
+{
+  "queue": {
+    "entries": [
+      { "track": { "video_id": "local-cast-one", "title": "Local casting check", "artists": [], "album": null, "thumbnail": null, "duration": 180 }, "added": false },
+      { "track": { "video_id": "local-cast-two", "title": "Second local song", "artists": [], "album": null, "thumbnail": null, "duration": 180 }, "added": false },
+      { "track": { "video_id": "local-cast-three", "title": "Third local song", "artists": [], "album": null, "thumbnail": null, "duration": 180 }, "added": false }
+    ],
+    "context": [0, 1, 2]
+  },
+  "index": 0,
+  "position": 12.0,
+  "volume": 35.0,
+  "shuffle": false,
+  "repeat": "Off",
+  "autoplay": false,
+  "radio": false,
+  "autoplayed": []
+}

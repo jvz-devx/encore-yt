@@ -45,7 +45,7 @@ pub enum Kind {
 struct State {
     config: Config,
     /// Where the settings are saved; `None` in tests.
-    path: Option<PathBuf>,
+    writer: Option<crate::persistence::Writer>,
     /// The desktop asks for less motion.
     desktop: bool,
 }
@@ -53,18 +53,21 @@ struct State {
 thread_local! {
     static STATE: RefCell<State> = RefCell::new(State {
         config: Config::default(),
-        path: None,
+        writer: None,
         desktop: false,
     });
 }
 
 /// Loads the saved settings. Call before the theme starts following the
 /// desktop.
-pub fn init(path: PathBuf) {
+pub fn init(path: PathBuf, cx: &mut App) {
     let config = Config::load(&path);
     STATE.with_borrow_mut(|s| {
         s.config = config;
-        s.path = Some(path);
+        s.writer = Some(crate::persistence::Writer::new(
+            path,
+            cx.background_executor(),
+        ));
     });
 }
 
@@ -73,15 +76,22 @@ pub fn config() -> Config {
     STATE.with_borrow(|s| s.config)
 }
 
+pub(crate) fn flush() {
+    STATE.with_borrow(|state| {
+        if let Some(writer) = &state.writer {
+            writer.flush();
+        }
+    });
+}
+
 /// Changes the settings: saves them, applies reduced motion and redraws.
 pub fn update(cx: &mut App, change: impl FnOnce(&mut Config)) {
-    let (config, path) = STATE.with_borrow_mut(|s| {
+    STATE.with_borrow_mut(|s| {
         change(&mut s.config);
-        (s.config, s.path.clone())
+        if let Some(writer) = &s.writer {
+            writer.save(&s.config);
+        }
     });
-    if let Some(path) = path {
-        config.save(&path);
-    }
     apply_reduced(cx);
     cx.refresh_windows();
 }
@@ -193,7 +203,7 @@ impl<E: IntoElement + 'static> MotionExt for E {}
 pub fn set_for_test(config: Config) {
     STATE.with_borrow_mut(|s| {
         s.config = config;
-        s.path = None;
+        s.writer = None;
     });
 }
 

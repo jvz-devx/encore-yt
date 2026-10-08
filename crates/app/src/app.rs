@@ -116,6 +116,10 @@ impl MusicApp {
             // Save the session and stop playback before the process ends; the
             // backend's Drop may not run on quit.
             cx.on_app_quit(|this, _| {
+                this.pages.prefetch.flush();
+                this.sidebar.flush();
+                this.updates.flush();
+                crate::theme::motion::flush();
                 this.backend.shutdown();
                 async {}
             }),
@@ -131,8 +135,8 @@ impl MusicApp {
         let (extras, subs) = Extras::new(window, cx);
         subscriptions.extend(subs);
 
-        let sidebar = Sidebar::new(&paths.cache);
-        let updates = crate::update::Updates::new(&paths);
+        let sidebar = Sidebar::new(&paths.cache, cx.background_executor());
+        let updates = crate::update::Updates::new(&paths, cx.background_executor());
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut app = Self {

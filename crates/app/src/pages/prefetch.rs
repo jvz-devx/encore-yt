@@ -14,7 +14,6 @@
 //! chosen. Settings → Playback turns all of it off (`prefetch.json`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use encore_core::backend::Command;
@@ -104,7 +103,7 @@ fn check_due(last: Option<Instant>, now: Instant) -> bool {
 pub struct Prefetch {
     /// Load pages and songs the pointer rests on (Settings → Playback).
     pub on: bool,
-    path: PathBuf,
+    writer: crate::persistence::Writer,
     clock: BackgroundExecutor,
     /// The page item under the pointer, and its pending wait.
     page_hover: Option<(Want, Task<()>)>,
@@ -129,12 +128,16 @@ pub struct Prefetch {
 }
 
 impl Prefetch {
+    pub(crate) fn flush(&self) {
+        self.writer.flush();
+    }
+
     pub fn new(paths: &Paths, clock: BackgroundExecutor) -> Self {
         let path = paths.config.join("prefetch.json");
         let on = encore_core::paths::read_json::<Prefs>(&path).is_none_or(|p| p.hover);
         Self {
             on,
-            path,
+            writer: crate::persistence::Writer::new(path, &clock),
             clock,
             page_hover: None,
             song_hover: None,
@@ -167,13 +170,7 @@ impl Prefetch {
     }
 
     fn save(&self) {
-        let prefs = Prefs { hover: self.on };
-        let written = serde_json::to_vec_pretty(&prefs)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| encore_core::paths::write_atomic(&self.path, &bytes));
-        if let Err(e) = written {
-            log::warn!("couldn't save {}: {e}", self.path.display());
-        }
+        self.writer.save(&Prefs { hover: self.on });
     }
 
     fn slot(&mut self, want: &Want) -> &mut Option<(Want, Task<()>)> {

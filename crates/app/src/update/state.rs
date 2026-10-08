@@ -2,7 +2,6 @@
 //! progress, the settings, and the once-a-day check. The network work runs
 //! on the backend's runtime; the results come back here.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -44,7 +43,7 @@ pub struct Updates {
     pub prefs: Prefs,
     pub state: State,
     pub install: Install,
-    path: PathBuf,
+    writer: crate::persistence::Writer,
     /// Not the backend's client: nothing of the YouTube session goes to
     /// GitHub.
     http: Option<reqwest::Client>,
@@ -53,7 +52,11 @@ pub struct Updates {
 }
 
 impl Updates {
-    pub fn new(paths: &Paths) -> Self {
+    pub(crate) fn flush(&self) {
+        self.writer.flush();
+    }
+
+    pub fn new(paths: &Paths, executor: &BackgroundExecutor) -> Self {
         let path = paths.config.join("updates.json");
         let http = reqwest::Client::builder()
             .user_agent(concat!("encore-yt/", env!("CARGO_PKG_VERSION")))
@@ -65,7 +68,7 @@ impl Updates {
             prefs: Prefs::load(&path),
             state: State::Idle,
             install: Install::detect(),
-            path,
+            writer: crate::persistence::Writer::new(path, executor),
             http,
             _timer: None,
             _progress: None,
@@ -189,7 +192,7 @@ impl MusicApp {
         };
         if !matches!(self.updates.state, State::Failed(_) | State::Idle) {
             self.updates.prefs.last_check = now();
-            self.updates.prefs.save(&self.updates.path);
+            self.updates.writer.save(&self.updates.prefs);
         }
         cx.notify();
     }
@@ -266,13 +269,13 @@ impl MusicApp {
 
     pub(crate) fn set_update_checks(&mut self, on: bool, cx: &mut Context<Self>) {
         self.updates.prefs.check = on;
-        self.updates.prefs.save(&self.updates.path);
+        self.updates.writer.save(&self.updates.prefs);
         cx.notify();
     }
 
     pub(crate) fn set_prereleases(&mut self, on: bool, cx: &mut Context<Self>) {
         self.updates.prefs.prereleases = Some(on);
-        self.updates.prefs.save(&self.updates.path);
+        self.updates.writer.save(&self.updates.prefs);
         // What is on offer depends on it.
         if !matches!(self.updates.state, State::Idle) {
             self.updates.state = State::Idle;

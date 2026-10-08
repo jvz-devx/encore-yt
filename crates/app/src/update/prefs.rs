@@ -39,15 +39,6 @@ impl Prefs {
         encore_core::paths::read_json(path).unwrap_or_default()
     }
 
-    pub fn save(&self, path: &Path) {
-        let written = serde_json::to_vec_pretty(self)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
-        if let Err(e) = written {
-            log::warn!("couldn't save {}: {e}", path.display());
-        }
-    }
-
     pub fn prereleases(&self) -> bool {
         self.prereleases
             .unwrap_or_else(|| super::feed::is_prerelease(super::VERSION))

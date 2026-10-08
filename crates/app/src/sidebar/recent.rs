@@ -44,15 +44,6 @@ pub fn load(path: &Path) -> Vec<Item> {
     recent
 }
 
-pub fn save(path: &Path, list: &[Item]) {
-    let written = serde_json::to_vec(list)
-        .map_err(std::io::Error::other)
-        .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
-    if let Err(e) = written {
-        log::warn!("couldn't save {}: {e}", path.display());
-    }
-}
-
 /// What a collection target is, from the pages the app holds (the open one
 /// first) and the queue; `None` for songs and for what it can't name.
 pub fn describe(app: &MusicApp, target: &Target) -> Option<Item> {

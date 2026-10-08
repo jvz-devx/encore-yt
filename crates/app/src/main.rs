@@ -21,6 +21,7 @@ mod likes;
 mod link;
 mod nav;
 mod pages;
+mod persistence;
 mod playback;
 mod settings;
 mod sidebar;
@@ -86,7 +87,7 @@ fn main() -> anyhow::Result<()> {
             gpui_kit::init(cx);
             // Settings → Motion, before the theme applies the desktop's
             // reduced motion through it.
-            theme::motion::init(motion_path);
+            theme::motion::init(motion_path, cx);
             // Fonts, colours and gpui-component's theme (ENCORE_THEME=light).
             theme::init(asking, cx);
             startup::mark(startup::Milestone::Theme);

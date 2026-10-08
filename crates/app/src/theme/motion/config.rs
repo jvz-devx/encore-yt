@@ -182,6 +182,7 @@ impl Config {
             .unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub fn save(&self, path: &Path) {
         let written = serde_json::to_vec_pretty(self)
             .map_err(std::io::Error::other)

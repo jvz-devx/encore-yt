@@ -1,7 +1,8 @@
 //! How this copy was installed, which decides how it updates: from the
 //! `APPIMAGE` variable the AppImage runtime sets, the setup program's
 //! uninstaller next to the Windows executable, the `.app` bundle around
-//! the macOS one, and `/usr/lib/encore-yt` for the .deb and .rpm.
+//! the macOS one, `/usr/lib/encore-yt` for the .deb and .rpm and `/app` in a
+//! Flatpak.
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,8 @@ pub enum Manual {
     Package,
     /// The Windows portable zip.
     Portable,
+    /// Installed as a Flatpak (the app is read-only; `flatpak update` does it).
+    Flatpak,
     /// Built from source (`cargo run`, a copy somewhere).
     Source,
 }
@@ -65,6 +68,7 @@ impl Install {
     pub fn advice(&self) -> Option<&'static str> {
         match self {
             Self::Manual(Manual::Package) => Some("Update with your package manager"),
+            Self::Manual(Manual::Flatpak) => Some("Update with flatpak update"),
             Self::Manual(Manual::Portable) => {
                 Some("Download the new portable zip from the release page")
             }
@@ -75,6 +79,11 @@ impl Install {
 }
 
 fn linux(exe: &Path, appimage: Option<&Path>) -> Install {
+    // The Flatpak sandbox mounts the app at /app and describes itself in
+    // /.flatpak-info.
+    if exe.starts_with("/app") && Path::new("/.flatpak-info").exists() {
+        return Install::Manual(Manual::Flatpak);
+    }
     if let Some(file) = appimage.filter(|f| f.is_absolute() && f.is_file()) {
         return Install::AppImage(file.to_path_buf());
     }

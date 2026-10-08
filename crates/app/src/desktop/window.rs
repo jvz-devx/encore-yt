@@ -59,7 +59,7 @@ fn open(opening: Opening, cx: &mut App) -> anyhow::Result<Entity<MusicApp>> {
             bounds.unwrap_or_else(|| WindowBounds::centered(size(px(1280.), px(820.)), cx)),
         ),
         window_min_size: Some(size(px(900.), px(600.))),
-        app_id: Some(encore_core::APP_ID.into()),
+        app_id: Some(encore_core::app_id().into()),
         ..Default::default()
     };
     let (handle, app) = gpui_kit::open_window(options, cx, move |window, cx| {

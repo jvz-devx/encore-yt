@@ -170,7 +170,11 @@ pub fn start(
             shown: shown.clone(),
             scrolled: None,
         };
-        let handle = match tray.spawn().await {
+        // A sandbox can't own the `StatusNotifierItem-PID-ID` name the
+        // specification asks for (the PID isn't the host's), so a Flatpak
+        // registers without it, as Chromium does.
+        let sandboxed = std::path::Path::new("/.flatpak-info").exists();
+        let handle = match tray.disable_dbus_name(sandboxed).spawn().await {
             Ok(handle) => handle,
             Err(error) => {
                 log::warn!("no tray icon: {error}");

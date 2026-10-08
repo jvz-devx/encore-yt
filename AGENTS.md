@@ -9,6 +9,7 @@ Encore (encore-yt) is a native YouTube Music client for Linux, Windows and macOS
 - Main platform: Fedora, KDE Plasma on Wayland. Colours, radii, spacing and type come from the app's theme module (`crates/app/src/theme.rs`), never hard-coded in views.
 - Verify UI work visually: run the app on the Wayland session and capture it (scripts/gpui-input.sh). Don't claim a view works without looking at a capture.
 - Commit in small topical commits on `main` and push to `origin`.
+- After changing `Cargo.lock`, run `packaging/flatpak/update-sources.sh` and commit `cargo-sources.json` with it, or the Flatpak (built offline from those sources) fails at the next release.
 - After each release, the release workflow commits the updated Homebrew cask (`Casks/encore-yt.rb`) to `main`, so pull before pushing once a release is out.
 - Build speed numbers and the reasoning behind these rules: docs/gpui/BUILD-SPEED.md.
 - Startup time, how to measure it and what the first second goes to: docs/gpui/STARTUP.md.

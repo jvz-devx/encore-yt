@@ -57,7 +57,7 @@ pub(crate) async fn run(
             None => None,
         };
         let mut hints: HashMap<&str, Value<'_>> = HashMap::new();
-        hints.insert("desktop-entry", Value::from(crate::APP_ID));
+        hints.insert("desktop-entry", Value::from(crate::app_id()));
         hints.insert("transient", Value::from(true));
         if let Some(file) = &image {
             hints.insert(

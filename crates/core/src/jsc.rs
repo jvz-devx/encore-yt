@@ -23,13 +23,18 @@ use crate::sync::Recover;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 
 pub use scripts::Scripts;
+
+const JOB_CAPACITY: usize = 8;
+const SOLVE_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_SIGNATURE_LENGTH: usize = 4096;
 
 /// A player script saved on disk: `<dir>/<id>.js`, with its preprocessed
 /// form written beside it as `<id>.ejs-<solver release>.js`.
@@ -183,27 +188,42 @@ impl Solver {
         }
         let health = self.health.clone();
         let id = player.id.clone();
-        let Ok((sender, job, answer)) = self.job(player, Challenges::default()) else {
-            health.lock().recover().warming.remove(&id);
-            return;
+        let (sender, job, answer) = match self.job(player, Challenges::default()) {
+            Ok(job) => job,
+            Err(error) => {
+                health.lock().recover().warming.remove(&id);
+                log::warn!("couldn't prepare JS engine: {error:#}");
+                return;
+            }
         };
         let version = job.scripts.version.clone();
-        let sent = sender.send(job).is_ok();
-        std::thread::spawn(move || {
-            let result = if sent {
-                answer
+        if let Err(error) = sender.try_send(job) {
+            health.lock().recover().warming.remove(&id);
+            log::debug!("JS warmup not queued: {error}");
+            return;
+        }
+        let observing = health.clone();
+        let observed_id = id.clone();
+        let spawned = std::thread::Builder::new()
+            .name("encore-jsc-warmup".into())
+            .spawn(move || {
+                let result = answer
                     .blocking_recv()
-                    .unwrap_or_else(|_| Err(anyhow!("the JS engine stopped")))
-            } else {
-                Err(anyhow!("the JS engine stopped"))
-            };
-            let mut health = health.lock().recover();
-            health.warming.remove(&id);
-            if let Err(error) = result {
-                log::warn!("EJS solver {version} can't use player {id}: {error:#}");
-                health.broken.insert(id, format!("{error:#}"));
-            }
-        });
+                    .unwrap_or_else(|_| Err(anyhow!("the JS engine stopped")));
+                let mut health = observing.lock().recover();
+                health.warming.remove(&observed_id);
+                if let Err(error) = result {
+                    log::warn!("EJS solver {version} can't use player {observed_id}: {error:#}");
+                    if health.broken.len() >= JOB_CAPACITY {
+                        health.broken.clear();
+                    }
+                    health.broken.insert(observed_id, format!("{error:#}"));
+                }
+            });
+        if let Err(error) = spawned {
+            health.lock().recover().warming.remove(&id);
+            log::warn!("couldn't observe JS warmup: {error}");
+        }
     }
 
     fn job(
@@ -229,6 +249,7 @@ impl Solver {
         let (sender, job, answer) = self.job(player, challenges)?;
         sender
             .send(job)
+            .await
             .map_err(|_| anyhow!("the JS engine stopped"))?;
         answer.await.context("the JS engine stopped")?
     }
@@ -242,9 +263,11 @@ impl Solver {
                 self.version(),
                 player.id
             );
-            self.health
-                .lock()
-                .recover()
+            let mut health = self.health.lock().recover();
+            if health.broken.len() >= JOB_CAPACITY {
+                health.broken.clear();
+            }
+            health
                 .broken
                 .insert(player.id.clone(), format!("{error:#}"));
         }
@@ -299,7 +322,7 @@ impl Solver {
         if let Some(sender) = jobs.as_ref() {
             return Ok(sender.clone());
         }
-        let (sender, receiver) = mpsc::channel::<Job>();
+        let (sender, receiver) = mpsc::channel::<Job>(JOB_CAPACITY);
         std::thread::Builder::new()
             .name("encore-jsc".into())
             // meriyah recurses deeply on the player's nested expressions.
@@ -311,9 +334,12 @@ impl Solver {
     }
 }
 
-fn run(jobs: mpsc::Receiver<Job>) {
+fn run(mut jobs: mpsc::Receiver<Job>) {
     let mut engine: Option<Engine> = None;
-    for job in jobs {
+    while let Some(job) = jobs.blocking_recv() {
+        if job.reply.is_closed() {
+            continue;
+        }
         let result = (|| {
             // Other solver scripts get a fresh engine.
             let stale = engine
@@ -334,7 +360,7 @@ fn run(jobs: mpsc::Receiver<Job>) {
 
 /// A QuickJS context with one player's functions loaded.
 pub struct Engine {
-    _runtime: Runtime,
+    runtime: Runtime,
     context: Context,
     scripts: Scripts,
     loaded: Option<String>,
@@ -357,12 +383,18 @@ impl Engine {
         runtime.set_memory_limit(1 << 30);
         let context = Context::full(&runtime).context("creating the JS context")?;
         Ok(Self {
-            _runtime: runtime,
+            runtime,
             context,
             scripts,
             loaded: None,
             has_ejs: false,
         })
+    }
+
+    fn limit_execution(&self, budget: Duration) {
+        let deadline = Instant::now() + budget;
+        self.runtime
+            .set_interrupt_handler(Some(Box::new(move || Instant::now() >= deadline)));
     }
 
     /// Where this engine saves a player's preprocessed form.
@@ -372,6 +404,14 @@ impl Engine {
 
     /// Solves on the calling thread (the engine must stay on it).
     pub fn solve(&mut self, player: &Player, challenges: &Challenges) -> Result<Solutions> {
+        self.limit_execution(SOLVE_TIMEOUT);
+        anyhow::ensure!(
+            challenges
+                .sig_lengths
+                .iter()
+                .all(|length| *length <= MAX_SIGNATURE_LENGTH),
+            "signature challenge exceeds {MAX_SIGNATURE_LENGTH} characters"
+        );
         if self.loaded.as_deref() != Some(&player.id) {
             self.load(player)?;
         }
@@ -394,7 +434,8 @@ impl Engine {
             if !challenges.sig_lengths.is_empty() {
                 let sig: Function<'_> = solver.get("sig").map_err(|e| js(&ctx, e))?;
                 for &length in &challenges.sig_lengths {
-                    let probe: String = (0..length as u32).filter_map(char::from_u32).collect();
+                    let length_u32 = u32::try_from(length).context("signature challenge length")?;
+                    let probe: String = (0..length_u32).filter_map(char::from_u32).collect();
                     let answer: String = sig
                         .call((probe,))
                         .catch(&ctx)
@@ -513,5 +554,34 @@ fn js(ctx: &rquickjs::Ctx<'_>, error: rquickjs::Error) -> anyhow::Error {
 fn write_atomic(path: &Path, bytes: &[u8]) {
     if let Err(error) = crate::paths::write_atomic(path, bytes) {
         log::warn!("couldn't save {}: {error}", path.display());
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests execute only synthetic JavaScript"
+)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_execution_deadline_interrupts_a_loop_and_resets_for_the_next_job() {
+        let engine = Engine::new().unwrap();
+        engine.limit_execution(Duration::ZERO);
+        assert!(
+            engine
+                .context
+                .with(|ctx| ctx.eval::<(), _>("while (true) {}"))
+                .is_err()
+        );
+        engine.limit_execution(Duration::from_secs(1));
+        assert_eq!(
+            engine
+                .context
+                .with(|ctx| ctx.eval::<i32, _>("40 + 2"))
+                .unwrap(),
+            42
+        );
     }
 }

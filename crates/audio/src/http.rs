@@ -28,6 +28,7 @@ pub const READ_AHEAD: u64 = 32 << 20;
 /// costs a round trip, ~100-300 ms on googlevideo).
 const NEAR_SECS: f64 = 0.25;
 const RETRIES: u32 = 3;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 // Each active track holds its compressed bytes. Refuse unreasonable server
 // lengths before allocating; 512 MiB already covers hours of music.
 const MAX_SOURCE_BYTES: u64 = 512 << 20;
@@ -387,6 +388,9 @@ impl Fetcher {
         let began = Instant::now();
         loop {
             let n = match body.read(&mut buf) {
+                Ok(0) if pos == start => {
+                    return Copied::Failed("audio range response was empty".into());
+                }
                 Ok(0) => return Copied::Done,
                 Ok(n) => n,
                 Err(e) => return Copied::Failed(e.to_string()),
@@ -459,8 +463,20 @@ fn request(
     start: u64,
     end: u64,
 ) -> Result<Response> {
+    request_with_timeout(client, url, headers, start, end, REQUEST_TIMEOUT)
+}
+
+fn request_with_timeout(
+    client: &Client,
+    url: &str,
+    headers: &HeaderMap,
+    start: u64,
+    end: u64,
+    timeout: Duration,
+) -> Result<Response> {
     let response = client
         .get(url)
+        .timeout(timeout)
         .headers(headers.clone())
         .header(RANGE, format!("bytes={start}-{end}"))
         .send()
@@ -505,6 +521,62 @@ fn parse_range(value: &str) -> Option<(u64, u64, u64)> {
 )]
 mod tests {
     use super::*;
+
+    fn server(response: &'static [u8], requests: usize) -> (String, thread::JoinHandle<()>) {
+        use std::io::{BufRead, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            for _ in 0..requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = std::io::BufReader::new(&mut stream);
+                loop {
+                    let mut line = String::new();
+                    request.read_line(&mut line).unwrap();
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                }
+                stream.write_all(response).unwrap();
+            }
+        });
+        (url, server)
+    }
+
+    #[test]
+    fn repeated_empty_ranges_stop_after_the_retry_budget() {
+        let (url, server) = server(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-1/2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", 4);
+        let client = Client::builder().build().unwrap();
+        let mut source = HttpSource::open(&client, &url, HeaderMap::new()).unwrap();
+        let error = source.read(&mut [0; 2]).unwrap_err();
+        assert!(error.to_string().contains("empty"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_stalled_range_has_a_deadline() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap());
+        let (release, hold) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            hold.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        let client = Client::builder().build().unwrap();
+        let began = Instant::now();
+        let result = request_with_timeout(
+            &client,
+            &url,
+            &HeaderMap::new(),
+            0,
+            1,
+            Duration::from_millis(50),
+        );
+        assert!(result.is_err());
+        assert!(began.elapsed() < Duration::from_secs(2));
+        release.send(()).unwrap();
+        server.join().unwrap();
+    }
 
     #[test]
     fn seek_rejects_arithmetic_overflow_without_wrapping() {

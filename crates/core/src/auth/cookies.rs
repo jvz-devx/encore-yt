@@ -175,10 +175,29 @@ pub(super) fn parse_netscape(text: &str) -> Vec<Cookie> {
                 value: value.to_owned(),
                 path: path.to_owned(),
                 secure: secure.eq_ignore_ascii_case("TRUE"),
-                expires: expires.parse::<i64>().ok()?.max(0),
+                expires: expiry(expires),
             })
         })
         .collect()
+}
+
+/// A cookie file's expiry in whole seconds. Exporters write integers or
+/// fractions; anything else (or nothing) is a session cookie, as before:
+/// dropping the line would lose the sign-in cookies over a formatting quirk.
+fn expiry(field: &str) -> i64 {
+    let field = field.trim();
+    field
+        .parse::<i64>()
+        .ok()
+        .or_else(|| {
+            field
+                .parse::<f64>()
+                .ok()
+                .filter(|seconds| seconds.is_finite())
+                .map(|seconds| seconds as i64)
+        })
+        .unwrap_or(0)
+        .max(0)
 }
 
 #[cfg(test)]
@@ -191,11 +210,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn imported_cookies_require_a_domain_boundary_and_valid_expiry() {
-        let rows = "notyoutube.com\tTRUE\t/\tTRUE\t0\tPREF\tx\n.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\tx\nmusic.youtube.com\tTRUE\t/\tTRUE\tbad\tPREF\tx\naccounts.google.com\tTRUE\t/\tTRUE\t0\tPREF\tx\n";
+    fn imported_cookies_require_a_domain_boundary() {
+        let rows = "notyoutube.com\tTRUE\t/\tTRUE\t0\tPREF\tx\n.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\tx\naccounts.google.com\tTRUE\t/\tTRUE\t0\tPREF\tx\n";
         let cookies = parse_netscape(rows);
         let hosts: Vec<_> = cookies.iter().map(|cookie| cookie.host.as_str()).collect();
         assert_eq!(hosts, [".youtube.com", "accounts.google.com"]);
+    }
+
+    #[test]
+    fn odd_expiries_keep_the_cookie() {
+        // Exporters write fractional seconds or leave session cookies blank;
+        // the sign-in cookies must survive either.
+        let rows = ".youtube.com\tTRUE\t/\tTRUE\t1791449919.537\tSAPISID\ta\n.youtube.com\tTRUE\t/\tTRUE\t\tHSID\tb\n.youtube.com\tTRUE\t/\tTRUE\tbad\tSID\tc\n";
+        let expiries: Vec<_> = parse_netscape(rows)
+            .iter()
+            .map(|cookie| (cookie.name.clone(), cookie.expires))
+            .collect();
+        assert_eq!(
+            expiries,
+            [
+                ("SAPISID".to_owned(), 1_791_449_919),
+                ("HSID".to_owned(), 0),
+                ("SID".to_owned(), 0),
+            ]
+        );
     }
 
     #[test]

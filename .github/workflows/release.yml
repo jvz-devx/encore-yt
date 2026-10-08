@@ -284,6 +284,9 @@ jobs:
   cask:
     name: Homebrew cask
     needs: release
+    # The release job runs despite a failed Flatpak; without this, a failed
+    # job anywhere upstream would skip the cask too.
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

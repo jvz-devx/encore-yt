@@ -190,7 +190,7 @@ impl Field {
                     },
                     color: tints[((r[0] * 4.) as usize).min(3)],
                 }
-                .paint(window);
+                .paint(scale, window);
             }
         }
     }
@@ -222,19 +222,41 @@ struct Sparkle {
     color: Hsla,
 }
 
+/// Halos wider than this (device pixels) are blurred instead of flat. The
+/// default sizes stay under it (at most about 4.6), where a flat disc reads
+/// as a soft point; the larger sizes Settings offers would show its edge.
+const FLAT_HALO_PX: f32 = 5.;
+
 impl Sparkle {
     /// A halo (as soft as the setting) under a core.
-    fn paint(&self, window: &mut Window) {
+    fn paint(&self, scale: f32, window: &mut Window) {
         let dot = |r: Pixels, alpha: f32, window: &mut Window| {
             let bounds = Bounds::new(self.at - point(r, r), size(r * 2., r * 2.));
             window.paint_quad(fill(bounds, self.color.opacity(alpha)).corner_radii(r));
         };
         if self.softness > 0. {
-            dot(
-                self.radius * (1. + 1.5 * self.softness),
-                self.alpha * 0.3 * self.softness,
-                window,
-            );
+            let halo = self.radius * (1. + 1.5 * self.softness);
+            let alpha = self.alpha * 0.3 * self.softness;
+            if f32::from(halo) * scale <= FLAT_HALO_PX {
+                dot(halo, alpha, window);
+            } else {
+                // A disc of half the halo's radius blurred over most of
+                // the rest: about the flat disc's light, fading to nothing
+                // a little past its edge.
+                let r = halo * 0.5;
+                let bounds = Bounds::new(self.at - point(r, r), size(r * 2., r * 2.));
+                window.paint_drop_shadows(
+                    bounds,
+                    Corners::all(r),
+                    &[BoxShadow {
+                        color: self.color.opacity((alpha * 2.5).min(1.)),
+                        offset: point(px(0.), px(0.)),
+                        blur_radius: halo * 0.4,
+                        spread_radius: px(0.),
+                        inset: false,
+                    }],
+                );
+            }
         }
         dot(self.radius * (1. - 0.3 * self.softness), self.alpha, window);
     }

@@ -1204,3 +1204,115 @@ engine's decoder, cache), `audio/src/tap.rs` (the ring); app side `crates/app/sr
   here already does. For particle data in a storage buffer, use a packed
   struct of `vec4f`s with `pack_`/`unpack_` helpers at the point of access.
 - Every `.wgsl` validates with naga (`just shaders`).
+
+## Visuals-quality verification, 2026-10-08
+
+The V1-V5 changes in `CODE-QUALITY.md` leave shader sources, theme tokens,
+effect settings and animation rates unchanged. FFT scratch is reused and
+uniforms are encoded into fixed stack blocks. Cache validation runs during
+device creation, not on a frame. Settings persistence and canvas painting
+have private owners; their existing public paths and draw order remain.
+
+The baseline is a profiling build of `fb15e55`, retained locally as
+`artifacts/vq-before/encore-yt`. The comparison uses Fedora/KDE Wayland,
+Intel UHD 630, a 1280x1000 window, Linux's 20 fps setting and Now Playing
+with Up next. Every launch uses fresh signed-out config/cache/runtime/data
+directories, the same local audio through `ENCORE_FAKE_STREAM`, two
+synthetic queue entries and locally served gradient covers. The update
+feed is `http://127.0.0.1:9/releases`; HTTPS requests are directed to a
+closed loopback proxy. No sign-in, account data or real stream is needed.
+
+The local harness is `artifacts/vq-session.sh`, run under
+`scripts/gpui-input.sh locked`. Its local `flock` wrapper uses nonblocking
+acquisition, so a busy desktop is left alone. Captures and logs stay in
+ignored `artifacts/gpui/`. Each screenshot is cropped to the same window
+and resized before inspection. Animated phases are not pixel-synchronized.
+The transition fixture slows dissolve to 3000 ms and flight to 2000 ms
+in both variants; steady-state comparisons use defaults.
+
+The final profiling build is `09e7bcb`. CPU runs alternate baseline,
+candidate, baseline, candidate under the desktop lock. No local build or
+test runs during their measurement windows. The sampler reads process
+user/system ticks from `/proc/PID/stat`, divides by `CLK_TCK` and the
+actual monotonic interval of 10.000 seconds, and reports percent of one
+core. `artifacts/vq-cpu.py` and `artifacts/vq-cpu.txt` hold the local
+sampler and results.
+
+| Pair | Before CPU | After CPU | Difference |
+|---|---:|---:|---:|
+| 1 | 6.00% | 6.10% | +0.10 percentage point |
+| 2 | 6.10% | 5.90% | -0.20 percentage point |
+
+The paired mean is 6.05% before and 6.00% after. There is no measurable
+steady-state CPU increase in these pairs. This is a shared desktop, not
+an isolated benchmark; the tick sampler's resolution is 0.1 percentage
+point over ten seconds. Both variants' steady-state logs show 20.1 paced
+window frames and about 10 backdrop frames per second. No effect, quality,
+particle count or animation rate was reduced for the measurement. The
+earlier 7.00% baseline taken while another build ran is not used in this
+table.
+
+CPU logs/captures are `vq-cpu-before-1-default`, `vq-final-after-default`,
+`vq-cpu-before-2-default` and `vq-cpu-after-2-default` in
+`artifacts/gpui/`. The baseline binary's SHA-256 is
+`fa1a7ff605a1c78f472d96f87473024df8003db63aa5f2002db5e80c064eb5c2`;
+the candidate's is
+`ae6533500b8c2b3ec17ac9897a60b5d18ca26b47a9312dadb4b2d5c92b95b180`.
+
+`just verify-workspace` passed on the final source with 183 tests,
+workspace format checking, all-target Clippy with warnings denied and
+seven shader files. `artifacts/vq-verify-workspace.log` records that pass.
+`just verify visuals` and `just verify app` also passed during the change.
+The cold workspace attempt reached its 600-second limit compiling GTK/GPUI
+test dependencies; the warmed full rerun passed. Native Windows/macOS
+rendering and Windows cache ACLs were not exercised here.
+
+The fixture server must be serving both synthetic covers before a capture
+session starts. An expired server produced placeholder-only comparison
+images during one batch; those images are excluded and the affected modes
+are recaptured. The harness now checks the server before every launch.
+
+The per-effect evidence is below. Filenames are relative to
+`artifacts/gpui/`; each after capture uses the committed profiling build.
+The shared default pair exposes each of its listed layers in the same
+Now Playing window.
+
+| Effect | Before capture | After capture |
+|---|---|---|
+| Cover backdrop, palette flow, blur/bloom, light wave, cover shadow | `vq-before-default.png` | `vq-final-after-default.png` |
+| Ambient sparkles | `vq-before-default.png` | `vq-final-after-default.png` |
+| Player strip glow, seek waveform, playhead and beat halos | `vq-before-default.png` | `vq-final-after-default.png` |
+| Now Playing spectrum and waveform | `vq-before-default.png` | `vq-final-after-default.png` |
+| Bars | `vq-before-bars.png` | `vq-final-after-bars.png` |
+| Mirrored bars | `vq-before-mirrored.png` | `vq-final-after-mirrored.png` |
+| Ring | `vq-before-ring.png` | `vq-final-after-ring.png` |
+| Line | `vq-before-line.png` | `vq-final-after-line.png` |
+| Particle field | `vq-before-particles.png` | `vq-final-after-particles.png` |
+| Scope mono | `vq-before-scope-mono.png` | `vq-final-after-scope-mono.png` |
+| Scope stereo | `vq-before-scope-stereo.png` | `vq-final-after-scope-stereo.png` |
+| Scope X/Y | `vq-before-scope-xy.png` | `vq-final-after-scope-xy.png` |
+| XMB | `vq-before-xmb.png` | `vq-final-after-xmb.png` |
+| Ridges | `vq-before-ridges.png` | `vq-final-after-ridges.png` |
+| Aurora | `vq-before-aurora.png` | `vq-final-after-aurora.png` |
+| Cover flight, slowed fixture | `vq-before-motion-flight.png` | `vq-final-after-motion-flight.png` |
+| Cover dissolve, slowed fixture | `vq-before-motion-dissolve.png` | `vq-final-after-motion-dissolve.png` |
+| Light look, default layers | `vq-before-light-default.png` | `vq-final-after-light-default.png` |
+| Light look, XMB and text scrim | `vq-before-light-xmb.png` | `vq-final-after-light-xmb.png` |
+
+All listed pairs were inspected. No appearance regression was seen in the
+backdrop, player strip, spectrum/waveform, visualiser styles, scenes,
+cover transitions or light-look scrim. Animation and audio phases differ
+between captures; these are visual comparisons, not pixel-equality tests.
+The early dissolve captures retain the old cover while the queue switches;
+`vq-before-motion-dissolve-mid.png` and
+`vq-final-after-motion-dissolve-mid.png` show the new cover later in both
+builds. The unchanged shader sources and the exact FFT-output regression
+support the runtime comparison.
+
+The inspected contact sheets are `vq-final-pairs-1.png`,
+`vq-final-pairs-2-valid.png`, `vq-final-pairs-3.png`,
+`vq-final-pairs-4.png`, `vq-final-pairs-5.png` and
+`vq-final-pairs-6.png`. Placeholder-only batches are not evidence for this
+result. All capture sessions ended with the app stopped; the temporary
+fixture server has exited. Only code and this verification record are
+committed, not captures, logs, binaries or synthetic runtime state.

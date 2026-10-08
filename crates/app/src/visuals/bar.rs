@@ -207,7 +207,7 @@ impl Bar {
     }
 
     /// Draws a frame when one is due or the still picture changed.
-    pub fn update(&mut self, tick: &Tick, input: &Input, window: &mut Window, cx: &App) {
+    pub fn update(&mut self, tick: &Tick<'_>, input: &Input, window: &mut Window, cx: &App) {
         let Some(bar) = Slots::get(cx, Slot::Bar) else {
             return;
         };
@@ -287,7 +287,7 @@ impl Bar {
 
     /// Follows the beat: quick to swell, slow to settle. Paced frames come
     /// unevenly, so the decay uses the time since the last one.
-    fn breathe(&mut self, tick: &Tick) {
+    fn breathe(&mut self, tick: &Tick<'_>) {
         let now = Instant::now();
         let dt = self
             .paced_at
@@ -303,7 +303,7 @@ impl Bar {
 
     fn params(
         &self,
-        tick: &Tick,
+        tick: &Tick<'_>,
         input: &Input,
         bar: Bounds<Pixels>,
         scale: f32,
@@ -374,7 +374,7 @@ impl Bar {
 
     fn still(
         &self,
-        tick: &Tick,
+        tick: &Tick<'_>,
         input: &Input,
         size: (u32, u32),
         p: &StripParams,

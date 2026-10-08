@@ -157,7 +157,8 @@ impl Change {
             Some(frame) => (frame, bounds),
             None => (old.clone(), cover_fit(bounds, old)),
         };
-        let _ = window.paint_image(bounds, fitted, corners, image, 0, false);
+        super::frames::PaintLayer::Dissolve
+            .report(window.paint_image(bounds, fitted, corners, image, 0, false));
     }
 }
 

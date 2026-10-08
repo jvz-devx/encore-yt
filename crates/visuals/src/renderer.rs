@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::cover::{COVER_SIZE, Cover};
-use crate::gpu::{Gpu, bytes};
+use crate::gpu::Gpu;
 use crate::target::{Frame, Target};
+use crate::uniform::Uniform;
 
 /// How long a new cover takes to fade in.
 const FADE: Duration = Duration::from_millis(1200);
@@ -195,7 +196,7 @@ impl Renderer {
     }
 
     /// The uniform block, as `backdrop.wgsl`'s `Params` lays it out.
-    fn params_bytes(&self, p: &FrameParams) -> Vec<u8> {
+    fn params_bytes(&self, p: &FrameParams) -> [u8; PARAMS_SIZE as usize] {
         let mix = self.faded_at.map_or(1.0, |at| {
             (at.elapsed().as_secs_f32() / FADE.as_secs_f32()).min(1.0)
         });
@@ -203,7 +204,8 @@ impl Renderer {
         let light = if p.look == Look::Light { 1.0 } else { 0.0 };
         let has_cover = if self.has_cover { 1.0 } else { 0.0 };
         let (width, height) = self.target.size();
-        let mut floats = vec![p.seconds, p.bass, p.kick, p.level];
+        let mut floats = Uniform::new();
+        floats.extend([p.seconds, p.bass, p.kick, p.level]);
         floats.extend([width as f32, height as f32, light, 0.0]);
         floats.extend([mix, has_cover, p.flow, 0.0]);
         let shadow = p.shadow.unwrap_or_default();
@@ -222,7 +224,7 @@ impl Renderer {
         for (n, o) in new.iter().zip(&old) {
             floats.extend((0..4).map(|i| o[i] + (n[i] - o[i]) * mix));
         }
-        bytes(&floats)
+        floats.finish()
     }
 }
 
@@ -245,6 +247,10 @@ pub(crate) fn colour_kept(palette: &[[f32; 4]; 4]) -> f32 {
 const PARAMS_SIZE: u64 = 11 * 16;
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "GPU regression fixtures require successful frames"
+)]
 mod tests {
     use super::*;
 

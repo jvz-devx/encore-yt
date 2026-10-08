@@ -354,7 +354,12 @@ pub trait Type: Styled + Sized {
     }
     /// Digits of equal width, for times and counters that change.
     fn tabular(self) -> Self {
-        self.font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+        static FEATURES: std::sync::OnceLock<FontFeatures> = std::sync::OnceLock::new();
+        self.font_features(
+            FEATURES
+                .get_or_init(|| FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+                .clone(),
+        )
     }
 }
 
@@ -407,7 +412,7 @@ fn setup(portal: Option<portal::Portal>, cx: &mut App) {
 /// Listens to the portal on a background task and applies each change on
 /// the foreground.
 fn watch(portal: portal::Portal, cx: &mut App) {
-    let (tx, rx) = smol::channel::unbounded();
+    let (tx, rx) = smol::channel::bounded(1);
     cx.background_spawn(async move {
         if let Err(e) = portal.watch(tx).await {
             log::warn!("stopped following the desktop's appearance: {e:#}");

@@ -330,6 +330,9 @@ impl MusicApp {
             return;
         }
         log::debug!("hover fetch {key}");
+        prefetch
+            .fetched
+            .retain(|_, at| now.saturating_duration_since(*at) <= STALE);
         prefetch.fetched.insert(key.clone(), now);
         prefetch.in_flight = Some((key, now));
         self.ensure_page(target, false);
@@ -348,7 +351,7 @@ impl MusicApp {
             return;
         }
         log::debug!("hover resolve {id}");
-        prefetch.resolved.insert(id.clone());
+        remember_resolved(&mut prefetch.resolved, id.clone());
         self.backend.send(Command::Prepare(id));
     }
 
@@ -390,6 +393,16 @@ impl MusicApp {
     }
 }
 
+fn remember_resolved(resolved: &mut HashSet<String>, id: String) {
+    const MAX_RESOLVED: usize = 512;
+    if resolved.len() >= MAX_RESOLVED
+        && let Some(old) = resolved.iter().next().cloned()
+    {
+        resolved.remove(&old);
+    }
+    resolved.insert(id);
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -400,6 +413,16 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{MINUTE, check_due};
+
+    #[test]
+    fn hover_resolution_history_is_bounded() {
+        let mut resolved = std::collections::HashSet::new();
+        for n in 0..1024 {
+            super::remember_resolved(&mut resolved, n.to_string());
+        }
+        assert_eq!(resolved.len(), 512);
+        assert!(resolved.contains("1023"));
+    }
 
     #[test]
     fn the_metered_check_runs_once_a_minute() {

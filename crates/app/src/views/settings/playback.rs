@@ -15,14 +15,18 @@ pub fn page(
     window: &mut Window,
     cx: &mut Context<MusicApp>,
 ) -> Vec<AnyElement> {
-    vec![
+    let mut sections = vec![
         loudness(app, c, cx),
         super::mixes::section(app, c, window, cx),
         super::sleep::section(app, c, cx),
         notifications(app, c, cx),
-        discord(app, c, cx),
-        prefetch(app, c, cx),
-    ]
+    ];
+    // A build without a Discord application has nothing to offer there.
+    if encore_core::discord::configured() {
+        sections.push(discord(app, c, cx));
+    }
+    sections.push(prefetch(app, c, cx));
+    sections
 }
 
 /// Loudness, mixes or notifications differ from how Music starts out.
@@ -81,10 +85,7 @@ fn notifications(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> AnyE
 /// What the Discord row says under its name: only claims a state that was
 /// checked (Discord answered, or wasn't found).
 fn discord_detail(app: &MusicApp) -> &'static str {
-    use encore_core::discord::{Status, configured};
-    if !configured() {
-        return "Discord isn't set up in this build";
-    }
+    use encore_core::discord::Status;
     match (app.discord(), app.desktop.flags.discord.status()) {
         (false, _) => "Only talks to the Discord app on this computer",
         (true, Status::Connected) => "Connected to Discord on this computer",

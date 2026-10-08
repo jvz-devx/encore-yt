@@ -33,12 +33,11 @@ use tokio::sync::watch;
 
 use crate::desktop::{Flags, Now};
 
-/// The Discord application whose name and icon the presence shows. The
-/// maintainer registers an application named "Encore" at
-/// https://discord.com/developers/applications and pastes its application id
-/// (digits) here. Empty until then: Settings says Discord isn't set up in
-/// this build, and nothing connects.
-pub const DISCORD_CLIENT_ID: &str = "";
+/// The Discord application whose name and icon the presence shows: "Encore"
+/// at https://discord.com/developers/applications. Public by design; every
+/// build carries it. Were it empty, Settings would leave the Discord section
+/// out and nothing would connect.
+pub const DISCORD_CLIENT_ID: &str = "1557676454228004904";
 
 /// How long to wait before looking for Discord again.
 const RETRY: Duration = Duration::from_secs(30);

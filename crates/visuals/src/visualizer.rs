@@ -11,11 +11,12 @@
 
 use anyhow::Result;
 
-use crate::gpu::{Gpu, bytes};
+use crate::gpu::Gpu;
 use crate::renderer::Look;
 use crate::scope::{Channels, MAX_POINTS, Scope, XY_POINTS};
 use crate::spectrum::{BANDS, band_at};
 use crate::target::{Frame, Target};
+use crate::uniform::Uniform;
 
 /// The most bars the shader holds (four to a vec4).
 pub const MAX_BARS: usize = 128;
@@ -181,7 +182,7 @@ impl Visualizer {
     }
 
     /// Renders a frame and returns the one rendered on the previous call.
-    pub fn frame(&mut self, params: &VisualizerParams) -> Result<Option<Frame>> {
+    pub fn frame(&mut self, params: &VisualizerParams<'_>) -> Result<Option<Frame>> {
         let uniforms = self.params_bytes(params);
         self.gpu.queue.write_buffer(&self.uniforms, 0, &uniforms);
         let (pipeline, group) = (&self.pipeline, &self.bind_group);
@@ -193,7 +194,7 @@ impl Visualizer {
     }
 
     /// Renders a frame and waits for it.
-    pub fn frame_now(&mut self, params: &VisualizerParams) -> Result<Frame> {
+    pub fn frame_now(&mut self, params: &VisualizerParams<'_>) -> Result<Frame> {
         let uniforms = self.params_bytes(params);
         self.gpu.queue.write_buffer(&self.uniforms, 0, &uniforms);
         let (pipeline, group) = (&self.pipeline, &self.bind_group);
@@ -204,11 +205,12 @@ impl Visualizer {
         })
     }
 
-    fn params_bytes(&self, p: &VisualizerParams) -> Vec<u8> {
+    fn params_bytes(&self, p: &VisualizerParams<'_>) -> [u8; PARAMS_SIZE as usize] {
         let flag = |on: bool| if on { 1.0 } else { 0.0 };
         let (width, height) = self.target.size();
         let count = p.bars.values.len().min(MAX_BARS);
-        let mut floats = vec![width as f32, height as f32, p.style as f32, count as f32];
+        let mut floats = Uniform::new();
+        floats.extend([width as f32, height as f32, p.style as f32, count as f32]);
         floats.extend([p.seconds, p.bass, p.kick, p.level]);
         floats.extend([
             p.opacity,
@@ -244,7 +246,7 @@ impl Visualizer {
         }
         floats.extend(wave);
         floats.extend(runs(&p.scope.values, channels).into_iter().flatten());
-        bytes(&floats)
+        floats.finish()
     }
 }
 
@@ -270,6 +272,10 @@ fn runs(values: &[f32], channels: Channels) -> [[f32; 4]; RUNS] {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "GPU regression fixtures require successful frames"
+)]
 mod tests {
     use super::*;
 

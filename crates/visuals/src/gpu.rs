@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use anyhow::{Context as _, Result, anyhow};
 
-use crate::pipelines::{DiskCache, Pipelines};
+use crate::pipeline_cache::DiskCache;
+use crate::pipelines::Pipelines;
 
 /// Pixel format of the frames: what GPUI's atlas stores on Vulkan.
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
@@ -276,9 +277,4 @@ pub(crate) fn extent(width: u32, height: u32) -> wgpu::Extent3d {
 /// Milliseconds since `started`, for the log.
 pub(crate) fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
-}
-
-/// Floats as a uniform block's bytes.
-pub(crate) fn bytes(floats: &[f32]) -> Vec<u8> {
-    floats.iter().flat_map(|f| f.to_ne_bytes()).collect()
 }

@@ -17,7 +17,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -70,6 +70,31 @@ struct Shared {
     recent: Mutex<Recent>,
 }
 
+/// Readers get silence after poison instead of trusting a partially published
+/// hop. The worker can publish again on its next hop. Clear poison so one
+/// failure produces one diagnostic, not one per frame.
+fn lock_bands(shared: &Shared) -> MutexGuard<'_, (Bands, Option<Instant>)> {
+    shared.bands.lock().unwrap_or_else(|error| {
+        let mut bands = error.into_inner();
+        *bands = (Bands::default(), None);
+        shared.bands.clear_poison();
+        log::warn!("visuals: recovered poisoned spectrum bands");
+        bands
+    })
+}
+
+fn lock_recent(shared: &Shared) -> MutexGuard<'_, Recent> {
+    shared.recent.lock().unwrap_or_else(|error| {
+        let mut recent = error.into_inner();
+        recent.frames.clear();
+        recent.rate = 0;
+        recent.asked = None;
+        shared.recent.clear_poison();
+        log::warn!("visuals: recovered poisoned scope samples");
+        recent
+    })
+}
+
 /// The newest stereo frames, while the oscilloscope asks for them.
 #[derive(Default)]
 struct Recent {
@@ -99,7 +124,7 @@ impl AudioTap {
 
     /// The newest bands, or silence when nothing came for a moment.
     pub fn bands(&self) -> Bands {
-        let (mut bands, at) = *self.shared.bands.lock().expect("bands");
+        let (mut bands, at) = *lock_bands(&self.shared);
         bands.linked = self.shared.linked.load(Ordering::Relaxed);
         if at.is_none_or(|at| at.elapsed() > STALE) {
             return Bands {
@@ -115,7 +140,7 @@ impl AudioTap {
     /// thread keeps them from the first call on, for a second after the
     /// last.
     pub fn recent(&self, seconds: f32, out: &mut Vec<[f32; 2]>) -> u32 {
-        let mut recent = self.shared.recent.lock().expect("recent");
+        let mut recent = lock_recent(&self.shared);
         recent.asked = Some(Instant::now());
         out.clear();
         let n = (seconds * recent.rate as f32).ceil() as usize;
@@ -166,7 +191,7 @@ fn run(shared: &Shared) {
         tap.read_stereo(size, &mut hop);
         keep_recent(shared, &hop, rate);
         let bands = analyser.hop(hop.iter().map(|[l, r]| (l + r) * 0.5));
-        *shared.bands.lock().expect("bands") = (bands, Some(Instant::now()));
+        *lock_bands(shared) = (bands, Some(Instant::now()));
         if analyser.hops % 600 == 1 {
             log::info!(
                 "visuals: spectrum hop {}: {}",
@@ -179,7 +204,7 @@ fn run(shared: &Shared) {
 
 /// Adds a hop to the oscilloscope's frames while it asks for them.
 fn keep_recent(shared: &Shared, hop: &[[f32; 2]], rate: u32) {
-    let mut recent = shared.recent.lock().expect("recent");
+    let mut recent = lock_recent(shared);
     if recent.asked.is_none_or(|at| at.elapsed() > RECENT_FOR) {
         recent.frames.clear();
         return;
@@ -203,6 +228,9 @@ struct Analyser {
     /// than in every butterfly of every hop.
     twiddles: Vec<(f32, f32)>,
     history: Vec<f32>,
+    re: Vec<f32>,
+    im: Vec<f32>,
+    power: Vec<f32>,
     peak: f32,
     levels: [f32; BANDS],
     bass_slow: f32,
@@ -220,6 +248,9 @@ impl Analyser {
                 .collect(),
             twiddles: twiddles(FFT),
             history: vec![0.0; FFT],
+            re: vec![0.0; FFT],
+            im: vec![0.0; FFT],
+            power: vec![0.0; FFT / 2 + 1],
             peak: 1e-3,
             levels: [0.0; BANDS],
             bass_slow: 0.0,
@@ -235,8 +266,13 @@ impl Analyser {
         let excess = self.history.len().saturating_sub(FFT);
         self.history.drain(..excess);
         self.hops += 1;
-        let power = spectrum(&self.history, &self.window, &self.twiddles);
-        let raw = fold(&power, &self.edges);
+        spectrum(
+            &self.history,
+            &self.window,
+            &self.twiddles,
+            (&mut self.re, &mut self.im, &mut self.power),
+        );
+        let raw = fold(&self.power, &self.edges);
         // Automatic gain: the tap hears the mix after the volume, so levels
         // are relative to the recent loudest band.
         let loudest = raw.iter().copied().fold(0.0f32, f32::max);
@@ -294,15 +330,21 @@ fn fold(power: &[f32], edges: &[(usize, usize)]) -> [f32; BANDS] {
 }
 
 /// Power spectrum (|X|², first half) of the windowed samples.
-fn spectrum(samples: &[f32], window: &[f32], twiddles: &[(f32, f32)]) -> Vec<f32> {
-    let mut re: Vec<f32> = samples.iter().zip(window).map(|(s, w)| s * w).collect();
-    let mut im = vec![0.0f32; FFT];
-    fft(&mut re, &mut im, twiddles);
-    re.iter()
-        .zip(&im)
-        .take(FFT / 2 + 1)
-        .map(|(r, i)| (r * r + i * i) / FFT as f32)
-        .collect()
+fn spectrum(
+    samples: &[f32],
+    window: &[f32],
+    twiddles: &[(f32, f32)],
+    scratch: (&mut [f32], &mut [f32], &mut [f32]),
+) {
+    let (re, im, power) = scratch;
+    for (r, (s, w)) in re.iter_mut().zip(samples.iter().zip(window)) {
+        *r = s * w;
+    }
+    im.fill(0.0);
+    fft(re, im, twiddles);
+    for (p, (r, i)) in power.iter_mut().zip(re.iter().zip(im.iter())) {
+        *p = (r * r + i * i) / FFT as f32;
+    }
 }
 
 /// The twiddle factors for an `n`-point FFT: for each stage (`len` 2, 4,
@@ -358,11 +400,99 @@ fn fft(re: &mut [f32], im: &mut [f32], twiddles: &[(f32, f32)]) {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "FFT regressions assert nonempty fixed bands"
+)]
 mod tests {
     use super::*;
 
     const RATE: f32 = 48_000.0;
     const HOP: usize = 800;
+
+    #[test]
+    fn poisoned_publication_recovers_as_silence_and_accepts_the_next_hop() {
+        let shared = Arc::new(Shared::default());
+        let worker = shared.clone();
+        assert!(
+            std::thread::spawn(move || {
+                let mut bands = lock_bands(&worker);
+                *bands = (
+                    Bands {
+                        bass: 1.0,
+                        ..Bands::default()
+                    },
+                    Some(Instant::now()),
+                );
+                panic!("interrupted publication");
+            })
+            .join()
+            .is_err()
+        );
+        let tap = AudioTap {
+            shared: shared.clone(),
+        };
+        assert_eq!(tap.bands().bass, 0.0);
+        assert!(!shared.bands.is_poisoned());
+        *lock_bands(&shared) = (
+            Bands {
+                bass: 0.5,
+                ..Bands::default()
+            },
+            Some(Instant::now()),
+        );
+        assert_eq!(tap.bands().bass, 0.5);
+        let worker = shared.clone();
+        assert!(
+            std::thread::spawn(move || {
+                let mut recent = lock_recent(&worker);
+                recent.frames.push_back([1.0; 2]);
+                recent.rate = 48_000;
+                panic!("interrupted samples");
+            })
+            .join()
+            .is_err()
+        );
+        let mut out = Vec::new();
+        assert_eq!(tap.recent(0.1, &mut out), 0);
+        assert!(out.is_empty());
+        assert!(!shared.recent.is_poisoned());
+        keep_recent(&shared, &[[0.5; 2]], 48_000);
+        assert_eq!(tap.recent(0.1, &mut out), 48_000);
+        assert_eq!(out, [[0.5; 2]]);
+    }
+
+    #[test]
+    fn fft_scratch_is_reused_and_matches_allocating_analysis() {
+        let mut analyser = Analyser::new(RATE as u32);
+        let storage = |a: &Analyser| {
+            [
+                (a.re.as_ptr(), a.re.capacity()),
+                (a.im.as_ptr(), a.im.capacity()),
+                (a.power.as_ptr(), a.power.capacity()),
+            ]
+        };
+        let before = storage(&analyser);
+        for hop in 0..20 {
+            analyser.hop(tone(1000.0, hop));
+            let mut re: Vec<f32> = analyser
+                .history
+                .iter()
+                .zip(&analyser.window)
+                .map(|(s, w)| s * w)
+                .collect();
+            let mut im = vec![0.0; FFT];
+            fft(&mut re, &mut im, &analyser.twiddles);
+            let power: Vec<f32> = re
+                .iter()
+                .zip(&im)
+                .take(FFT / 2 + 1)
+                .map(|(r, i)| (r * r + i * i) / FFT as f32)
+                .collect();
+            assert_eq!(analyser.power, power);
+            assert_eq!(storage(&analyser), before);
+        }
+    }
 
     fn tone(hz: f32, hop: u64) -> impl ExactSizeIterator<Item = f32> {
         (0..HOP).map(move |i| {

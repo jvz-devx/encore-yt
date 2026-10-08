@@ -67,6 +67,10 @@ impl Scrim {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "GPU regression fixtures require successful frames"
+)]
 mod tests {
     use super::*;
     use crate::color;

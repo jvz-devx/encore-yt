@@ -3,8 +3,8 @@
 Reviewed from `98bd893` on the `quality` branch, 2026-10-08. Scope is all
 six workspace crates, including examples and tests. Findings are ordered
 by risk within each crate. Each item records its fix or an explicit
-retention decision. Visuals implementation findings are deferred under
-the orchestrator's ownership instruction.
+retention decision. Visuals implementation findings are tracked separately
+below.
 
 The baseline command was:
 
@@ -235,29 +235,41 @@ ignored `artifacts/quality-clippy.txt`, not in Git.
 
 ## Visuals, deferred implementation
 
-- V5, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `visuals/src/pipelines.rs::DiskCache::open` feeds disk bytes to unsafe
-  pipeline-cache creation. Its comment assumes unchanged `get_data`
-  output. Wgpu 29's local API safety documentation requires that origin;
-  adapter/header compatibility checks are not an integrity guarantee.
-  Review the cache trust policy and comment together.
-- V1, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  `spectrum.rs` has mutex expects and FFT scratch allocation; renderer,
-  strip, scene and visualizer allocate per-frame uniform vectors.
+- V5, medium, fixed: private `pipeline_cache.rs` owns the disk boundary.
+  A versioned envelope checks adapter/driver identity, exact payload length
+  and a whole-payload FNV-1a checksum before cache creation. Reads are
+  bounded to 64 MiB. Unix reads require a private directory, a private
+  regular file with the directory's owner, and matching opened inode;
+  symlinks are rejected. Writes use exclusive mode-0600 temporary files,
+  sync and atomic rename. Old unwrapped caches are discarded. Windows
+  relies on the per-user directory's inherited ACL, not a Unix mode check.
+  The explicit trust assumption is a non-hostile local cache owner and
+  privileged software. The checksum detects accidental corruption, not
+  authenticated provenance or deliberate forgery by that owner. Wgpu 29
+  explicitly leaves persisted-cache risk assessment to the application;
+  the SAFETY comment records this assumption, rather than treating adapter
+  compatibility as integrity. Foreign/imported caches are unsupported.
+  Tests cover every changed/truncated envelope byte, extra bytes, wrong
+  identity, private modes, symlinks, GPU reload and corrupt-cache fallback.
+- V1, medium, fixed: poisoned spectrum locks reset partial publication,
+  clear poison and report once, then accept subsequent hops. Real,
+  imaginary and power-spectrum storage is reused. All five shader effects
+  encode their fixed uniform blocks into stack arrays without float/byte
+  vectors. A regression compares every reused FFT result with the previous
+  allocating calculation and checks scratch addresses/capacities.
 - V2, medium, deferred: owned by another agent, the orchestrator hands them back after it merges.
   `app/src/visuals/frames.rs` expects image-size consistency; effects
   discard paint errors. Separate teardown-only failures from invalid frames.
 - V3, low, deferred: owned by another agent, the orchestrator hands them back after it merges.
   App visuals configuration/effects mix responsibilities in large modules;
   visualizer/pipeline argument-count allowances lack reasons.
-- V4, low, deferred: owned by another agent, the orchestrator hands them back after it merges.
-  Borrowed frame-parameter lifetime annotations remain implicit. A scoped
-  allowance records that deferral. CLI example stdout is intentional.
+- V4, low, fixed in the renderer crate: borrowed `SceneParams<'_>` and
+  `VisualizerParams<'_>` paths are explicit. Its root lifetime and panic
+  allowances are removed; only named regression-test modules allow
+  assertion expects with reasons. CLI example stdout remains intentional.
 
-`6180dd0` adds the authorized panic-lint exceptions at the two visuals
-roots, the lifetime exception in the visuals crate, and intended-output
-annotations for its examples. The manifest inherits workspace lints.
-Rendering implementations were not changed.
+`6180dd0` introduced the deferred root exceptions. The renderer crate now
+inherits the workspace's panic and lifetime lints without those exceptions.
 
 ## Workspace decisions
 

@@ -4,9 +4,10 @@
 
 use anyhow::Result;
 
-use crate::gpu::{Gpu, bytes};
+use crate::gpu::Gpu;
 use crate::renderer::Look;
 use crate::target::{Frame, Target};
+use crate::uniform::Uniform;
 
 /// A decoded image as GPUI keeps it: width, height and BGRA bytes.
 pub type Pixels<'a> = (u32, u32, &'a [u8]);
@@ -90,7 +91,8 @@ impl Dissolve {
         };
         let (width, height) = self.target.size();
         let light = if look == Look::Light { 1.0 } else { 0.0 };
-        let floats = [
+        let mut uniform = Uniform::<48>::new();
+        uniform.extend([
             progress,
             light,
             width as f32,
@@ -103,10 +105,10 @@ impl Dissolve {
             self.crop[1],
             self.crop[2],
             self.crop[3],
-        ];
+        ]);
         self.gpu
             .queue
-            .write_buffer(&self.uniforms, 0, &bytes(&floats));
+            .write_buffer(&self.uniforms, 0, &uniform.finish());
         let pipeline = &self.pipeline;
         self.target.frame(&self.gpu, |pass| {
             pass.set_pipeline(pipeline);
@@ -117,6 +119,10 @@ impl Dissolve {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "GPU regression fixtures require successful frames"
+)]
 mod tests {
     use super::*;
 

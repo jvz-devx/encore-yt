@@ -12,11 +12,12 @@
 
 use anyhow::Result;
 
-use crate::gpu::{Gpu, bytes};
+use crate::gpu::Gpu;
 use crate::renderer::{Look, colour_kept};
 use crate::scrim::Scrim;
 use crate::spectrum::BANDS;
 use crate::target::{Frame, Target};
+use crate::uniform::Uniform;
 
 /// 29 vec4s: audio, output, tune, env, seed, clock, 4 palette colours,
 /// 8 of bands, the motion clocks and the scrim's 10 ([`Scrim`]).
@@ -205,7 +206,7 @@ impl Scene {
     }
 
     /// Renders a frame and returns the one rendered on the previous call.
-    pub fn frame(&mut self, params: &SceneParams) -> Result<Option<Frame>> {
+    pub fn frame(&mut self, params: &SceneParams<'_>) -> Result<Option<Frame>> {
         let uniforms = self.params_bytes(params);
         self.gpu.queue.write_buffer(&self.uniforms, 0, &uniforms);
         let (gpu, group) = (&self.gpu, &self.bind_group);
@@ -214,7 +215,7 @@ impl Scene {
     }
 
     /// Renders a frame and waits for it.
-    pub fn frame_now(&mut self, params: &SceneParams) -> Result<Frame> {
+    pub fn frame_now(&mut self, params: &SceneParams<'_>) -> Result<Frame> {
         let uniforms = self.params_bytes(params);
         self.gpu.queue.write_buffer(&self.uniforms, 0, &uniforms);
         let (gpu, group) = (&self.gpu, &self.bind_group);
@@ -222,11 +223,12 @@ impl Scene {
             .frame_now(gpu, |pass| draw(gpu, group, params.kind, pass))
     }
 
-    fn params_bytes(&self, p: &SceneParams) -> Vec<u8> {
+    fn params_bytes(&self, p: &SceneParams<'_>) -> [u8; PARAMS_SIZE as usize] {
         let flag = |on: bool| if on { 1.0 } else { 0.0 };
         let (width, height) = self.target.size();
         let pace = p.pace;
-        let mut floats = vec![p.seconds, p.bass, p.kick, p.level];
+        let mut floats = Uniform::new();
+        floats.extend([p.seconds, p.bass, p.kick, p.level]);
         floats.extend([
             width as f32,
             height as f32,
@@ -247,10 +249,10 @@ impl Scene {
         for colour in &p.palette {
             floats.extend([colour[0], colour[1], colour[2], 1.0]);
         }
-        floats.extend(p.levels);
+        floats.extend(p.levels.iter().copied());
         floats.extend([flow, sparkle, pace.drive[0], pace.drive[1]]);
         floats.extend(p.scrim.floats());
-        bytes(&floats)
+        floats.finish()
     }
 }
 
@@ -280,6 +282,10 @@ fn draw(gpu: &Gpu, group: &wgpu::BindGroup, kind: SceneKind, pass: &mut wgpu::Re
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "GPU regression fixtures require successful frames"
+)]
 mod tests {
     use super::*;
 

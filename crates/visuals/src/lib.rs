@@ -23,21 +23,12 @@
 //!
 //! Findings and numbers: `docs/gpui/VISUALS.md`.
 
-#![allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    reason = "deferred to the visuals task: docs/gpui/CODE-QUALITY.md V1 and V3"
-)]
-#![allow(
-    elided_lifetimes_in_paths,
-    reason = "deferred borrowed frame-parameter annotations: docs/gpui/CODE-QUALITY.md V4"
-)]
-
 pub mod clock;
 pub mod color;
 mod cover;
 mod dissolve;
 mod gpu;
+mod pipeline_cache;
 mod pipelines;
 mod renderer;
 mod scene;
@@ -46,6 +37,7 @@ mod scrim;
 mod spectrum;
 mod strip;
 mod target;
+mod uniform;
 mod visualizer;
 pub mod waveform;
 

@@ -5,9 +5,10 @@
 use anyhow::Result;
 
 use crate::color::{luminance, oklab, oklab_to_linear, to_linear};
-use crate::gpu::{Gpu, bytes};
+use crate::gpu::Gpu;
 use crate::renderer::Look;
 use crate::target::{Frame, Target};
+use crate::uniform::Uniform;
 
 /// The waveform and heat textures' width: the song's outline and replay
 /// heat resampled to this.
@@ -164,14 +165,15 @@ impl Strip {
         })
     }
 
-    fn params_bytes(&self, p: &StripParams) -> Vec<u8> {
+    fn params_bytes(&self, p: &StripParams) -> [u8; PARAMS_SIZE as usize] {
         let flag = |on: bool| if on { 1.0 } else { 0.0 };
         let (width, height) = self.target.size();
         let c = &p.colors;
         let seek = p.seek.unwrap_or_default();
         let play = p.play.unwrap_or_default();
         let (cover, corner) = p.cover.unwrap_or_default();
-        let mut floats = vec![p.seconds, p.breath, p.kick, p.glow];
+        let mut floats = Uniform::new();
+        floats.extend([p.seconds, p.breath, p.kick, p.glow]);
         floats.extend([
             width as f32,
             height as f32,
@@ -207,7 +209,7 @@ impl Strip {
             let lab = oklab(to_linear([colour[0], colour[1], colour[2]]));
             floats.extend([lab[1], lab[2], 0.0, 0.0]);
         }
-        bytes(&floats)
+        floats.finish()
     }
 }
 
@@ -244,6 +246,10 @@ fn texels(values: &[f32]) -> Vec<u8> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    reason = "GPU regression fixtures require successful frames"
+)]
 mod tests {
     use super::*;
 

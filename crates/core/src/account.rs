@@ -159,14 +159,15 @@ pub struct AccountState {
     next_op: u64,
     /// A move waiting for the next part of its playlist to load.
     deferred_move: Option<DeferredMove>,
-    /// Songs listed in Liked music. YouTube Music's rows sometimes rate a
-    /// liked song `INDIFFERENT` (on an artist page, even in Liked music
-    /// itself); for these songs such a read doesn't unlike them.
+    /// Songs listed in Liked music or Library Songs. YouTube Music's rows
+    /// sometimes rate a liked song `INDIFFERENT` (on an artist page, even
+    /// in these lists themselves); for these songs such a read doesn't
+    /// unlike them.
     liked_list: HashSet<String>,
 }
 
-/// The Liked music list, whose rows are liked whatever they say.
-const LIKED_LIST: &str = "browse:FEmusic_liked_videos:";
+/// Liked music and Library Songs, whose rows are liked whatever they say.
+const LIKED_LISTS: [&str; 2] = ["browse:VLLM:", "browse:FEmusic_liked_videos:"];
 
 impl AccountState {
     /// Changes still waiting for YouTube Music's answer.
@@ -1023,10 +1024,10 @@ impl AccountState {
         }
     }
 
-    /// Rows of Liked music (a saved copy, a fresh one or more of its rows)
-    /// are liked songs, whatever rating each row carries.
+    /// Rows of Liked music or Library Songs (a saved copy, a fresh one or
+    /// more of its rows) are liked songs, whatever rating each row carries.
     fn read_liked_list<P: CachedPage>(&mut self, pages: &HashMap<String, P>, key: &str) {
-        if key != LIKED_LIST {
+        if !LIKED_LISTS.contains(&key) {
             return;
         }
         let Some(page) = pages.get(key).and_then(CachedPage::page) else {
@@ -1108,8 +1109,9 @@ impl AccountState {
         effects
     }
 
-    /// More rows of the page cached under `key` arrived: a move waiting for
-    /// the rows after the one it was dropped on is made now.
+    /// More rows of the page cached under `key` arrived: liked-list songs
+    /// are recorded, and a move waiting for the rows after the one it was
+    /// dropped on is made now.
     pub fn more_arrived<P: CachedPage>(&mut self, host: &mut Host<'_, P>, key: &str) -> Effects {
         let mut effects = Effects::default();
         self.read_liked_list(host.pages, key);
@@ -1257,45 +1259,94 @@ mod tests {
 
     #[test]
     fn songs_in_liked_music_stay_liked_where_rows_say_otherwise() {
-        let mut state = AccountState::default();
-        let mut pages = HashMap::new();
-        // Liked music lists a song whose own row says INDIFFERENT.
-        arrive(
-            &mut state,
-            &mut pages,
-            Target::browse("FEmusic_liked_videos"),
-            vec![
-                song("a", LikeStatus::Like),
-                song("b", LikeStatus::Indifferent),
-            ],
-        );
-        assert_eq!(
-            shown(&state, &song("b", LikeStatus::Indifferent)),
-            LikeStatus::Like
-        );
-        // An artist page and watch-next rate both songs INDIFFERENT later.
-        arrive(
-            &mut state,
-            &mut pages,
-            Target::browse("UCartist"),
-            vec![
-                song("a", LikeStatus::Indifferent),
-                song("c", LikeStatus::Indifferent),
-            ],
-        );
-        state.likes_fetched(vec![("b".into(), LikeStatus::Indifferent)]);
-        assert_eq!(
-            shown(&state, &song("a", LikeStatus::Indifferent)),
-            LikeStatus::Like
-        );
-        assert_eq!(
-            shown(&state, &song("b", LikeStatus::Indifferent)),
-            LikeStatus::Like
-        );
-        // Songs Liked music doesn't list keep the rating their rows carry.
-        assert_eq!(
-            shown(&state, &song("c", LikeStatus::Indifferent)),
-            LikeStatus::Indifferent
-        );
+        for browse_id in ["FEmusic_liked_videos", "VLLM"] {
+            let mut state = AccountState::default();
+            let mut pages = HashMap::new();
+            let target = Target::browse(browse_id);
+            let key = target.key();
+            // Both lists include songs whose own rows say INDIFFERENT.
+            arrive(
+                &mut state,
+                &mut pages,
+                target,
+                vec![
+                    song("a", LikeStatus::Like),
+                    song("b", LikeStatus::Indifferent),
+                ],
+            );
+            assert_eq!(
+                shown(&state, &song("b", LikeStatus::Indifferent)),
+                LikeStatus::Like
+            );
+            // A later row counts as liked even when its own rating disagrees.
+            pages.get_mut(&key).unwrap().0.shelves[0]
+                .items
+                .push(song("d", LikeStatus::Indifferent));
+            let send = |_: Command| {};
+            let _effects = state.more_arrived(
+                &mut Host {
+                    pages: &mut pages,
+                    send: &send,
+                    signed_in: true,
+                },
+                &key,
+            );
+            assert_eq!(
+                shown(&state, &song("d", LikeStatus::Indifferent)),
+                LikeStatus::Like
+            );
+            // An artist page and watch-next rate the listed songs INDIFFERENT later.
+            arrive(
+                &mut state,
+                &mut pages,
+                Target::browse("UCartist"),
+                vec![
+                    song("a", LikeStatus::Indifferent),
+                    song("c", LikeStatus::Indifferent),
+                    song("d", LikeStatus::Indifferent),
+                ],
+            );
+            state.likes_fetched(vec![
+                ("b".into(), LikeStatus::Indifferent),
+                ("d".into(), LikeStatus::Indifferent),
+            ]);
+            assert_eq!(
+                shown(&state, &song("a", LikeStatus::Indifferent)),
+                LikeStatus::Like
+            );
+            assert_eq!(
+                shown(&state, &song("b", LikeStatus::Indifferent)),
+                LikeStatus::Like
+            );
+            assert_eq!(
+                shown(&state, &song("d", LikeStatus::Indifferent)),
+                LikeStatus::Like
+            );
+            // Songs absent from the liked lists keep their row ratings.
+            assert_eq!(
+                shown(&state, &song("c", LikeStatus::Indifferent)),
+                LikeStatus::Indifferent
+            );
+            // An accepted unlike removes membership; liking again restores it.
+            for status in [LikeStatus::Indifferent, LikeStatus::Like] {
+                let mut host = Host {
+                    pages: &mut pages,
+                    send: &send,
+                    signed_in: true,
+                };
+                let _effects = state.act(
+                    &mut host,
+                    AccountAction::Rate {
+                        track: song("b", LikeStatus::Indifferent).track.unwrap(),
+                        status,
+                    },
+                );
+                assert_eq!(shown(&state, &song("b", LikeStatus::Indifferent)), status);
+                let _effects = state.edited(&mut host, state.next_op, Ok(Done::Ok));
+                assert_eq!(state.liked_list.contains("b"), status == LikeStatus::Like);
+                state.likes_fetched(vec![("b".into(), LikeStatus::Indifferent)]);
+                assert_eq!(shown(&state, &song("b", LikeStatus::Indifferent)), status);
+            }
+        }
     }
 }

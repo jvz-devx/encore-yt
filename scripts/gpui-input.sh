@@ -110,7 +110,12 @@ launch() {
     local bin="${1:-target/debug/encore-yt}"
     stop
     mkdir -p artifacts/gpui
-    setsid "$bin" >artifacts/gpui/run.log 2>&1 </dev/null &
+    # Checks start the app with fresh settings, so each launch would ask
+    # GitHub's API for updates, and its 60 requests an hour per address then
+    # run out for everyone here (the install scripts included). A closed
+    # local port makes the check fail quietly instead.
+    ENCORE_UPDATE_FEED="${ENCORE_UPDATE_FEED-http://127.0.0.1:9/releases}" \
+        setsid "$bin" >artifacts/gpui/run.log 2>&1 </dev/null &
     # Put the window where checks expect it once it maps. Placing is
     # idempotent, so repeat it: a slow start maps the window late.
     local i

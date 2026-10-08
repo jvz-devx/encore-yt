@@ -38,6 +38,7 @@
 
     # The pinned release, or the newest one (the list is newest first and
     # includes pre-releases). Piping enumerates the array in 5.1 as well.
+    $release = $null
     try {
         if ($env:ENCORE_VERSION) {
             $release = Invoke-RestMethod -UseBasicParsing -Headers $headers -Uri "$api/releases/tags/$env:ENCORE_VERSION"
@@ -45,17 +46,62 @@
             $release = Invoke-RestMethod -UseBasicParsing -Headers $headers -Uri "$api/releases?per_page=1" | Select-Object -First 1
         }
     } catch {
-        if ($env:ENCORE_VERSION) { throw "No release $env:ENCORE_VERSION." }
-        throw "Couldn't reach GitHub Releases: $($_.Exception.Message)"
+        # The API allows 60 requests an hour per address without a login;
+        # the download links below work without it.
+        Write-Host "GitHub's API didn't answer ($($_.Exception.Message)); using the release pages."
     }
-    if (-not $release -or -not $release.tag_name) {
-        throw "Couldn't find a release."
-    }
-    $version = $release.tag_name -replace '^v', ''
-    $name = "encore-yt-$version-windows-x86_64-setup.exe"
-    $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
-    if (-not $asset) {
-        throw "Release $($release.tag_name) has no $name."
+
+    $setupUrl = $null
+    $sumsUrl = $null
+    $digest = $null
+    if ($release -and $release.tag_name) {
+        $tag = $release.tag_name
+        $version = $tag -replace '^v', ''
+        $name = "encore-yt-$version-windows-x86_64-setup.exe"
+        $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Release $tag has no $name."
+        }
+        $setupUrl = $asset.browser_download_url
+        $sums = $release.assets | Where-Object { $_.name -eq 'checksums.txt' } | Select-Object -First 1
+        if ($sums) { $sumsUrl = $sums.browser_download_url }
+        if ($asset.PSObject.Properties['digest'] -and $asset.digest) {
+            $digest = $asset.digest -replace '^sha256:', ''
+        }
+    } else {
+        # The pinned tag, or the newest tags on the release feed, which
+        # lists a tag before its files are up: the first with a setup wins.
+        if ($env:ENCORE_VERSION) {
+            $tags = @($env:ENCORE_VERSION)
+        } else {
+            try {
+                $feed = (Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "https://github.com/$repo/releases.atom").Content
+            } catch {
+                throw "Couldn't reach GitHub Releases: $($_.Exception.Message)"
+            }
+            if ($feed -is [byte[]]) { $feed = [Text.Encoding]::UTF8.GetString($feed) }
+            $tags = [regex]::Matches($feed, 'releases/tag/([^"<]+)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -First 5
+        }
+        foreach ($candidate in $tags) {
+            $candidateVersion = $candidate -replace '^v', ''
+            $candidateName = "encore-yt-$candidateVersion-windows-x86_64-setup.exe"
+            $url = "https://github.com/$repo/releases/download/$candidate/$candidateName"
+            try {
+                Invoke-WebRequest -UseBasicParsing -Headers $headers -Method Head -Uri $url | Out-Null
+            } catch {
+                continue
+            }
+            $tag = $candidate
+            $version = $candidateVersion
+            $name = $candidateName
+            $setupUrl = $url
+            $sumsUrl = "https://github.com/$repo/releases/download/$tag/checksums.txt"
+            break
+        }
+        if (-not $setupUrl) {
+            if ($env:ENCORE_VERSION) { throw "No release $env:ENCORE_VERSION." }
+            throw "Couldn't find a release."
+        }
     }
 
     $work = Join-Path ([IO.Path]::GetTempPath()) ("encore-yt-install-" + [guid]::NewGuid().ToString('N'))
@@ -63,14 +109,17 @@
     try {
         $setup = Join-Path $work $name
         Write-Host "Downloading Encore $version..."
-        Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $asset.browser_download_url -OutFile $setup
+        Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $setupUrl -OutFile $setup
 
         # The SHA-256 from checksums.txt, else the digest GitHub records
         # (for releases made before checksums.txt).
         $expected = $null
-        $sums = $release.assets | Where-Object { $_.name -eq 'checksums.txt' } | Select-Object -First 1
-        if ($sums) {
-            $text = (Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $sums.browser_download_url).Content
+        if ($sumsUrl) {
+            try {
+                $text = (Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $sumsUrl).Content
+            } catch {
+                $text = ''
+            }
             if ($text -is [byte[]]) { $text = [Text.Encoding]::UTF8.GetString($text) }
             foreach ($line in ($text -split "`r?`n")) {
                 $fields = $line.Trim() -split '\s+'
@@ -80,8 +129,8 @@
                 }
             }
         }
-        if (-not $expected -and $asset.PSObject.Properties['digest'] -and $asset.digest) {
-            $expected = $asset.digest -replace '^sha256:', ''
+        if (-not $expected -and $digest) {
+            $expected = $digest
         }
         if (-not $expected) {
             throw "The release lists no checksum for $name."

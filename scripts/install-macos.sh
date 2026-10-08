@@ -66,13 +66,38 @@ check_macos() {
 }
 
 # The release's JSON: the pinned tag, or the newest release (the list is
-# newest first and includes pre-releases).
+# newest first and includes pre-releases). Empty when the API refuses: it
+# allows 60 requests an hour per address without a login.
 release_json() {
 	if [[ -n "${ENCORE_VERSION:-}" ]]; then
-		curl -fsSL "$API/releases/tags/$ENCORE_VERSION" || die "No release $ENCORE_VERSION."
+		curl -fsSL "$API/releases/tags/$ENCORE_VERSION" 2>/dev/null || true
 	else
-		curl -fsSL "$API/releases?per_page=1" || die "Couldn't reach GitHub Releases."
+		curl -fsSL "$API/releases?per_page=1" 2>/dev/null || true
 	fi
+}
+
+# Without the API: the pinned tag, or the newest tags on the release feed
+# (github.com, not rate limited; it lists a tag before its files are up, so
+# the first tag whose disk image $1 exists wins).
+feed_tag() {
+	local tags tag
+	if [[ -n "${ENCORE_VERSION:-}" ]]; then
+		tags="$ENCORE_VERSION"
+	else
+		tags="$(curl -fsSL "https://github.com/$REPO/releases.atom" 2>/dev/null |
+			grep -o 'releases/tag/[^"<]*' | sed 's|^releases/tag/||' |
+			awk '!seen[$0]++ && n++ < 5' || true)"
+	fi
+	for tag in $tags; do
+		if curl -fsIL -o /dev/null "https://github.com/$REPO/releases/download/$tag/encore-yt-${tag#v}-$1.dmg" 2>/dev/null; then
+			echo "$tag"
+			return 0
+		fi
+	done
+	if [[ -n "${ENCORE_VERSION:-}" ]]; then
+		die "No release $ENCORE_VERSION."
+	fi
+	die "Couldn't reach GitHub Releases."
 }
 
 # The first "tag_name" in the JSON on stdin. (awk reads to the end, so
@@ -97,7 +122,7 @@ expected_sha256() {
 		sum="$(awk -v file="$file" '$2 == file || $2 == "*" file { print $1; exit }' "$work/checksums.txt")"
 	fi
 	if [[ -z "$sum" ]]; then
-		sum="$(printf '%s' "$json" | api_digest "$file")"
+		sum="$(printf '%s' "$json" | api_digest "$file" || true)"
 	fi
 	[[ -n "$sum" ]] || die "The release lists no checksum for $file."
 	echo "$sum"
@@ -155,8 +180,10 @@ main() {
 	work="$(mktemp -d "${TMPDIR:-/tmp}/encore-install.XXXXXX")"
 
 	json="$(release_json)"
-	tag="$(printf '%s' "$json" | tag_name)"
-	[[ -n "$tag" ]] || die "Couldn't find a release."
+	tag="$(printf '%s' "$json" | tag_name || true)"
+	if [[ -z "$tag" ]]; then
+		tag="$(feed_tag "macos-$arch")"
+	fi
 	version="${tag#v}"
 	file="encore-yt-$version-macos-$arch.dmg"
 	base="https://github.com/$REPO/releases/download/$tag"

@@ -2,7 +2,7 @@
 
 A native YouTube Music app for the desktop, written in Rust with [GPUI](https://www.gpui.rs), the UI framework behind the Zed editor. No Electron, no webview: GPUI draws the interface on the GPU, custom wgpu shaders draw the effects, and a built-in Rust audio engine plays the music. It runs on Linux (built for KDE Plasma on Wayland, X11 works too), Windows and macOS.
 
-![Now Playing: the backdrop, spectrum and waveform come from the cover and the music](docs/screenshots/gpui-now-playing.png)
+![Home, an album, Now Playing with lyrics, then the full-window visualiser](docs/screenshots/encore.gif)
 
 It's unofficial and not affiliated with YouTube or Google. It uses YouTube Music's private web API, so a change on YouTube's side can break it. It talks only to YouTube and Google, and to LRCLIB for timed lyrics (sending a song's title, artist, album and length, nothing else). No telemetry, no server of its own.
 
@@ -48,9 +48,10 @@ Media keys and the system's media controls work everywhere (MPRIS on Linux, the 
 
 ## What it does
 
-- **Browse like YouTube Music:** Home with mood chips, Explore, Library (playlists, songs, albums, artists, history), album, artist, playlist and mood pages, search with suggestions and recent searches. The sidebar holds Liked music, your playlists and what you played recently.
+- **Browse like YouTube Music:** Home with mood chips, Explore, Library (playlists, songs, albums, artists, history), album, artist, playlist and mood pages, search with suggestions and recent searches. Hovering a song or card loads its page ahead, unless the connection is metered. The sidebar holds Liked music, your playlists and what you played recently.
 - **Play:** a built-in Rust player with gapless playback at the best quality your account gets (Opus 256 kbps with Premium, about 160 kbps without), a queue you can edit and reorder, autoplay radios, timed lyrics that follow the song, Related, and loudness levelling between songs.
-- **Effects:** Now Playing and Stage have a slowly flowing backdrop made from the cover with fine sparkles drifting round a soft light wave, a spectrum of the music and the song's waveform; the player bar glows in the cover's colours, its seek bar shows the waveform, and covers dissolve into each other on a new song. An audio visualiser (bars, mirrored bars, a ring round the cover, a line or a particle field) shows in Now Playing, in Stage or on its own full window (V). Settings → Visuals sets everything: presets (Off, Calm, Default, Vivid), each effect's switch and strengths, the particles' size, amount and twinkle, the visualiser's style, bars, sensitivity, frequencies and colours, and the frame rate (15 to 120 fps or the display's). Effects stop when hidden or paused and honour reduced motion.
+- **Effects:** Now Playing and Stage have a slowly flowing backdrop made from the cover with fine sparkles drifting round a soft light wave, a spectrum of the music and the song's waveform; the player bar glows in the cover's colours, its seek bar shows the waveform, and covers dissolve into each other on a new song. The visualiser has nine styles: bars, mirrored bars, a ring round the cover, a line, a particle field, an oscilloscope and three 3D scenes (XMB, Ridges and Aurora). It shows in Now Playing, in Stage or on its own full window (V); in the light look a soft scrim keeps text readable over a scene. Effects stop when hidden or paused and honour reduced motion.
+- **Settings:** Ctrl+, opens Settings as a window over the app, with a search field (**/**), a strip of key hints along the bottom and keyboard control throughout. Visuals has presets (Off, Calm, Default, Vivid), tabs for the backdrop, particles, player bar, visualiser and 3D scenes (strengths, detail, resolution, where a scene fills), and the frame rate (15 to 120 fps or the display's).
 - **Motion:** pages slide, scale or fade in the way you navigate, lyrics glide to the current line and fill as it's sung; Settings sets the speed, each kind of animation and reduced motion.
 - **Extras:** a 10-band equalizer, a sleep timer, smooth mixes (crossfades on radios), audition (hold Alt over a song to hear its best part), the most-replayed part on the seek bar, Stage (cover and big lyrics, full screen) and a mini player.
 - **Your account:** likes, saving albums and playlists, subscribing, and creating, editing and deleting playlists; plays count in your history.
@@ -58,8 +59,12 @@ Media keys and the system's media controls work everywhere (MPRIS on Linux, the 
 
 | | |
 | --- | --- |
-| ![Home](docs/screenshots/gpui-home.png) | ![Home in the light theme](docs/screenshots/gpui-home-light.png) |
-| ![An album page](docs/screenshots/gpui-album.png) | ![Stage](docs/screenshots/gpui-stage.png) |
+| ![Home](docs/screenshots/home.png) | ![Now Playing, with the cover's backdrop](docs/screenshots/now-playing.png) |
+| Home | Now Playing: the backdrop follows the cover and the music |
+| ![The Aurora scene as the full-window visualiser](docs/screenshots/visualiser.png) | ![Now Playing in the light look, over an XMB scene](docs/screenshots/now-playing-light.png) |
+| The full-window visualiser (V), here Aurora | The light look, with a 3D scene behind a soft scrim |
+| ![Settings, Visuals, 3D](docs/screenshots/settings.png) | ![Stage with lyrics](docs/screenshots/stage.png) |
+| Settings → Visuals → 3D | Stage, with lyrics that follow the song |
 
 These were taken signed out (with a local test track playing), so they show public YouTube Music.
 

@@ -57,7 +57,7 @@ fn scan_blocking(wait: Duration) -> Result<Vec<CastDevice>> {
             found.insert(device.id.clone(), device);
         }
     }
-    let _ = daemon.shutdown();
+    daemon.shutdown().context("stop mDNS discovery")?;
     let mut devices: Vec<_> = found.into_values().collect();
     devices.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(devices)
@@ -70,9 +70,7 @@ fn device(
     addresses: impl Iterator<Item = IpAddr>,
     txt: impl Fn(&str) -> Option<String>,
 ) -> Option<CastDevice> {
-    let mut addresses: Vec<IpAddr> = addresses.collect();
-    addresses.sort_by_key(|ip| !ip.is_ipv4());
-    let ip = *addresses.first()?;
+    let ip = addresses.min_by_key(|ip| !ip.is_ipv4())?;
     let id = txt("id")?;
     Some(CastDevice {
         name: txt("fn").unwrap_or_else(|| id.clone()),

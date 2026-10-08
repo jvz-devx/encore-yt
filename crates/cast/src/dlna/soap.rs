@@ -38,8 +38,9 @@ pub async fn call(
     let http = match HTTP.get() {
         Some(http) => http,
         None => {
+            // Another caller may initialize the same shared client first.
             let _ = HTTP.set(super::client()?);
-            HTTP.get().expect("set above")
+            HTTP.get().context("SOAP client was not initialized")?
         }
     };
     let response = http
@@ -51,7 +52,7 @@ pub async fn call(
         .await
         .with_context(|| action.to_owned())?;
     let status = response.status();
-    let body = response.text().await?;
+    let body = response.text().await.context("read SOAP response")?;
     let root = Node::parse(&body).with_context(|| format!("{action}: HTTP {status}, not XML"))?;
     if !status.is_success() {
         let error = root.find("UPnPError");
@@ -59,10 +60,9 @@ pub async fn call(
         let text = error.map_or("", |e| e.text_of("errorDescription"));
         bail!("{action}: HTTP {status}, UPnP error {code} {text}");
     }
-    Ok(root
-        .find(&format!("{action}Response"))
+    root.find(&format!("{action}Response"))
         .cloned()
-        .unwrap_or_default())
+        .with_context(|| format!("missing {action}Response in SOAP reply"))
 }
 
 #[cfg(test)]

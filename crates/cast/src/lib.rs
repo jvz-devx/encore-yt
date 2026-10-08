@@ -14,6 +14,7 @@ mod http;
 pub mod mdns;
 pub mod relay;
 pub mod ssdp;
+mod sync;
 mod xml;
 
 #[cfg(test)]
@@ -21,15 +22,15 @@ mod tests;
 
 pub use device::{Device, Kind};
 
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
 /// The address of this machine that `peer` would see: the interface the
 /// route to it leaves by. No packet is sent (a UDP "connect" only picks the
 /// route), so this is the address to put in URLs the device fetches.
 pub fn local_ip_for(peer: IpAddr) -> std::io::Result<IpAddr> {
     let bind: SocketAddr = match peer {
-        IpAddr::V4(_) => "0.0.0.0:0".parse().expect("valid address"),
-        IpAddr::V6(_) => "[::]:0".parse().expect("valid address"),
+        IpAddr::V4(_) => (Ipv4Addr::UNSPECIFIED, 0).into(),
+        IpAddr::V6(_) => (Ipv6Addr::UNSPECIFIED, 0).into(),
     };
     let socket = UdpSocket::bind(bind)?;
     socket.connect(SocketAddr::new(peer, 9))?;

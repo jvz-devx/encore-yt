@@ -34,22 +34,31 @@ impl Node {
                         name: local(start.local_name().as_ref()),
                         ..Node::default()
                     };
-                    stack.last_mut().expect("root").children.push(node);
+                    stack
+                        .last_mut()
+                        .context("missing XML root")?
+                        .children
+                        .push(node);
                 }
-                Event::Text(text) => raw.last_mut().expect("root").push_str(&text.decode()?),
+                Event::Text(text) => raw
+                    .last_mut()
+                    .context("missing XML text root")?
+                    .push_str(&text.decode()?),
                 Event::CData(data) => {
                     let data = data.decode()?;
                     raw.last_mut()
-                        .expect("root")
+                        .context("missing XML text root")?
                         .push_str(&quick_xml::escape::escape(&*data));
                 }
                 Event::GeneralRef(entity) => {
                     let name = entity.decode()?;
-                    raw.last_mut().expect("root").push_str(&format!("&{name};"));
+                    raw.last_mut()
+                        .context("missing XML text root")?
+                        .push_str(&format!("&{name};"));
                 }
                 Event::End(_) => {
                     let mut node = stack.pop().context("unbalanced XML")?;
-                    let text = raw.pop().unwrap_or_default();
+                    let text = raw.pop().context("unbalanced XML text")?;
                     node.text = quick_xml::escape::unescape(text.trim())?.into_owned();
                     stack
                         .last_mut()

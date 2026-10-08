@@ -48,20 +48,24 @@ pub async fn scan(target: SocketAddr, wait: Duration) -> Result<Vec<Renderer>> {
 }
 
 pub(crate) fn client() -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
+    reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("Linux/1 UPnP/1.1 encore-yt/0.1")
-        .build()?)
+        .build()
+        .context("build DLNA HTTP client")
 }
 
 async fn describe(http: &reqwest::Client, location: &str, ip: IpAddr) -> Result<Option<Renderer>> {
     let xml = http
         .get(location)
         .send()
-        .await?
-        .error_for_status()?
+        .await
+        .context("fetch DLNA description")?
+        .error_for_status()
+        .context("DLNA description status")?
         .text()
-        .await?;
+        .await
+        .context("read DLNA description")?;
     parse_description(&xml, location, ip)
 }
 
@@ -79,10 +83,11 @@ fn parse_description(xml: &str, location: &str, ip: IpAddr) -> Result<Option<Ren
         services
             .iter()
             .find(|s| s.text_of("serviceType") == kind)
-            .and_then(|s| base.join(s.text_of("controlURL")).ok())
-            .map(String::from)
+            .map(|s| base.join(s.text_of("controlURL")).map(String::from))
+            .transpose()
+            .with_context(|| format!("invalid control URL for {kind}"))
     };
-    let Some(av_transport) = control(AV_TRANSPORT) else {
+    let Some(av_transport) = control(AV_TRANSPORT)? else {
         return Ok(None);
     };
     Ok(Some(Renderer {
@@ -93,8 +98,8 @@ fn parse_description(xml: &str, location: &str, ip: IpAddr) -> Result<Option<Ren
         ip,
         location: location.to_owned(),
         av_transport,
-        rendering_control: control(RENDERING_CONTROL),
-        connection_manager: control(CONNECTION_MANAGER),
+        rendering_control: control(RENDERING_CONTROL)?,
+        connection_manager: control(CONNECTION_MANAGER)?,
     }))
 }
 
@@ -162,7 +167,12 @@ pub fn seconds(hms: &str) -> Option<f64> {
     let s: f64 = parts.next()?.parse().ok()?;
     let m: f64 = parts.next().unwrap_or("0").parse().ok()?;
     let h: f64 = parts.next().unwrap_or("0").parse().ok()?;
-    Some(h * 3600.0 + m * 60.0 + s)
+    let seconds = h * 3600.0 + m * 60.0 + s;
+    (parts.next().is_none()
+        && [h, m, s, seconds]
+            .iter()
+            .all(|n| n.is_finite() && *n >= 0.0))
+    .then_some(seconds)
 }
 
 impl Renderer {
@@ -338,5 +348,8 @@ mod tests {
         assert!(meta.contains(r#"duration="1:02:05.000""#));
         assert_eq!(seconds("1:02:05.500"), Some(3725.5));
         assert_eq!(seconds("NOT_IMPLEMENTED"), None);
+        for invalid in ["NaN", "inf", "-1", "1:-2:03", "1:2:3:4"] {
+            assert_eq!(seconds(invalid), None);
+        }
     }
 }

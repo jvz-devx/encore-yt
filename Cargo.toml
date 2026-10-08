@@ -3,7 +3,7 @@
 # engine (crates/audio). One Cargo.lock and one target/.
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/app", "crates/visuals", "crates/audio"]
+members = ["crates/core", "crates/app", "crates/visuals", "crates/audio", "crates/signin"]
 default-members = ["crates/app"]
 
 [workspace.package]

@@ -1,0 +1,21 @@
+[package]
+name = "encore-signin"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Encore sign-in window: a spike that signs in to YouTube Music on the OS's own web engine"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# A binary of its own, not a subcommand of encore-yt: on Linux wry links
+# WebKitGTK, GTK 3 and libsoup, which would become a hard dependency of the
+# main package, and on every OS the main download would carry wry and tao
+# for a window most launches never open.
+[[bin]]
+name = "encore-yt-signin"
+path = "src/main.rs"
+
+[dependencies]
+wry = "0.57"
+tao = "0.37"

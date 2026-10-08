@@ -13,6 +13,7 @@
 #   core      the backend library the app uses (crates/core, package encore-core)
 #   visuals   the wgpu effects crate (crates/visuals, encore-visuals)
 #   audio     the Rust playback engine (crates/audio, encore-audio)
+#   signin    the sign-in window helper (crates/signin, encore-signin)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 jobs="${JOBS:-4}"
@@ -26,7 +27,8 @@ package() {
         core) echo encore-core ;;
         visuals) echo encore-visuals ;;
         audio) echo encore-audio ;;
-        *) echo "unknown crate '$1' (app, core, visuals, audio)" >&2; exit 2 ;;
+        signin) echo encore-signin ;;
+        *) echo "unknown crate '$1' (app, core, visuals, audio, signin)" >&2; exit 2 ;;
     esac
 }
 

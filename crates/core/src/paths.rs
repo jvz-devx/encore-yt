@@ -189,6 +189,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     ))
 }
 
+/// The atomic writer for Tokio tasks. Filesystem work stays on the blocking pool.
+pub async fn write_atomic_async(
+    path: PathBuf,
+    bytes: impl AsRef<[u8]> + Send + 'static,
+) -> std::io::Result<()> {
+    tokio::task::spawn_blocking(move || write_atomic(&path, bytes.as_ref()))
+        .await
+        .map_err(std::io::Error::other)?
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,

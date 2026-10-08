@@ -26,8 +26,14 @@ impl super::Worker {
             match result {
                 Ok(value) => {
                     let page = parse::page(&value);
-                    if let Ok(bytes) = serde_json::to_vec(&page) {
-                        let _ = crate::paths::write_atomic(&path, &bytes);
+                    match serde_json::to_vec(&page) {
+                        Ok(bytes) => {
+                            if let Err(error) = crate::paths::write_atomic_async(path, bytes).await
+                            {
+                                log::warn!("couldn't cache fetched page: {error}");
+                            }
+                        }
+                        Err(error) => log::warn!("couldn't serialize fetched page: {error}"),
                     }
                     sink.send(Event::Page {
                         key,

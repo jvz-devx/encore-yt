@@ -1248,7 +1248,7 @@ mod tests {
             send: &send,
             signed_in: true,
         };
-        state.page_arrived(&mut host, &key, false);
+        let _effects = state.page_arrived(&mut host, &key, false);
     }
 
     fn shown(state: &AccountState, item: &Item) -> LikeStatus {

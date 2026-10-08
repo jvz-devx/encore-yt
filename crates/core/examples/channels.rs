@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Lists the YouTube channels of the signed-in account and, acting as each
 //! one, how many playlists Library shows, how many songs Liked music has
 //! and how many shelves Home has: read-only, to check that requests act as the chosen
@@ -15,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     let session = encore_core::auth::load(&scratch, preferred.as_deref());
     let _ = std::fs::remove_dir_all(&scratch);
     let session = session?;
-    let client = encore_core::innertube::Client::new();
+    let client = encore_core::innertube::Client::new()?;
     client.set_session(Some(session));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)

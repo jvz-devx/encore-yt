@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "integration test assertions report fixture failures"
+)]
+
 //! Checks the embedded JS challenge solver against yt-dlp's, offline. The
 //! player script is YouTube's, so it isn't committed: capture one under
 //! `artifacts/resolver/` (`<id>.js`, see docs/gpui/RESOLVER.md) and write the

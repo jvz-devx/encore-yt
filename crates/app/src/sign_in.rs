@@ -328,10 +328,17 @@ impl MusicApp {
     pub(crate) fn on_cookies_saved(
         &mut self,
         saved: Result<Profile, String>,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(file) = self.sign_in.window_file.take() {
-            let _ = std::fs::remove_file(file);
+            cx.background_spawn(async move {
+                if let Err(error) = std::fs::remove_file(file)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    log::warn!("couldn't remove sign-in helper output: {error}");
+                }
+            })
+            .detach();
         }
         if !matches!(self.sign_in.step, Step::Saving) {
             return;

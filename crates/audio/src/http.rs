@@ -28,6 +28,10 @@ pub const READ_AHEAD: u64 = 32 << 20;
 /// costs a round trip, ~100-300 ms on googlevideo).
 const NEAR_SECS: f64 = 0.25;
 const RETRIES: u32 = 3;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+// Each active track holds its compressed bytes. Refuse unreasonable server
+// lengths before allocating; 512 MiB already covers hours of music.
+const MAX_SOURCE_BYTES: u64 = 512 << 20;
 
 /// Counters for one source, for logs and measurements.
 #[derive(Clone, Debug, Default)]
@@ -75,14 +79,17 @@ impl State {
     fn mark(&mut self, start: u64, end: u64) {
         self.have.push((start, end));
         self.have.sort_unstable();
-        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(self.have.len());
-        for (s, e) in self.have.drain(..) {
-            match merged.last_mut() {
-                Some(last) if s <= last.1 => last.1 = last.1.max(e),
-                _ => merged.push((s, e)),
+        let mut kept = 0;
+        for at in 0..self.have.len() {
+            let (start, end) = self.have[at];
+            if kept > 0 && start <= self.have[kept - 1].1 {
+                self.have[kept - 1].1 = self.have[kept - 1].1.max(end);
+            } else {
+                self.have[kept] = (start, end);
+                kept += 1;
             }
         }
-        self.have = merged;
+        self.have.truncate(kept);
     }
 }
 
@@ -118,8 +125,7 @@ impl HttpSource {
         );
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
-                // Zeroed pages are only committed as they are written.
-                data: vec![0; len as usize],
+                data: source_buffer(len)?,
                 have: Vec::new(),
                 fetch_pos: 0,
                 read_pos: 0,
@@ -144,7 +150,8 @@ impl HttpSource {
         };
         thread::Builder::new()
             .name("audio-http".into())
-            .spawn(move || fetcher.run(response))?;
+            .spawn(move || fetcher.run(response))
+            .context("spawn audio fetch thread")?;
         Ok(Self {
             shared,
             pos: 0,
@@ -250,17 +257,36 @@ impl Read for HttpSource {
 
 impl Seek for HttpSource {
     fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
-        let pos = match to {
-            SeekFrom::Start(p) => p as i64,
-            SeekFrom::End(d) => self.len as i64 + d,
-            SeekFrom::Current(d) => self.pos as i64 + d,
-        };
-        if pos < 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "seek before 0"));
-        }
-        self.pos = pos as u64;
+        self.pos = seek_position(self.pos, self.len, to)?;
         Ok(self.pos)
     }
+}
+
+fn seek_position(current: u64, len: u64, to: SeekFrom) -> io::Result<u64> {
+    let pos = match to {
+        SeekFrom::Start(pos) => Some(pos),
+        SeekFrom::End(delta) => len.checked_add_signed(delta),
+        SeekFrom::Current(delta) => current.checked_add_signed(delta),
+    };
+    pos.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "seek outside byte position range",
+        )
+    })
+}
+
+fn source_buffer(len: u64) -> Result<Vec<u8>> {
+    anyhow::ensure!(
+        len <= MAX_SOURCE_BYTES,
+        "audio source exceeds {MAX_SOURCE_BYTES} bytes"
+    );
+    let len = usize::try_from(len).context("audio source does not fit address space")?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(len)
+        .context("allocate audio source buffer")?;
+    data.resize(len, 0);
+    Ok(data)
 }
 
 impl MediaSource for HttpSource {
@@ -362,6 +388,9 @@ impl Fetcher {
         let began = Instant::now();
         loop {
             let n = match body.read(&mut buf) {
+                Ok(0) if pos == start => {
+                    return Copied::Failed("audio range response was empty".into());
+                }
                 Ok(0) => return Copied::Done,
                 Ok(n) => n,
                 Err(e) => return Copied::Failed(e.to_string()),
@@ -434,11 +463,24 @@ fn request(
     start: u64,
     end: u64,
 ) -> Result<Response> {
+    request_with_timeout(client, url, headers, start, end, REQUEST_TIMEOUT)
+}
+
+fn request_with_timeout(
+    client: &Client,
+    url: &str,
+    headers: &HeaderMap,
+    start: u64,
+    end: u64,
+    timeout: Duration,
+) -> Result<Response> {
     let response = client
         .get(url)
+        .timeout(timeout)
         .headers(headers.clone())
         .header(RANGE, format!("bytes={start}-{end}"))
-        .send()?;
+        .send()
+        .context("fetch audio byte range")?;
     let status = response.status();
     if status != reqwest::StatusCode::PARTIAL_CONTENT {
         if status.is_success() {
@@ -446,11 +488,126 @@ fn request(
         }
         return Err(Status(status).into());
     }
+    let (first, last, total) = content_range(&response).context("invalid audio Content-Range")?;
+    anyhow::ensure!(
+        first == start && last <= end && last < total,
+        "server returned the wrong audio byte range"
+    );
     Ok(response)
 }
 
 /// The total from `Content-Range: bytes a-b/total`.
 fn total_len(response: &Response) -> Option<u64> {
+    content_range(response).map(|(_, _, total)| total)
+}
+
+fn content_range(response: &Response) -> Option<(u64, u64, u64)> {
     let value = response.headers().get(CONTENT_RANGE)?.to_str().ok()?;
-    value.rsplit('/').next()?.trim().parse().ok()
+    parse_range(value)
+}
+
+fn parse_range(value: &str) -> Option<(u64, u64, u64)> {
+    let (range, total) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let (first, last) = range.split_once('-')?;
+    let (first, last, total) = (first.parse().ok()?, last.parse().ok()?, total.parse().ok()?);
+    (first <= last && last < total).then_some((first, last, total))
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
+mod tests {
+    use super::*;
+
+    fn server(response: &'static [u8], requests: usize) -> (String, thread::JoinHandle<()>) {
+        use std::io::{BufRead, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            for _ in 0..requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = std::io::BufReader::new(&mut stream);
+                loop {
+                    let mut line = String::new();
+                    request.read_line(&mut line).unwrap();
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                }
+                stream.write_all(response).unwrap();
+            }
+        });
+        (url, server)
+    }
+
+    #[test]
+    fn repeated_empty_ranges_stop_after_the_retry_budget() {
+        let (url, server) = server(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-1/2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", 4);
+        let client = Client::builder().build().unwrap();
+        let mut source = HttpSource::open(&client, &url, HeaderMap::new()).unwrap();
+        let error = source.read(&mut [0; 2]).unwrap_err();
+        assert!(error.to_string().contains("empty"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_stalled_range_has_a_deadline() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap());
+        let (release, hold) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            hold.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        let client = Client::builder().build().unwrap();
+        let began = Instant::now();
+        let result = request_with_timeout(
+            &client,
+            &url,
+            &HeaderMap::new(),
+            0,
+            1,
+            Duration::from_millis(50),
+        );
+        assert!(result.is_err());
+        assert!(began.elapsed() < Duration::from_secs(2));
+        release.send(()).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn seek_rejects_arithmetic_overflow_without_wrapping() {
+        assert_eq!(
+            seek_position(0, 10, SeekFrom::Start(u64::MAX)).unwrap(),
+            u64::MAX
+        );
+        assert_eq!(seek_position(0, 10, SeekFrom::End(-5)).unwrap(), 5);
+        assert!(seek_position(u64::MAX, 10, SeekFrom::Current(1)).is_err());
+        assert!(seek_position(0, 10, SeekFrom::Current(-1)).is_err());
+        assert!(seek_position(0, 10, SeekFrom::End(i64::MIN)).is_err());
+    }
+
+    #[test]
+    fn source_lengths_are_checked_before_allocation() {
+        assert!(source_buffer(u64::MAX).is_err());
+        assert!(source_buffer(MAX_SOURCE_BYTES + 1).is_err());
+        assert_eq!(source_buffer(4).unwrap(), [0; 4]);
+    }
+
+    #[test]
+    fn content_ranges_require_ordered_byte_offsets_within_total() {
+        assert_eq!(parse_range("bytes 0-3/4"), Some((0, 3, 4)));
+        for bad in [
+            "items 0-3/4",
+            "bytes 4-3/5",
+            "bytes 0-4/4",
+            "bytes 0-1/*",
+            "bytes 0-0/0",
+        ] {
+            assert_eq!(parse_range(bad), None);
+        }
+    }
 }

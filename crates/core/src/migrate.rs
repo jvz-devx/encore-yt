@@ -94,6 +94,11 @@ pub fn rename_profile(settings: &Path, old: &str, new: &str) -> io::Result<bool>
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
 

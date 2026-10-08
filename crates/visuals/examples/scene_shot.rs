@@ -12,6 +12,10 @@ use std::io::Write;
 
 use encore_visuals::{BANDS, Gpu, Look, Pace, Scene, SceneKind, SceneParams, seed};
 
+#[allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional; CODE-QUALITY.md V4"
+)]
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let arg = |i: usize, or: &str| args.get(i).cloned().unwrap_or_else(|| or.to_string());

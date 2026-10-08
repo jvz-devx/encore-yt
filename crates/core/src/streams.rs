@@ -5,7 +5,14 @@
 //! (`crate::jsc`). What works and what doesn't (PO tokens, SABR), and what
 //! happens when YouTube changes its player, is in docs/gpui/RESOLVER.md.
 
+mod formats;
+mod solver;
 mod tv;
+
+pub use formats::{Format, audio_formats, best_audio};
+use solver::fetch_solver;
+
+use crate::sync::Recover;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -17,11 +24,6 @@ use serde_json::Value;
 
 use crate::innertube::{Client, PlayerClient, Stream};
 use crate::jsc::{Challenges, Player, Solver, Status, decipher, scripts};
-
-/// The audio formats wanted, best first: Opus (WebM) and AAC-LC (MP4),
-/// which the engine decodes. Never HE-AAC (139, 599): it has no decoder
-/// for it.
-const ITAGS: [u64; 7] = [774, 141, 251, 140, 250, 249, 600];
 
 /// How long a player version is trusted before asking which is current.
 const PLAYER_CHECK: Duration = Duration::from_secs(6 * 3600);
@@ -91,15 +93,6 @@ pub const WEB_CREATOR: PlayerClient = PlayerClient {
     extra: &[],
     host: tv::WWW,
 };
-
-/// The pins file on the repository's default branch: the list of solver
-/// releases (by SHA-256) the app may download when its own solver can't
-/// use a player. Changing it takes a reviewed commit to `main`.
-const PINS_URL: &str =
-    "https://raw.githubusercontent.com/jvz-devx/encore-yt/main/crates/core/src/jsc/pins.txt";
-
-/// Where yt-dlp-ejs publishes its release assets.
-const EJS_RELEASES: &str = "https://github.com/yt-dlp/ejs/releases/download";
 
 /// A failure that holds for every song until the player version or the
 /// solver changes: logged once per player version.
@@ -288,7 +281,7 @@ impl Native {
         };
         let key = format!("{}:{}", failure.player, failure.preparing);
         let first = {
-            let mut logged = self.logged.lock().expect("logged lock");
+            let mut logged = self.logged.lock().recover();
             if logged.len() > 64 {
                 logged.clear();
             }
@@ -351,7 +344,9 @@ impl Native {
         };
         if let Some(dir) = &self.dump {
             let path = dir.join(format!("{}-{video_id}.json", client.name));
-            let _ = std::fs::write(path, response.to_string());
+            if let Err(error) = tokio::fs::write(path, response.to_string()).await {
+                log::warn!("couldn't save requested player diagnostic: {error}");
+            }
         }
         let mut streams = Vec::new();
         let formats = audio_formats(&response).map_err(|error| match authed {
@@ -460,37 +455,48 @@ impl Native {
         {
             return Ok(known.clone());
         }
-        std::fs::create_dir_all(&self.dir).context("creating the player cache")?;
+        tokio::fs::create_dir_all(&self.dir)
+            .await
+            .context("creating the player cache")?;
         let marker = self.dir.join("current");
-        let fresh = std::fs::metadata(&marker)
+        let fresh = tokio::fs::metadata(&marker)
+            .await
             .and_then(|m| m.modified())
             .ok()
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age < PLAYER_CHECK);
-        let saved = std::fs::read_to_string(&marker)
+        let saved = tokio::fs::read_to_string(&marker)
+            .await
             .ok()
             .map(|id| id.trim().to_owned());
         let id = match (want, saved.filter(|_| fresh)) {
             (Some(want), saved) if saved.as_deref() != Some(want) => {
                 log::info!("the session's page names player {want}");
-                crate::paths::write_atomic(&marker, want.as_bytes())
+                crate::paths::write_atomic_async(marker.clone(), want.as_bytes().to_vec())
+                    .await
                     .context("saving the player id")?;
                 want.to_owned()
             }
             (_, Some(id)) => id,
             (_, None) => {
                 let id = self.player_version().await?;
-                crate::paths::write_atomic(&marker, id.as_bytes())
+                crate::paths::write_atomic_async(marker.clone(), id.as_bytes().to_vec())
+                    .await
                     .context("saving the player id")?;
                 id
             }
         };
         let path = self.dir.join(format!("{id}.js"));
-        if !path.exists() {
+        if !tokio::fs::try_exists(&path)
+            .await
+            .context("check cached player script")?
+        {
             self.download_player(&id, &path).await?;
-            self.prune(&id);
+            self.prune(&id).await;
         }
-        let source = std::fs::read_to_string(&path).context("reading the player")?;
+        let source = tokio::fs::read_to_string(&path)
+            .await
+            .context("reading the player")?;
         let sts = signature_timestamp(&source).context("the player has no signature timestamp")?;
         let known = Current {
             player: Player { id, path },
@@ -511,24 +517,33 @@ impl Native {
     /// TV client (docs/gpui/RESOLVER.md, M27).
     async fn tv_sts(&self, current: &Current) -> u32 {
         let id = &current.player.id;
-        if let Some((known, sts)) = self.tv_sts.lock().expect("tv sts lock").as_ref()
+        if let Some((known, sts)) = self.tv_sts.lock().recover().as_ref()
             && known == id
         {
             return *sts;
         }
         let saved = self.dir.join(format!("{id}.tv-sts"));
-        let read = match std::fs::read_to_string(&saved)
+        let read = match tokio::fs::read_to_string(&saved)
+            .await
             .ok()
             .and_then(|t| t.trim().parse().ok())
         {
             Some(sts) => Ok(sts),
-            None => self.download_tv_sts(id).await.inspect(|sts| {
-                let _ = crate::paths::write_atomic(&saved, sts.to_string().as_bytes());
-            }),
+            None => match self.download_tv_sts(id).await {
+                Ok(sts) => {
+                    if let Err(error) =
+                        crate::paths::write_atomic_async(saved, sts.to_string()).await
+                    {
+                        log::warn!("couldn't save TV player timestamp: {error}");
+                    }
+                    Ok(sts)
+                }
+                Err(error) => Err(error),
+            },
         };
         match read {
             Ok(sts) => {
-                *self.tv_sts.lock().expect("tv sts lock") = Some((id.clone(), sts));
+                *self.tv_sts.lock().recover() = Some((id.clone(), sts));
                 sts
             }
             Err(error) => {
@@ -696,7 +711,9 @@ impl Native {
             .error_for_status()?
             .bytes()
             .await?;
-        crate::paths::write_atomic(path, &bytes).context("saving the player")?;
+        crate::paths::write_atomic_async(path.to_owned(), bytes.clone())
+            .await
+            .context("saving the player")?;
         log::info!(
             "downloaded player {id} ({} KB) in {:.1}s",
             bytes.len() / 1024,
@@ -710,11 +727,13 @@ impl Native {
     /// releases, the files come from yt-dlp-ejs's GitHub release, and both
     /// must match their pinned SHA-256 before they are saved or run.
     fn refresh_solver(&self, player: &str) {
-        let first = self
-            .refreshed
-            .lock()
-            .expect("refresh lock")
-            .insert(player.to_owned());
+        let first = {
+            let mut refreshed = self.refreshed.lock().recover();
+            if refreshed.len() >= 64 {
+                refreshed.clear();
+            }
+            refreshed.insert(player.to_owned())
+        };
         if !first {
             return;
         }
@@ -733,67 +752,34 @@ impl Native {
     }
 
     /// Keeps only the current player's files.
-    fn prune(&self, id: &str) {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
-            return;
+    async fn prune(&self, id: &str) {
+        let mut entries = match tokio::fs::read_dir(&self.dir).await {
+            Ok(entries) => entries,
+            Err(error) => {
+                log::warn!("couldn't list cached player scripts: {error}");
+                return;
+            }
         };
-        for entry in entries.flatten() {
+        let prefix = format!("{id}.");
+        loop {
+            let entry = match entries.next_entry().await {
+                Ok(Some(entry)) => entry,
+                Ok(None) => break,
+                Err(error) => {
+                    log::warn!("couldn't read cached player entry: {error}");
+                    break;
+                }
+            };
             let name = entry.file_name().to_string_lossy().into_owned();
             let ours = name.ends_with(".js") || name.ends_with(".tv-sts");
-            if ours && !name.starts_with(&format!("{id}.")) {
-                let _ = std::fs::remove_file(entry.path());
+            if ours
+                && !name.starts_with(&prefix)
+                && let Err(error) = tokio::fs::remove_file(entry.path()).await
+            {
+                log::warn!("couldn't remove stale player script: {error}");
             }
         }
     }
-}
-
-/// Fetches the repository's pins and, if they name a release newer than
-/// `current`, downloads and checks its two files and saves them with the
-/// pins under `dir`.
-async fn fetch_solver(
-    http: &reqwest::Client,
-    dir: &Path,
-    current: &str,
-) -> Result<Option<scripts::Scripts>> {
-    let get = |url: String| async move {
-        http.get(&url)
-            .send()
-            .await
-            .and_then(reqwest::Response::error_for_status)
-            .with_context(|| format!("fetching {url}"))?
-            .text()
-            .await
-            .with_context(|| format!("reading {url}"))
-    };
-    let fetched = get(PINS_URL.to_owned()).await?;
-    let mut pins = scripts::parse_pins(scripts::PINS);
-    pins.extend(scripts::parse_pins(&fetched));
-    let Some(version) = scripts::newest_pinned(&pins, current) else {
-        return Ok(None);
-    };
-    let mut files = Vec::new();
-    for name in [scripts::LIB, scripts::CORE] {
-        let text = get(format!("{EJS_RELEASES}/{version}/{name}")).await?;
-        let want = scripts::pinned_hash(&pins, &version, name)?;
-        if scripts::sha256_hex(text.as_bytes()) != want {
-            bail!("{name} of EJS {version} doesn't match its pinned hash");
-        }
-        files.push(text);
-    }
-    let core = files.pop().expect("two files");
-    let lib = files.pop().expect("two files");
-    let found = scripts::Scripts::verified(lib, core, &pins)?;
-    std::fs::create_dir_all(dir).context("creating the solver directory")?;
-    for (name, text) in [
-        (scripts::LIB, &*found.lib),
-        (scripts::CORE, &*found.core),
-        (scripts::PINS_FILE, fetched.as_str()),
-    ] {
-        crate::paths::write_atomic(&dir.join(name), text.as_bytes())
-            .with_context(|| format!("saving {name}"))?;
-    }
-    log::info!("downloaded EJS solver {version}");
-    Ok(Some(found))
 }
 
 /// A response's `Set-Cookie` headers.
@@ -816,68 +802,6 @@ fn this_year() -> u32 {
 }
 
 /// An audio format from a player response.
-#[derive(Debug, PartialEq)]
-pub struct Format {
-    pub itag: u32,
-    pub url: Option<String>,
-    pub cipher: Option<String>,
-}
-
-/// The best wanted audio format of a playable response.
-pub fn best_audio(response: &Value) -> Result<Format> {
-    Ok(audio_formats(response)?.remove(0))
-}
-
-/// The wanted audio formats of a playable response, best first; at least one.
-pub fn audio_formats(response: &Value) -> Result<Vec<Format>> {
-    let status = crate::parse::at(response, &["playabilityStatus", "status"])
-        .and_then(Value::as_str)
-        .unwrap_or("none");
-    if status != "OK" {
-        let reason = crate::parse::at(response, &["playabilityStatus", "reason"])
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        bail!("not playable ({status}): {reason}");
-    }
-    let formats = crate::parse::at(response, &["streamingData", "adaptiveFormats"])
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let usable = |f: &&Value| {
-        // Dynamic-range-compressed copies share the itag; skip them.
-        f.get("isDrc").and_then(Value::as_bool) != Some(true)
-            && f.get("drmFamilies").is_none()
-            && (f.get("url").is_some() || f.get("signatureCipher").is_some())
-    };
-    let chosen: Vec<&Value> = ITAGS
-        .iter()
-        .filter_map(|itag| {
-            formats
-                .iter()
-                .filter(usable)
-                .find(|f| f.get("itag").and_then(Value::as_u64) == Some(*itag))
-        })
-        .collect();
-    if chosen.is_empty() {
-        bail!(if formats.is_empty() {
-            "no formats (SABR only?)"
-        } else {
-            "no audio format with a URL that Encore plays"
-        });
-    }
-    Ok(chosen
-        .into_iter()
-        .map(|f| {
-            let text = |key: &str| f.get(key).and_then(Value::as_str).map(str::to_owned);
-            Format {
-                itag: f.get("itag").and_then(Value::as_u64).unwrap_or(0) as u32,
-                url: text("url"),
-                cipher: text("signatureCipher"),
-            }
-        })
-        .collect())
-}
-
 /// Whether a direct URL still carries an `n` challenge.
 fn needs_challenges(url: &str) -> bool {
     url_param(url, "n").is_some()
@@ -941,56 +865,13 @@ fn set_param(url: &str, name: &str, value: &str) -> Result<String> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    fn response(itags: &[u64]) -> Value {
-        let formats: Vec<Value> = itags
-            .iter()
-            .map(|itag| json!({"itag": itag, "url": format!("https://example.invalid/{itag}")}))
-            .collect();
-        json!({
-            "playabilityStatus": {"status": "OK"},
-            "streamingData": {"adaptiveFormats": formats},
-        })
-    }
-
-    /// HE-AAC (139, 599) has no decoder in the engine: never picked, even
-    /// when it is all there is.
-    #[test]
-    fn never_picks_he_aac() {
-        let picked = audio_formats(&response(&[139, 599, 140, 249])).expect("formats");
-        let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
-        assert_eq!(itags, [140, 249]);
-        assert!(audio_formats(&response(&[139, 599])).is_err());
-    }
-
-    /// Premium's formats come first: 774 (Opus ~256 kbps), then 141 (AAC
-    /// 256 kbps), then 251, whatever order the response lists them in.
-    #[test]
-    fn premium_formats_first() {
-        let picked = audio_formats(&response(&[249, 251, 141, 140, 774])).expect("formats");
-        let itags: Vec<u32> = picked.iter().map(|f| f.itag).collect();
-        assert_eq!(itags, [774, 141, 251, 140, 249]);
-    }
-
-    /// DRC copies and DRM-protected formats (a TV experiment) are skipped.
-    #[test]
-    fn skips_drc_and_drm() {
-        let response = json!({
-            "playabilityStatus": {"status": "OK"},
-            "streamingData": {"adaptiveFormats": [
-                {"itag": 774, "url": "https://example.invalid/a", "drmFamilies": ["WIDEVINE"]},
-                {"itag": 141, "url": "https://example.invalid/b", "isDrc": true},
-                {"itag": 141, "signatureCipher": "s=x&url=https%3A%2F%2Fexample.invalid%2Fc"},
-            ]},
-        });
-        let picked = audio_formats(&response).expect("formats");
-        assert_eq!(picked.len(), 1);
-        assert_eq!(picked[0].itag, 141);
-        assert!(picked[0].cipher.is_some());
-    }
 
     #[test]
     fn reads_both_timestamps() {
@@ -1007,7 +888,11 @@ mod tests {
 
     fn native() -> Native {
         let dir = std::env::temp_dir().join("encore-streams-test");
-        Native::new(Arc::new(Client::new()), &dir, &dir)
+        Native::new(
+            Arc::new(Client::new().expect("create test HTTP client")),
+            &dir,
+            &dir,
+        )
     }
 
     /// An account client's stream that fails to play before Premium was

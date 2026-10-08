@@ -16,7 +16,7 @@
 //! On the wire each message is a 4-byte big-endian length and the encoded
 //! message.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 /// Messages above this are refused (the protocol caps them at 64 KiB).
 pub const MAX_MESSAGE: usize = 64 * 1024;
@@ -41,7 +41,22 @@ impl CastMessage {
     }
 
     /// The length-prefixed frame.
-    pub fn frame(&self) -> Vec<u8> {
+    pub fn frame(&self) -> Result<Vec<u8>> {
+        // Bound input before allocating the encoded copy. Field tags and
+        // lengths add a little overhead, checked again after encoding.
+        let content_len = [
+            self.source.len(),
+            self.destination.len(),
+            self.namespace.len(),
+            self.payload.as_ref().map_or(0, String::len),
+        ]
+        .into_iter()
+        .try_fold(0usize, usize::checked_add)
+        .context("Cast message length overflow")?;
+        ensure!(
+            content_len <= MAX_MESSAGE,
+            "Cast message exceeds {MAX_MESSAGE} bytes"
+        );
         let mut body = Vec::new();
         varint_field(&mut body, 1, 0);
         bytes_field(&mut body, 2, self.source.as_bytes());
@@ -51,9 +66,14 @@ impl CastMessage {
         if let Some(payload) = &self.payload {
             bytes_field(&mut body, 6, payload.as_bytes());
         }
-        let mut frame = (body.len() as u32).to_be_bytes().to_vec();
+        ensure!(
+            body.len() <= MAX_MESSAGE,
+            "Cast message exceeds {MAX_MESSAGE} bytes"
+        );
+        let size = u32::try_from(body.len()).context("Cast frame length")?;
+        let mut frame = size.to_be_bytes().to_vec();
         frame.extend(body);
-        frame
+        Ok(frame)
     }
 
     /// Decodes a message body (without the length prefix). Unknown fields
@@ -73,7 +93,7 @@ impl CastMessage {
                     varint(&mut buf)?;
                 }
                 2 => {
-                    let len = varint(&mut buf)? as usize;
+                    let len = usize::try_from(varint(&mut buf)?).context("Cast field length")?;
                     if len > buf.len() {
                         bail!("field {field} runs past the message");
                     }
@@ -99,10 +119,11 @@ impl CastMessage {
 
 fn put_varint(out: &mut Vec<u8>, mut value: u64) {
     while value >= 0x80 {
+        // The wire format takes the low seven bits and sets the continuation bit.
         out.push(value as u8 | 0x80);
         value >>= 7;
     }
-    out.push(value as u8);
+    out.push(value as u8); // The loop leaves at most seven bits.
 }
 
 fn varint_field(out: &mut Vec<u8>, field: u64, value: u64) {
@@ -123,6 +144,9 @@ fn varint(buf: &mut &[u8]) -> Result<u64> {
             bail!("truncated varint");
         };
         *buf = rest;
+        if shift == 63 && byte > 1 {
+            bail!("varint exceeds u64");
+        }
         value |= u64::from(byte & 0x7f) << shift;
         if byte & 0x80 == 0 {
             return Ok(value);
@@ -132,6 +156,11 @@ fn varint(buf: &mut &[u8]) -> Result<u64> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
 
@@ -143,7 +172,7 @@ mod tests {
             "urn:x-cast:com.google.cast.tp.connection",
             r#"{"type":"CONNECT"}"#.into(),
         );
-        let frame = msg.frame();
+        let frame = msg.frame().unwrap();
         // Bytes as protoc encodes this message (fields in order, both
         // required enums present as zero).
         let mut want = vec![0x08, 0x00, 0x12, 0x08];
@@ -166,11 +195,26 @@ mod tests {
     fn long_payloads_and_unknown_fields_decode() {
         let payload = "x".repeat(300);
         let msg = CastMessage::new("a", "b", "c", payload.clone());
-        let mut body = msg.frame()[4..].to_vec();
+        let mut body = msg.frame().unwrap()[4..].to_vec();
         // Field 7 (bytes) and a fixed32 field 9: skipped.
         body.extend([0x3a, 0x02, 0xff, 0xfe, 0x4d, 1, 2, 3, 4]);
         let decoded = CastMessage::decode(&body).unwrap();
         assert_eq!(decoded.payload.as_deref(), Some(payload.as_str()));
         assert!(CastMessage::decode(&[0x12, 0x05, b'a']).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_frames_and_overflowing_varints() {
+        let msg = CastMessage::new("a", "b", "c", "x".repeat(MAX_MESSAGE));
+        assert!(msg.frame().is_err());
+        let mut overflow = vec![0xff; 9];
+        overflow.push(2);
+        assert!(varint(&mut overflow.as_slice()).is_err());
+        let mut largest = vec![0xff; 9];
+        largest.push(1);
+        assert_eq!(varint(&mut largest.as_slice()).unwrap(), u64::MAX);
+        let mut length = vec![0x12];
+        length.extend(largest);
+        assert!(CastMessage::decode(&length).is_err());
     }
 }

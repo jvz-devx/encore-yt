@@ -11,8 +11,9 @@
 //! can start at once. A song whose stream failed to play is resolved again
 //! without the account (`crate::streams::Native::resolve`).
 
+use crate::sync::Recover;
+
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -53,6 +54,7 @@ const SPECULATIVE_SLOTS: usize = 2;
 const BACKLOG: usize = 8;
 /// A cached URL is used until this many seconds before it expires.
 const MARGIN: u64 = 600;
+const MAX_CACHED: usize = 512;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Cached {
@@ -76,6 +78,20 @@ impl Cached {
 }
 
 type Outcome = Option<Result<Stream, String>>;
+
+fn prune_cache(cache: &mut HashMap<String, Cached>, deadline: u64) {
+    cache.retain(|_, entry| entry.expires > deadline);
+    while cache.len() > MAX_CACHED {
+        let Some(key) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.expires)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        cache.remove(&key);
+    }
+}
 
 /// One resolve, shared by everyone who wants its song.
 struct Flight {
@@ -157,7 +173,7 @@ impl Request {
 impl Drop for Waiting {
     fn drop(&mut self) {
         let abort = {
-            let mut flights = self.resolver.flights.lock().expect("flights lock");
+            let mut flights = self.resolver.flights.lock().recover();
             let last = self.flight.waiters.fetch_sub(1, Ordering::SeqCst) == 1;
             if !(last
                 && self.flight.cancellable.load(Ordering::SeqCst)
@@ -171,7 +187,7 @@ impl Drop for Waiting {
             {
                 flights.remove(&self.id);
             }
-            self.flight.abort.lock().expect("abort lock").take()
+            self.flight.abort.lock().recover().take()
         };
         if let Some(abort) = abort {
             abort.abort();
@@ -195,7 +211,7 @@ impl Drop for Landing {
                 .result
                 .send_replace(Some(Err("the stream lookup stopped".into())));
         }
-        let mut flights = self.resolver.flights.lock().expect("flights lock");
+        let mut flights = self.resolver.flights.lock().recover();
         if flights
             .get(&self.id)
             .is_some_and(|f| Arc::ptr_eq(f, &self.flight))
@@ -209,14 +225,13 @@ impl Resolver {
     /// Starts with the streams saved by an earlier run that are still valid.
     pub fn new(scratch: PathBuf) -> Self {
         let deadline = now() + MARGIN;
-        let saved: HashMap<String, Cached> = std::fs::read(scratch.join("streams.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
-        let cache: HashMap<String, Cached> = saved
+        let saved: HashMap<String, Cached> =
+            crate::paths::read_json(&scratch.join("streams.json")).unwrap_or_default();
+        let mut cache: HashMap<String, Cached> = saved
             .into_iter()
             .filter(|(_, c)| c.expires > deadline)
             .collect();
+        prune_cache(&mut cache, deadline);
         if !cache.is_empty() {
             log::info!("{} saved streams still valid", cache.len());
         }
@@ -257,7 +272,7 @@ impl Resolver {
             return Some(stream);
         }
         let signed_in = self.signed_in();
-        let cache = self.cache.lock().expect("cache lock");
+        let cache = self.cache.lock().recover();
         cache
             .get(video_id)
             .filter(|c| c.expires > now() + MARGIN && (c.signed_in || !signed_in))
@@ -266,19 +281,19 @@ impl Resolver {
 
     /// Drops `video_id`'s stream after it failed to play; the next resolve
     /// goes without the account.
-    pub fn forget(&self, video_id: &str) {
+    pub async fn forget(self: &Arc<Self>, video_id: &str) {
         {
-            let mut failed = self.failed.lock().expect("failed lock");
+            let mut failed = self.failed.lock().recover();
             if failed.len() > 256 {
                 failed.clear();
             }
             failed.insert(video_id.to_owned());
         }
-        let gone = self.cache.lock().expect("cache lock").remove(video_id);
+        let gone = self.cache.lock().recover().remove(video_id);
         if let (Some(gone), Some(native)) = (gone, self.native.get()) {
             native.stream_failed(&gone.url);
         }
-        self.save();
+        self.save().await;
     }
 
     /// The best stream the account can get, for playback.
@@ -289,7 +304,7 @@ impl Resolver {
     /// Asks for a stream for playback. The share is taken at once, so a run
     /// handed from one waiter to the next is never stopped in between.
     pub fn request(self: &Arc<Self>, video_id: &str) -> Request {
-        let mut flights = self.flights.lock().expect("flights lock");
+        let mut flights = self.flights.lock().recover();
         if let Some(stream) = self.cached(video_id) {
             return Request::Ready(Ok(stream));
         }
@@ -314,7 +329,7 @@ impl Resolver {
         }
         {
             // A playback run that is also a good guess keeps going if playback moves on.
-            let flights = self.flights.lock().expect("flights lock");
+            let flights = self.flights.lock().recover();
             for id in &video_ids {
                 if let Some(flight) = flights.get(id) {
                     flight.cancellable.store(false, Ordering::SeqCst);
@@ -322,7 +337,7 @@ impl Resolver {
             }
         }
         {
-            let mut backlog = self.backlog.lock().expect("backlog lock");
+            let mut backlog = self.backlog.lock().recover();
             backlog.retain(|id| !video_ids.contains(id));
             for id in video_ids.into_iter().rev() {
                 backlog.push_front(id);
@@ -346,7 +361,7 @@ impl Resolver {
                 return Ok(stream);
             }
             let share = {
-                let flights = self.flights.lock().expect("flights lock");
+                let flights = self.flights.lock().recover();
                 flights.get(video_id).cloned().map(|flight| {
                     flight.waiters.fetch_add(1, Ordering::SeqCst);
                     Waiting {
@@ -364,12 +379,7 @@ impl Resolver {
             }
             // Still waiting for a speculative slot: stay first in line.
             self.prepare(video_id);
-            if !self
-                .flights
-                .lock()
-                .expect("flights lock")
-                .contains_key(video_id)
-            {
+            if !self.flights.lock().recover().contains_key(video_id) {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             }
         }
@@ -381,9 +391,9 @@ impl Resolver {
             let Ok(permit) = self.speculative.clone().try_acquire_owned() else {
                 return;
             };
-            let mut flights = self.flights.lock().expect("flights lock");
+            let mut flights = self.flights.lock().recover();
             let next = loop {
-                let Some(id) = self.backlog.lock().expect("backlog lock").pop_front() else {
+                let Some(id) = self.backlog.lock().recover().pop_front() else {
                     break None;
                 };
                 if !flights.contains_key(&id) && self.cached(&id).is_none() {
@@ -446,7 +456,7 @@ impl Resolver {
             }
             let outcome = match result {
                 Ok((stream, signed_in)) => {
-                    this.store(&id, &stream, signed_in);
+                    this.store(&id, &stream, signed_in).await;
                     Ok(stream)
                 }
                 Err(error) => Err(format!("{error:#}")),
@@ -457,47 +467,54 @@ impl Resolver {
                 this.pump();
             }
         });
-        *flight.abort.lock().expect("abort lock") = Some(task.abort_handle());
+        *flight.abort.lock().recover() = Some(task.abort_handle());
         flight
     }
 
-    fn store(&self, video_id: &str, stream: &Stream, signed_in: bool) {
-        self.cache.lock().expect("cache lock").insert(
-            video_id.to_owned(),
-            Cached {
-                itag: stream.itag,
-                url: stream.url.clone(),
-                user_agent: stream.user_agent.clone(),
-                expires: stream.expires,
-                signed_in,
-            },
-        );
-        self.save();
+    async fn store(self: &Arc<Self>, video_id: &str, stream: &Stream, signed_in: bool) {
+        {
+            let mut cache = self.cache.lock().recover();
+            cache.insert(
+                video_id.to_owned(),
+                Cached {
+                    itag: stream.itag,
+                    url: stream.url.clone(),
+                    user_agent: stream.user_agent.clone(),
+                    expires: stream.expires,
+                    signed_in,
+                },
+            );
+            prune_cache(&mut cache, now() + MARGIN);
+        }
+        self.save().await;
     }
 
     /// Writes the valid streams to the runtime directory, readable only by
     /// the user (the URLs are tied to the account).
-    fn save(&self) {
-        let _turn = self.saving.lock().expect("saving lock");
+    async fn save(self: &Arc<Self>) {
+        let this = self.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || this.save_blocking()).await {
+            log::warn!("stream cache writer stopped: {error}");
+        }
+    }
+
+    fn save_blocking(&self) {
+        let _turn = self.saving.lock().recover();
         let bytes = {
-            let cache = self.cache.lock().expect("cache lock");
+            let cache = self.cache.lock().recover();
             let deadline = now() + MARGIN;
             let valid: HashMap<&String, &Cached> =
                 cache.iter().filter(|(_, c)| c.expires > deadline).collect();
             match serde_json::to_vec(&valid) {
                 Ok(bytes) => bytes,
-                Err(_) => return,
+                Err(error) => {
+                    log::warn!("couldn't serialize resolved streams: {error}");
+                    return;
+                }
             }
         };
         let path = self.scratch.join("streams.json");
-        let temporary = self
-            .scratch
-            .join(format!("streams.json.tmp{}", std::process::id()));
-        let written = crate::paths::private_file()
-            .open(&temporary)
-            .and_then(|mut file| file.write_all(&bytes))
-            .and_then(|()| std::fs::rename(&temporary, &path));
-        if let Err(error) = written {
+        if let Err(error) = crate::paths::write_atomic(&path, &bytes) {
             log::warn!("couldn't save resolved streams: {error}");
         }
     }
@@ -508,7 +525,7 @@ impl Resolver {
             .native
             .get()
             .context("the stream resolver isn't ready")?;
-        let failed = self.failed.lock().expect("failed lock").contains(video_id);
+        let failed = self.failed.lock().recover().contains(video_id);
         let signed_in = self.signed_in();
         let started = Instant::now();
         let (stream, client) = native.resolve(video_id, signed_in && !failed).await?;
@@ -523,5 +540,33 @@ impl Resolver {
         // use it) is asked again next time.
         let account = signed_in && (failed || client != crate::streams::VISIONOS.name);
         Ok((stream, account))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_pruning_drops_expired_and_soonest_expiring_entries() {
+        let mut cache: HashMap<_, _> = (0..MAX_CACHED + 10)
+            .map(|n| {
+                (
+                    n.to_string(),
+                    Cached {
+                        itag: 251,
+                        url: "https://example.invalid/audio".into(),
+                        user_agent: None,
+                        expires: n as u64,
+                        signed_in: false,
+                    },
+                )
+            })
+            .collect();
+        prune_cache(&mut cache, 4);
+        assert_eq!(cache.len(), MAX_CACHED);
+        assert!(!cache.contains_key("9"));
+        assert!(cache.contains_key("10"));
+        assert!(cache.values().all(|entry| entry.expires > 4));
     }
 }

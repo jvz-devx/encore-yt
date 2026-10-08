@@ -10,6 +10,9 @@ publish = false
 
 # A crate of its own so the app can take it behind a feature later, and so
 # the spike builds and tests without the app (docs/gpui/CASTING.md).
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 log.workspace = true

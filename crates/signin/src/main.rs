@@ -36,13 +36,23 @@ struct Row {
     value: String,
 }
 
+#[allow(
+    clippy::print_stdout,
+    reason = "signed in/cancelled is the helper protocol"
+)]
 fn main() {
     let Some(out) = out_path() else {
         eprintln!("usage: encore-yt-signin --out <cookies file>");
         std::process::exit(2);
     };
     let start = std::env::var("ENCORE_SIGNIN_URL").unwrap_or_else(|_| START.into());
-    match run(&start, &out) {
+    // Persist only after the webview and event loop have closed, so filesystem
+    // latency cannot stall an active sign-in window.
+    let result = run(&start).and_then(|rows| match rows {
+        Some(rows) => write(&out, &rows).map(|()| true).map_err(Into::into),
+        None => Ok(false),
+    });
+    match result {
         Ok(true) => println!("signed in"),
         Ok(false) => println!("cancelled"),
         Err(error) => {
@@ -62,9 +72,8 @@ fn out_path() -> Option<PathBuf> {
     None
 }
 
-/// Runs the window until the session cookies appear (true) or it is closed
-/// (false).
-fn run(start: &str, out: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+/// Runs the window until session cookies appear or the user closes it.
+fn run(start: &str) -> Result<Option<Vec<Row>>, Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::new().build();
     let window = WindowBuilder::new()
         .with_title("Sign in to YouTube Music")
@@ -82,7 +91,7 @@ fn run(start: &str, out: &Path) -> Result<bool, Box<dyn std::error::Error>> {
     #[cfg(not(target_os = "linux"))]
     let webview = builder.build(&window)?;
 
-    let mut outcome: Result<bool, String> = Ok(false);
+    let mut outcome: Result<Option<Vec<Row>>, String> = Ok(None);
     let mut next = Instant::now() + POLL;
     let mut event_loop = event_loop;
     use tao::platform::run_return::EventLoopExtRunReturn;
@@ -97,11 +106,15 @@ fn run(start: &str, out: &Path) -> Result<bool, Box<dyn std::error::Error>> {
                 next = Instant::now() + POLL;
                 *flow = ControlFlow::WaitUntil(next);
                 let Ok(cookies) = webview.cookies() else {
+                    // Web-engine errors may contain session details. Only report
+                    // the failed operation, never cookies or the raw error.
+                    outcome = Err("couldn't read cookies from the sign-in window".into());
+                    *flow = ControlFlow::Exit;
                     return;
                 };
                 let rows: Vec<Row> = cookies.iter().filter_map(row).collect();
                 if rows.iter().any(signs_in) {
-                    outcome = write(out, &rows).map(|()| true);
+                    outcome = Ok(Some(rows));
                     *flow = ControlFlow::Exit;
                 }
             }
@@ -191,7 +204,9 @@ fn netscape(rows: &[Row]) -> String {
 /// `%APPDATA%` are the user's own on Windows).
 fn write(out: &Path, rows: &[Row]) -> Result<(), String> {
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    // create_new refuses existing files and symlinks atomically. mode alone
+    // would leave an existing file's permissive mode unchanged.
+    options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options
@@ -202,6 +217,11 @@ fn write(out: &Path, rows: &[Row]) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
 
@@ -231,5 +251,34 @@ mod tests {
             text,
             "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tx\n"
         );
+    }
+
+    #[test]
+    fn output_is_private_and_existing_files_are_not_overwritten() {
+        let path = std::env::temp_dir().join(format!("encore-signin-write-{}", std::process::id()));
+        let rows = [row(".youtube.com", "SAPISID")];
+        write(&path, &rows).expect("create synthetic cookie output");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        assert!(write(&path, &[]).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), netscape(&rows));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_does_not_follow_symlinks() {
+        let path = std::env::temp_dir().join(format!("encore-signin-link-{}", std::process::id()));
+        let target = path.with_extension("target");
+        std::fs::write(&target, "unchanged").unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        assert!(write(&path, &[row(".youtube.com", "SAPISID")]).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "unchanged");
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(target).unwrap();
     }
 }

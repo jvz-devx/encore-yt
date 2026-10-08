@@ -4,8 +4,6 @@
 
 mod recent;
 
-use std::path::PathBuf;
-
 use encore_core::account::Dialog;
 use encore_core::backend::Command;
 use encore_core::model::{Item, ItemKind, Run, Shelf, ShelfStyle, Target};
@@ -26,22 +24,26 @@ pub struct Sidebar {
     /// one that a `PlayTarget` started.
     pub playing_from: Option<String>,
     /// `recent.json` in the cache directory.
-    path: PathBuf,
+    writer: crate::persistence::Writer,
 }
 
 impl Sidebar {
-    pub fn new(cache: &std::path::Path) -> Self {
+    pub(crate) fn flush(&self) {
+        self.writer.flush();
+    }
+
+    pub fn new(cache: &std::path::Path, executor: &BackgroundExecutor) -> Self {
         let path = cache.join("recent.json");
         Self {
             recent: recent::load(&path),
             playing_from: None,
-            path,
+            writer: crate::persistence::Writer::new(path, executor),
         }
     }
 
     fn remember(&mut self, item: Item) {
         recent::push(&mut self.recent, item);
-        recent::save(&self.path, &self.recent);
+        self.writer.save(&self.recent);
     }
 }
 

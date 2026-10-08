@@ -47,7 +47,7 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
             NS_HEARTBEAT,
             json!({"type":"PING"}).to_string(),
         );
-        tls.write_all(&ping.frame()).await.unwrap();
+        tls.write_all(&ping.frame().unwrap()).await.unwrap();
         let mut content = String::new();
         loop {
             let mut len = [0u8; 4];
@@ -86,7 +86,7 @@ async fn fake_device(seen: Arc<Mutex<Seen>>) -> SocketAddr {
             if let Some(reply) = reply {
                 let ns = msg.namespace.clone();
                 let out = CastMessage::new(&msg.destination, &msg.source, &ns, reply.to_string());
-                tls.write_all(&out.frame()).await.unwrap();
+                tls.write_all(&out.frame().unwrap()).await.unwrap();
             }
         }
     });

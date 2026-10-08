@@ -134,7 +134,7 @@ impl super::Worker {
             Some(deck) => deck,
             None => match Player::spawn(0.0, self.player_tx.clone()).await {
                 Ok(deck) => {
-                    let _ = deck.set_equalizer(&self.deck_equalizer()).await;
+                    deck.set_equalizer(&self.deck_equalizer());
                     self.decks.audition.deck = Some(deck.clone());
                     deck
                 }
@@ -150,7 +150,7 @@ impl super::Worker {
         }
         // Another song may still be fading out on the deck: it stops here.
         self.decks.audition.level = Ramp::steady(0.0);
-        let _ = deck.set_volume(0.0).await;
+        deck.set_volume(0.0);
         let options = FileOptions {
             gain: self.gain_for(&video_id).unwrap_or(0.0),
             user_agent: stream.user_agent.clone(),
@@ -159,7 +159,7 @@ impl super::Worker {
         };
         match deck.load(&stream.url, LoadMode::Replace, &options).await {
             Ok(entry) => {
-                let _ = deck.set_pause(false).await;
+                deck.set_pause(false);
                 self.decks.audition.entry = Some(entry);
                 self.decks.audition.started = false;
                 log::info!("auditioning {video_id}");
@@ -215,7 +215,7 @@ impl super::Worker {
         if a.held.is_none() && a.entry.is_some() && a.level.target() == 0.0 && !a.level.moving() {
             a.entry = None;
             if let Some(deck) = &a.deck {
-                let _ = deck.stop().await;
+                deck.stop();
             }
         }
     }
@@ -235,7 +235,7 @@ impl super::Worker {
             return;
         }
         if let (Some(deck), Some(gain)) = (&a.deck, self.gain_for(video_id)) {
-            let _ = deck.set_gain(gain).await;
+            deck.set_gain(gain);
         }
     }
 }

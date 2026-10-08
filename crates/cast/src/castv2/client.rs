@@ -26,13 +26,28 @@ use super::messages::{
     ReceiverStatus,
 };
 use super::proto::{CastMessage, MAX_MESSAGE};
+use crate::sync::lock;
 
 /// The sender's endpoint name on the device.
 const SENDER: &str = "sender-encore";
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_PENDING: usize = 128;
+const MAX_EVENTS: usize = 128;
 
 type Writer = Arc<Mutex<WriteHalf<TlsStream<TcpStream>>>>;
 type Pending = Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>>;
+
+/// Removes a request on success, send failure, timeout or future cancellation.
+struct PendingRequest<'a> {
+    pending: &'a Pending,
+    id: u64,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        lock(self.pending).remove(&self.id);
+    }
+}
 
 /// A message nobody asked for: status broadcasts (MEDIA_STATUS as playback
 /// moves, RECEIVER_STATUS when another sender takes over), CLOSE.
@@ -47,7 +62,7 @@ pub struct Client {
     writer: Writer,
     pending: Pending,
     next_id: AtomicU64,
-    pub events: mpsc::UnboundedReceiver<Event>,
+    pub events: mpsc::Receiver<Event>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -66,14 +81,17 @@ impl Client {
             .await
             .context("connect timed out")??;
         tcp.set_nodelay(true)?;
-        let tls = connector()?
-            .connect(ServerName::IpAddress(addr.ip().into()), tcp)
-            .await
-            .context("TLS handshake")?;
+        let tls = tokio::time::timeout(
+            REPLY_TIMEOUT,
+            connector()?.connect(ServerName::IpAddress(addr.ip().into()), tcp),
+        )
+        .await
+        .context("TLS handshake timed out")?
+        .context("TLS handshake")?;
         let (read, write) = tokio::io::split(tls);
         let writer: Writer = Arc::new(Mutex::new(write));
         let pending: Pending = Arc::default();
-        let (events_tx, events) = mpsc::unbounded_channel();
+        let (events_tx, events) = mpsc::channel(MAX_EVENTS);
         let reader = tokio::spawn(read_loop(read, writer.clone(), pending.clone(), events_tx));
         let pinger = tokio::spawn(ping_loop(writer.clone()));
         let client = Client {
@@ -103,13 +121,25 @@ impl Client {
     ) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().expect("pending").insert(id, tx);
-        self.send(destination, namespace, &build(id)).await?;
-        let reply = tokio::time::timeout(REPLY_TIMEOUT, rx)
-            .await
-            .map_err(|_| anyhow!("no reply to request {id} on {namespace}"))?
-            .map_err(|_| anyhow!("the device closed the connection"))?;
-        Ok(reply)
+        {
+            let mut pending = lock(&self.pending);
+            anyhow::ensure!(
+                pending.len() < MAX_PENDING,
+                "too many pending Cast requests"
+            );
+            pending.insert(id, tx);
+        }
+        let _registration = PendingRequest {
+            pending: &self.pending,
+            id,
+        };
+        tokio::time::timeout(REPLY_TIMEOUT, async {
+            self.send(destination, namespace, &build(id)).await?;
+            rx.await
+                .map_err(|_| anyhow!("the device closed the connection"))
+        })
+        .await
+        .map_err(|_| anyhow!("no reply to request {id} on {namespace}"))?
     }
 
     pub async fn receiver_status(&self) -> Result<ReceiverStatus> {
@@ -189,10 +219,10 @@ impl Client {
 }
 
 async fn send(writer: &Writer, destination: &str, namespace: &str, payload: &Value) -> Result<()> {
-    let frame = CastMessage::new(SENDER, destination, namespace, payload.to_string()).frame();
+    let frame = CastMessage::new(SENDER, destination, namespace, payload.to_string()).frame()?;
     let mut writer = writer.lock().await;
-    writer.write_all(&frame).await?;
-    writer.flush().await?;
+    writer.write_all(&frame).await.context("write Cast frame")?;
+    writer.flush().await.context("flush Cast frame")?;
     Ok(())
 }
 
@@ -200,56 +230,109 @@ async fn read_loop(
     mut read: ReadHalf<TlsStream<TcpStream>>,
     writer: Writer,
     pending: Pending,
-    events: mpsc::UnboundedSender<Event>,
+    events: mpsc::Sender<Event>,
 ) {
     loop {
         let message = match read_message(&mut read).await {
             Ok(message) => message,
             Err(error) => {
                 log::info!("cast: connection ended: {error:#}");
-                pending.lock().expect("pending").clear();
+                lock(&pending).clear();
                 return;
             }
         };
-        let Some(payload) = message
-            .payload
-            .as_deref()
-            .and_then(|p| serde_json::from_str::<Value>(p).ok())
-        else {
+        let Some(text) = message.payload.as_deref() else {
+            // Binary device-auth messages do not carry JSON.
             continue;
         };
+        let payload = match serde_json::from_str::<Value>(text) {
+            Ok(payload) => payload,
+            Err(error) => {
+                log::debug!("cast: invalid JSON reply: {error}");
+                continue;
+            }
+        };
         if message.namespace == NS_HEARTBEAT && payload["type"] == "PING" {
-            let _ = send(&writer, &message.source, NS_HEARTBEAT, &messages::pong()).await;
+            if let Err(error) =
+                send(&writer, &message.source, NS_HEARTBEAT, &messages::pong()).await
+            {
+                log::debug!("cast: heartbeat failed: {error:#}");
+                lock(&pending).clear();
+                return;
+            }
             continue;
         }
         let waiting = payload["requestId"]
             .as_u64()
             .filter(|id| *id != 0)
-            .and_then(|id| pending.lock().expect("pending").remove(&id));
+            .and_then(|id| lock(&pending).remove(&id));
         match waiting {
             Some(tx) => {
+                // The request future may have been cancelled after removing its sender.
                 let _ = tx.send(payload);
             }
             None => {
-                let _ = events.send(Event {
+                if let Err(error) = events.try_send(Event {
                     source: message.source,
                     namespace: message.namespace,
                     payload,
-                });
+                }) {
+                    // Unsolicited broadcasts must not block heartbeat or request replies.
+                    log::debug!("cast: discarded status broadcast: {error}");
+                }
             }
         }
     }
 }
 
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelling_a_request_releases_its_pending_sender() {
+        let pending: Pending = Arc::default();
+        let (tx, mut rx) = oneshot::channel();
+        lock(&pending).insert(1, tx);
+        let task_pending = pending.clone();
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _registration = PendingRequest {
+                pending: &task_pending,
+                id: 1,
+            };
+            ready_tx.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        ready_rx.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(lock(&pending).is_empty());
+        assert!(matches!(
+            rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Closed)
+        ));
+    }
+}
+
 async fn read_message(read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<CastMessage> {
     let mut len = [0u8; 4];
-    read.read_exact(&mut len).await?;
-    let len = u32::from_be_bytes(len) as usize;
+    read.read_exact(&mut len)
+        .await
+        .context("read Cast frame length")?;
+    let len = usize::try_from(u32::from_be_bytes(len)).context("Cast frame length")?;
     if len > MAX_MESSAGE {
         bail!("message of {len} bytes");
     }
     let mut body = vec![0u8; len];
-    read.read_exact(&mut body).await?;
+    read.read_exact(&mut body)
+        .await
+        .context("read Cast frame body")?;
     CastMessage::decode(&body)
 }
 

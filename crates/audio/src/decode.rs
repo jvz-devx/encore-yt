@@ -89,8 +89,8 @@ impl Drop for Ending {
 }
 
 /// Runs the job on its own thread; `Err` is reported by the caller.
-pub fn spawn(job: Job, on_error: impl FnOnce(anyhow::Error) + Send + 'static) {
-    let spawned = thread::Builder::new()
+pub fn spawn(job: Job, on_error: impl FnOnce(anyhow::Error) + Send + 'static) -> Result<()> {
+    thread::Builder::new()
         .name(format!("audio-decode-{}", job.shared.id))
         .spawn(move || {
             // Dropping the job's `Ending` lets the mixer move on, whatever
@@ -98,10 +98,9 @@ pub fn spawn(job: Job, on_error: impl FnOnce(anyhow::Error) + Send + 'static) {
             if let Err(error) = run(job) {
                 on_error(error);
             }
-        });
-    if let Err(error) = spawned {
-        log::error!("audio: decoder thread: {error}");
-    }
+        })
+        .context("spawn audio decoder thread")?;
+    Ok(())
 }
 
 struct Decoding {
@@ -118,6 +117,7 @@ struct Decoding {
     stereo: Vec<f32>,
     /// The last decoded packet, held back so the end padding can come off.
     held: Vec<f32>,
+    resampled: Vec<f32>,
     matroska: bool,
 }
 
@@ -151,7 +151,10 @@ fn run(job: Job) -> Result<()> {
         .context("no audio codec parameters")?
         .clone();
     let track_id = track.id;
-    let codec_rate = params.sample_rate.context("no sample rate")?;
+    let codec_rate = params
+        .sample_rate
+        .filter(|rate| *rate > 0)
+        .context("no valid sample rate")?;
     let time_base = track
         .time_base
         .or_else(|| TimeBase::try_from_recip(codec_rate))
@@ -202,6 +205,7 @@ fn run(job: Job) -> Result<()> {
         samples: Vec::new(),
         stereo: Vec::new(),
         held: Vec::new(),
+        resampled: Vec::new(),
         matroska,
     };
     if start > 0.0 {
@@ -346,9 +350,10 @@ impl Decoding {
         Ok(match self.resampler.as_mut() {
             None => push(&mut self.job.ring, stereo, &self.job.control),
             Some(resampler) => {
-                let mut out = Vec::new();
+                let out = &mut self.resampled;
+                out.clear();
                 resampler.push(stereo, &mut |s| out.extend_from_slice(s))?;
-                push(&mut self.job.ring, &out, &self.job.control)
+                push(&mut self.job.ring, out, &self.job.control)
             }
         })
     }

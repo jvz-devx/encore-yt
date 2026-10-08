@@ -14,7 +14,6 @@
 //! chosen. Settings → Playback turns all of it off (`prefetch.json`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use encore_core::backend::Command;
@@ -104,7 +103,7 @@ fn check_due(last: Option<Instant>, now: Instant) -> bool {
 pub struct Prefetch {
     /// Load pages and songs the pointer rests on (Settings → Playback).
     pub on: bool,
-    path: PathBuf,
+    writer: crate::persistence::Writer,
     clock: BackgroundExecutor,
     /// The page item under the pointer, and its pending wait.
     page_hover: Option<(Want, Task<()>)>,
@@ -129,15 +128,16 @@ pub struct Prefetch {
 }
 
 impl Prefetch {
+    pub(crate) fn flush(&self) {
+        self.writer.flush();
+    }
+
     pub fn new(paths: &Paths, clock: BackgroundExecutor) -> Self {
         let path = paths.config.join("prefetch.json");
-        let on = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Prefs>(&bytes).ok())
-            .is_none_or(|p| p.hover);
+        let on = encore_core::paths::read_json::<Prefs>(&path).is_none_or(|p| p.hover);
         Self {
             on,
-            path,
+            writer: crate::persistence::Writer::new(path, &clock),
             clock,
             page_hover: None,
             song_hover: None,
@@ -170,13 +170,7 @@ impl Prefetch {
     }
 
     fn save(&self) {
-        let prefs = Prefs { hover: self.on };
-        let written = serde_json::to_vec_pretty(&prefs)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| encore_core::paths::write_atomic(&self.path, &bytes));
-        if let Err(e) = written {
-            log::warn!("couldn't save {}: {e}", self.path.display());
-        }
+        self.writer.save(&Prefs { hover: self.on });
     }
 
     fn slot(&mut self, want: &Want) -> &mut Option<(Want, Task<()>)> {
@@ -333,6 +327,9 @@ impl MusicApp {
             return;
         }
         log::debug!("hover fetch {key}");
+        prefetch
+            .fetched
+            .retain(|_, at| now.saturating_duration_since(*at) <= STALE);
         prefetch.fetched.insert(key.clone(), now);
         prefetch.in_flight = Some((key, now));
         self.ensure_page(target, false);
@@ -351,7 +348,7 @@ impl MusicApp {
             return;
         }
         log::debug!("hover resolve {id}");
-        prefetch.resolved.insert(id.clone());
+        remember_resolved(&mut prefetch.resolved, id.clone());
         self.backend.send(Command::Prepare(id));
     }
 
@@ -393,11 +390,36 @@ impl MusicApp {
     }
 }
 
+fn remember_resolved(resolved: &mut HashSet<String>, id: String) {
+    const MAX_RESOLVED: usize = 512;
+    if resolved.len() >= MAX_RESOLVED
+        && let Some(old) = resolved.iter().next().cloned()
+    {
+        resolved.remove(&old);
+    }
+    resolved.insert(id);
+}
+
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use std::time::{Duration, Instant};
 
     use super::{MINUTE, check_due};
+
+    #[test]
+    fn hover_resolution_history_is_bounded() {
+        let mut resolved = std::collections::HashSet::new();
+        for n in 0..1024 {
+            super::remember_resolved(&mut resolved, n.to_string());
+        }
+        assert_eq!(resolved.len(), 512);
+        assert!(resolved.contains("1023"));
+    }
 
     #[test]
     fn the_metered_check_runs_once_a_minute() {

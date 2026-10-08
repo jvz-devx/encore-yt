@@ -3,8 +3,13 @@
 
 // No console window behind the app in a Windows release build.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+#![allow(
+    elided_lifetimes_in_paths,
+    reason = "GPUI callback Context lifetimes follow their borrowed event context; explicit placeholders add no ownership information"
+)]
 
 // GPUI's derive macros (Action, IntoElement) name the `gpui` crate.
+#[allow(unused_extern_crates, reason = "GPUI derives resolve this crate alias")]
 extern crate gpui_kit as gpui;
 
 mod account;
@@ -16,6 +21,7 @@ mod likes;
 mod link;
 mod nav;
 mod pages;
+mod persistence;
 mod playback;
 mod settings;
 mod sidebar;
@@ -25,9 +31,19 @@ mod startup;
 mod theme;
 mod update;
 mod views;
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "deferred to the visuals task: docs/gpui/CODE-QUALITY.md V2 and V3"
+)]
 mod visuals;
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod ui_tests;
 
 use std::sync::Arc;
@@ -71,7 +87,7 @@ fn main() -> anyhow::Result<()> {
             gpui_kit::init(cx);
             // Settings → Motion, before the theme applies the desktop's
             // reduced motion through it.
-            theme::motion::init(motion_path);
+            theme::motion::init(motion_path, cx);
             // Fonts, colours and gpui-component's theme (ENCORE_THEME=light).
             theme::init(asking, cx);
             startup::mark(startup::Milestone::Theme);

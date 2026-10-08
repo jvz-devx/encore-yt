@@ -46,4 +46,5 @@ pub mod searches;
 pub mod settings;
 pub mod single_instance;
 pub mod streams;
+mod sync;
 pub mod tray;

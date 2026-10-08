@@ -111,55 +111,46 @@ impl Player {
     }
 
     /// Stops and empties the playlist.
-    pub async fn stop(&self) -> Result<()> {
+    pub fn stop(&self) {
         self.0.stop();
-        Ok(())
     }
 
     /// Moves on to the next file in the playlist now.
-    pub async fn skip(&self) -> Result<()> {
+    pub fn skip(&self) {
         self.0.skip();
-        Ok(())
     }
 
     /// Removes playlist entry `index` (0 or 1).
-    pub async fn remove(&self, index: i64) -> Result<()> {
+    pub fn remove(&self, index: i64) {
         self.0.remove(index);
-        Ok(())
     }
 
-    pub async fn seek(&self, seconds: f64) -> Result<()> {
+    pub fn seek(&self, seconds: f64) {
         self.0.seek(seconds);
-        Ok(())
     }
 
-    pub async fn set_pause(&self, paused: bool) -> Result<()> {
+    pub fn set_pause(&self, paused: bool) {
         self.0.set_pause(paused);
-        Ok(())
     }
 
     /// 0 to 100: amplitude is the cube of `volume / 100`.
-    pub async fn set_volume(&self, volume: f64) -> Result<()> {
+    pub fn set_volume(&self, volume: f64) {
         self.0.set_volume(volume);
-        Ok(())
     }
 
     /// The current file's loudness gain in dB, until it ends.
-    pub async fn set_gain(&self, gain: f64) -> Result<()> {
+    pub fn set_gain(&self, gain: f64) {
         self.0.set_gain(gain);
-        Ok(())
     }
 
     /// Repeat one: the current file plays again at its end.
-    pub async fn set_loop(&self, looping: bool) -> Result<()> {
+    pub fn set_loop(&self, looping: bool) {
         self.0.set_loop(looping);
-        Ok(())
     }
 
     /// Sets the whole equalizer.
-    pub async fn set_equalizer(&self, equalizer: &Equalizer) -> Result<()> {
+    pub fn set_equalizer(&self, equalizer: &Equalizer) {
         self.0.set_equalizer(equalizer);
-        Ok(())
     }
 
     /// Changes the equalizer's bands in place, without a gap.

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Plays a track over HTTP, seeks, turns on an EQ preset and continues
 //! gaplessly into a second track, printing a timestamp for every step.
 //!
@@ -11,7 +16,7 @@
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use encore_audio::{Engine, Event, Load};
 
 /// The backend's "Bass boost" preset (src/equalizer.rs).
@@ -30,12 +35,12 @@ macro_rules! step {
 struct Logger;
 
 impl log::Log for Logger {
-    fn enabled(&self, m: &log::Metadata) -> bool {
+    fn enabled(&self, m: &log::Metadata<'_>) -> bool {
         // DEBUG=<target prefix> shows that module's debug lines too.
         let debug = std::env::var("DEBUG").is_ok_and(|t| m.target().starts_with(&t));
         m.level() <= log::Level::Info || debug
     }
-    fn log(&self, r: &log::Record) {
+    fn log(&self, r: &log::Record<'_>) {
         if self.enabled(r.metadata()) {
             eprintln!("[{:8.3}] {} {}", now(), r.level(), r.args());
         }
@@ -55,7 +60,7 @@ fn main() -> Result<()> {
     log::set_logger(&Logger).map_err(|e| anyhow::anyhow!("{e}"))?;
     log::set_max_level(log::LevelFilter::Debug);
     let mut args = std::env::args().skip(1);
-    let first = args.next().expect("usage: play <url> [<next-url>]");
+    let first = args.next().context("usage: play <url> [<next-url>]")?;
     let second = args.next();
     let (seek_at, seek_to) = (env("SEEK_AT", 5.0), env("SEEK_TO", 30.0));
     let (eq_at, tail) = (env("EQ_AT", 8.0), env("TAIL", 5.0));
@@ -66,7 +71,9 @@ fn main() -> Result<()> {
     };
 
     let engine = Engine::start()?;
-    let events = engine.take_events().expect("the event channel");
+    let events = engine
+        .take_events()
+        .context("audio event channel is unavailable")?;
     step!("output open at {} Hz", engine.output_rate());
     let asked = now();
     let a = engine.load(0, &first, load.clone())?;
@@ -87,8 +94,9 @@ fn main() -> Result<()> {
                         step!("first audio {:.0} ms after load", (now() - asked) * 1000.0);
                         started_at = Some(now());
                         if let Some(next) = &second {
-                            b = Some(engine.queue(0, next, load.clone())?);
-                            step!("queued track {} for a gapless join: {next}", b.unwrap());
+                            let queued = engine.queue(0, next, load.clone())?;
+                            b = Some(queued);
+                            step!("queued track {queued} for a gapless join: {next}");
                         }
                     } else if Some(track) == b {
                         if let Some(end) = ended_at {

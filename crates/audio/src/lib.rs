@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -137,6 +137,10 @@ pub struct Engine {
 impl Engine {
     /// Opens the default output device.
     pub fn start() -> Result<Self> {
+        // Build fallible resources before starting a thread that waits for stop.
+        let client = Client::builder()
+            .build()
+            .context("build audio HTTP client")?;
         let (commands, command_rx) = RingBuffer::new(256);
         let (event_producer, event_consumer) = RingBuffer::new(256);
         let stop = Arc::new(AtomicBool::new(false));
@@ -147,14 +151,25 @@ impl Engine {
             let (decks, tx, stop) = (decks.clone(), event_tx.clone(), stop.clone());
             thread::Builder::new()
                 .name("audio-events".into())
-                .spawn(move || forward(event_consumer, decks, tx, rate, stop))?
+                .spawn(move || forward(event_consumer, decks, tx, rate, stop))
+        };
+        let forwarder = match forwarder {
+            Ok(thread) => thread,
+            Err(error) => {
+                stop.store(true, Ordering::Release);
+                output.thread().unpark();
+                if output.join().is_err() {
+                    log::warn!("audio output thread panicked during startup cleanup");
+                }
+                return Err(error).context("spawn audio event thread");
+            }
         };
         Ok(Self {
             mixer: Arc::new(Mutex::new(commands)),
             decks,
             events: Mutex::new(Some(events)),
             event_tx,
-            client: Client::builder().build()?,
+            client,
             rate,
             next_id: AtomicU64::new(1),
             stop,
@@ -193,6 +208,9 @@ impl Engine {
     }
 
     pub fn clear_next(&self, deck: usize) {
+        if !valid_deck(deck) {
+            return;
+        }
         self.decks()[deck].next = None;
         self.send(Command::ClearNext(deck));
     }
@@ -200,6 +218,9 @@ impl Engine {
     /// The queued track plays now; the current one stops without `Ended`.
     /// Its bytes are already downloading, so it starts sooner than a `load`.
     pub fn skip(&self, deck: usize) {
+        if !valid_deck(deck) {
+            return;
+        }
         let mut decks = self.decks();
         let next = decks[deck].next.take();
         decks[deck].current = next;
@@ -208,26 +229,43 @@ impl Engine {
 
     /// The current track's loudness gain in dB from now on.
     pub fn set_gain(&self, deck: usize, gain_db: f32) {
+        if !valid_deck(deck) || !gain_db.is_finite() {
+            return;
+        }
         self.send(Command::Gain(deck, 10f32.powf(gain_db / 20.0)));
     }
 
     pub fn seek(&self, deck: usize, seconds: f64) {
+        if !valid_deck(deck) || !seconds.is_finite() {
+            return;
+        }
         if let Some(track) = &self.decks()[deck].current {
             self.send(Command::Hold(deck));
-            let _ = track.control.send(Control::Seek(seconds.max(0.0)));
+            if track.control.send(Control::Seek(seconds.max(0.0))).is_err() {
+                log::warn!("audio: seek failed because decoder has stopped");
+            }
         }
     }
 
     pub fn pause(&self, deck: usize, paused: bool) {
+        if !valid_deck(deck) {
+            return;
+        }
         self.send(Command::Pause(deck, paused));
     }
 
     /// Linear amplitude (the backend maps its 0–100 volume onto this).
     pub fn set_volume(&self, deck: usize, amplitude: f32) {
+        if !valid_deck(deck) || !amplitude.is_finite() {
+            return;
+        }
         self.send(Command::Volume(deck, amplitude.max(0.0)));
     }
 
     pub fn stop(&self, deck: usize) {
+        if !valid_deck(deck) {
+            return;
+        }
         let mut decks = self.decks();
         decks[deck] = Deck::default();
         self.send(Command::Stop(deck));
@@ -242,7 +280,7 @@ impl Engine {
     /// The deck's current track and its position in seconds.
     pub fn stats(&self, deck: usize) -> Option<TrackStats> {
         let decks = self.decks();
-        let track = decks[deck].current.as_ref()?;
+        let track = decks.get(deck)?.current.as_ref()?;
         let shared = &track.shared;
         let frames = shared.base.load(Ordering::Relaxed) + shared.played.load(Ordering::Relaxed);
         let http = track
@@ -264,11 +302,18 @@ impl Engine {
 
     fn spawn_track(&self, deck: usize, url: &str, load: &Load) -> Result<(Track, Source)> {
         anyhow::ensure!(deck < DECKS, "no deck {deck}");
+        anyhow::ensure!(
+            load.start.is_finite()
+                && load.gain_db.is_finite()
+                && load.start_share.is_none_or(f64::is_finite),
+            "invalid audio load position or gain"
+        );
         let mut headers = HeaderMap::new();
         for (name, value) in &load.headers {
             headers.insert(
-                HeaderName::from_bytes(name.as_bytes())?,
-                HeaderValue::from_str(value)?,
+                HeaderName::from_bytes(name.as_bytes())
+                    .context("invalid audio request header name")?,
+                HeaderValue::from_str(value).context("invalid audio request header value")?,
             );
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -303,7 +348,7 @@ impl Engine {
                 track: id,
                 message: format!("{error:#}"),
             });
-        });
+        })?;
         let gain = 10f32.powf(load.gain_db / 20.0);
         let source = Source::new(shared.clone(), consumer, done, gain);
         let track = Track {
@@ -328,9 +373,19 @@ impl Drop for Engine {
         self.stop.store(true, Ordering::Release);
         for thread in self.threads.drain(..) {
             thread.thread().unpark();
-            let _ = thread.join();
+            if thread.join().is_err() {
+                log::warn!("audio worker panicked during shutdown");
+            }
         }
     }
+}
+
+fn valid_deck(deck: usize) -> bool {
+    if deck < DECKS {
+        return true;
+    }
+    log::warn!("audio: no deck {deck}");
+    false
 }
 
 /// Moves mixer events to the API's channel and keeps the deck bookkeeping

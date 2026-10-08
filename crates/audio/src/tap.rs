@@ -124,13 +124,26 @@ impl Drop for Tap {
 }
 
 #[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
 
     /// A reader gets the mix as mono or stereo in order, nothing twice, and skips
-    /// ahead when it falls a ring behind. (One test: the ring is global.)
+    /// ahead when it falls a ring behind. Tap and mixer tests share the ring lock.
     #[test]
     fn readers_follow_the_mix() {
+        let _tap = test_lock();
         let mut tap = Tap::open();
         write(&[1.0, 0.0, 0.5, 0.5, -1.0, -1.0]);
         let mut out = Vec::new();

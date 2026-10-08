@@ -122,7 +122,7 @@ impl super::Worker {
     /// Sets the current song's gain while it plays.
     async fn apply_gain(&mut self, gain: f64) {
         if let Some(player) = &self.main {
-            let _ = player.set_gain(gain).await;
+            player.set_gain(gain);
         }
         self.state.gain = Some(gain);
         self.emit(true);
@@ -131,7 +131,7 @@ impl super::Worker {
     pub(super) async fn set_normalize(&mut self, on: bool) {
         self.state.normalize = on;
         self.emit(true);
-        self.update_settings(|s| s.normalize = Some(on));
+        self.update_settings(move |s| s.normalize = Some(on)).await;
         let gain = self
             .current()
             .map(|t| t.video_id.clone())
@@ -151,13 +151,29 @@ impl super::Worker {
     }
 
     /// Changes settings.json, keeping what other parts of Encore saved there.
-    pub(super) fn update_settings(&self, change: impl FnOnce(&mut crate::settings::Settings)) {
-        let mut settings = crate::settings::Settings::load(&self.paths);
-        change(&mut settings);
-        if let Err(error) = settings.save(&self.paths) {
+    pub(super) async fn update_settings(
+        &self,
+        change: impl FnOnce(&mut crate::settings::Settings) + Send + 'static,
+    ) {
+        if let Err(error) = self.change_settings(change).await {
             self.sink
                 .send(Event::Error(format!("Couldn't save the setting: {error}")));
         }
+    }
+
+    pub(super) async fn change_settings(
+        &self,
+        change: impl FnOnce(&mut crate::settings::Settings) + Send + 'static,
+    ) -> anyhow::Result<()> {
+        let paths = self.paths.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut settings = crate::settings::Settings::load(&paths);
+            change(&mut settings);
+            settings.save(&paths)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("settings writer stopped: {error}"))?
+        .map_err(Into::into)
     }
 
     // ---- equalizer ----
@@ -165,10 +181,8 @@ impl super::Worker {
     /// Gives a newly started main deck the equalizer.
     pub(super) async fn apply_equalizer(&mut self, player: &Player) {
         let equalizer = self.state.equalizer.clone();
-        match player.set_equalizer(&equalizer).await {
-            Ok(()) => self.af = Some(equalizer),
-            Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
-        }
+        player.set_equalizer(&equalizer);
+        self.af = Some(equalizer);
     }
 
     pub(super) async fn set_equalizer(&mut self, equalizer: Equalizer) {
@@ -208,19 +222,15 @@ impl super::Worker {
             self.set_af(&decks, equalizer).await;
         }
         let equalizer = self.state.equalizer.clone();
-        self.update_settings(|s| s.equalizer = equalizer);
+        self.update_settings(move |s| s.equalizer = equalizer).await;
     }
 
     /// Sets every deck's equalizer whole.
     async fn set_af(&mut self, decks: &[Arc<Player>], equalizer: Equalizer) {
-        let mut applied = false;
         for player in decks {
-            match player.set_equalizer(&equalizer).await {
-                Ok(()) => applied = true,
-                Err(error) => log::warn!("couldn't set the equalizer: {error:#}"),
-            }
+            player.set_equalizer(&equalizer);
         }
-        if applied {
+        if !decks.is_empty() {
             self.af = Some(equalizer);
         }
     }
@@ -249,7 +259,7 @@ impl super::Worker {
     pub(super) async fn apply_loop(&self) {
         let looping = self.state.repeat == Repeat::One && !self.sleeping_at_song_end();
         if let Some(player) = &self.main {
-            let _ = player.set_loop(looping).await;
+            player.set_loop(looping);
         }
     }
 
@@ -344,7 +354,7 @@ impl super::Worker {
         self.state.sleep = None;
         self.finish_blend().await;
         if let (Some(player), false) = (&self.main, self.idle) {
-            let _ = player.set_pause(true).await;
+            player.set_pause(true);
         }
         self.restore_fade().await;
         self.emit(true);

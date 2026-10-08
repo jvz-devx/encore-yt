@@ -12,6 +12,9 @@ publish = false
 name = "encore-yt"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 # The backend (InnerTube, stream resolver, audio engine, sign-in, MPRIS).
 encore-core.workspace = true

@@ -11,336 +11,27 @@
 //! app-bound key) is not read. Cookie values and that password are secrets:
 //! nothing here logs them.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::SystemTime;
 
-use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use anyhow::{Context, Result, anyhow, bail};
-use sha2::Digest;
 
-/// One Chromium-family installation Encore can read: its name and its
-/// profiles directory under the config directory (`~/.config` on Linux,
-/// `~/Library/Application Support` on macOS). On Linux its Safe Storage
-/// password is filed under `keyring` (the Secret Service's `application`)
-/// or, on KDE, in KWallet (folder "<vendor> Keys", entry "<vendor> Safe
-/// Storage", as yt-dlp reads them). On macOS it is the Keychain item
-/// `keychain` with the account `vendor`.
-struct Browser {
-    name: &'static str,
-    dir: &'static str,
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
-    keyring: &'static str,
-    vendor: &'static str,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    keychain: &'static str,
-}
+mod browser;
+mod cookies;
+mod crypto;
 
-#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
-const fn browser(
-    name: &'static str,
-    dir: &'static str,
-    keyring: &'static str,
-    vendor: &'static str,
-    keychain: &'static str,
-) -> Browser {
-    Browser {
-        name,
-        dir,
-        keyring,
-        vendor,
-        keychain,
-    }
-}
+pub use cookies::{Cookie, Session};
+use cookies::{applies_to_music, parse_cookie_header, parse_netscape};
 
-#[cfg(target_os = "linux")]
-const BROWSERS: &[Browser] = &[
-    browser(
-        "Brave Origin",
-        "BraveSoftware/Brave-Origin",
-        "brave",
-        "Brave",
-        "",
-    ),
-    browser("Brave", "BraveSoftware/Brave-Browser", "brave", "Brave", ""),
-    browser("Google Chrome", "google-chrome", "chrome", "Chrome", ""),
-    browser("Chromium", "chromium", "chromium", "Chromium", ""),
-];
-
-/// Helium files its key as "Helium Storage Key" (imputnet/helium-macos,
-/// `change-keychain-name.patch`); the others as yt-dlp reads them.
+#[cfg(not(target_os = "macos"))]
+use crypto::safe_storage_password;
+use crypto::{Keys, decrypt, derive_key};
 #[cfg(target_os = "macos")]
-const BROWSERS: &[Browser] = &[
-    browser(
-        "Helium",
-        "net.imput.helium",
-        "",
-        "Helium",
-        "Helium Storage Key",
-    ),
-    browser(
-        "Google Chrome",
-        "Google/Chrome",
-        "",
-        "Chrome",
-        "Chrome Safe Storage",
-    ),
-    browser(
-        "Brave",
-        "BraveSoftware/Brave-Browser",
-        "",
-        "Brave",
-        "Brave Safe Storage",
-    ),
-    browser(
-        "Microsoft Edge",
-        "Microsoft Edge",
-        "",
-        "Microsoft Edge",
-        "Microsoft Edge Safe Storage",
-    ),
-    browser("Arc", "Arc/User Data", "", "Arc", "Arc Safe Storage"),
-    browser(
-        "Chromium",
-        "Chromium",
-        "",
-        "Chromium",
-        "Chromium Safe Storage",
-    ),
-];
+use crypto::{MAC_ITERATIONS, keychain_password};
 
-/// Windows encrypts Chromium cookies with DPAPI and, since Chrome 127, an
-/// app-bound key only the browser can open: not read here.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-const BROWSERS: &[Browser] = &[];
-
-/// One Firefox-family installation: its name and its profiles directory
-/// (the one holding `profiles.ini`), under the home directory on Linux and
-/// under the config directory elsewhere (`~/Library/Application Support`,
-/// `%APPDATA%`).
-struct Gecko {
-    name: &'static str,
-    dir: &'static str,
-}
-
-#[cfg(target_os = "linux")]
-const GECKOS: &[Gecko] = &[
-    Gecko {
-        name: "Firefox",
-        dir: ".mozilla/firefox",
-    },
-    Gecko {
-        name: "Firefox",
-        dir: ".config/mozilla/firefox",
-    },
-    Gecko {
-        name: "Firefox Flatpak",
-        dir: ".var/app/org.mozilla.firefox/.mozilla/firefox",
-    },
-    Gecko {
-        name: "LibreWolf",
-        dir: ".librewolf",
-    },
-    Gecko {
-        name: "LibreWolf Flatpak",
-        dir: ".var/app/io.gitlab.librewolf-community/.librewolf",
-    },
-];
-
-#[cfg(target_os = "macos")]
-const GECKOS: &[Gecko] = &[
-    Gecko {
-        name: "Firefox",
-        dir: "Firefox",
-    },
-    Gecko {
-        name: "LibreWolf",
-        dir: "librewolf",
-    },
-];
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-const GECKOS: &[Gecko] = &[
-    Gecko {
-        name: "Firefox",
-        dir: "Mozilla/Firefox",
-    },
-    Gecko {
-        name: "LibreWolf",
-        dir: "librewolf",
-    },
-];
-
-/// Where a Firefox-family `dir` is: the home directory on Linux, the config
-/// directory elsewhere.
-fn gecko_base(base: &directories::BaseDirs) -> &Path {
-    if cfg!(target_os = "linux") {
-        base.home_dir()
-    } else {
-        base.config_dir()
-    }
-}
-
-/// Where the Chromium-family browsers keep their profiles. Normally the
-/// config directory; inside a Flatpak sandbox that directory is the app's own
-/// (`~/.var/app/<id>/config`), so look in the real `~/.config`, which the
-/// manifest opens read-only for the known browsers.
-fn browser_config_dir(base: &directories::BaseDirs) -> PathBuf {
-    if cfg!(target_os = "linux") && Path::new("/.flatpak-info").exists() {
-        base.home_dir().join(".config")
-    } else {
-        base.config_dir().to_path_buf()
-    }
-}
-
-/// The browsers Encore looks for on this system, for the sign-in sheet.
-pub fn supported_browsers() -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = GECKOS
-        .iter()
-        .map(|g| g.name.trim_end_matches(" Flatpak"))
-        .chain(BROWSERS.iter().map(|b| b.name))
-        .collect();
-    let mut seen = Vec::new();
-    names.retain(|n| {
-        let new = !seen.contains(n);
-        seen.push(*n);
-        new
-    });
-    names
-}
-
-/// The supported browsers that have a profile directory on this system,
-/// for the sign-in sheet's browser route (see `browsers`).
-pub(crate) fn installed_browsers() -> Vec<&'static str> {
-    let Some(base) = directories::BaseDirs::new() else {
-        return Vec::new();
-    };
-    let config = browser_config_dir(&base);
-    let mut names: Vec<&'static str> = BROWSERS
-        .iter()
-        .filter(|b| config.join(b.dir).is_dir())
-        .map(|b| b.name)
-        .chain(
-            GECKOS
-                .iter()
-                .filter(|g| gecko_base(&base).join(g.dir).is_dir())
-                .map(|g| g.name.trim_end_matches(" Flatpak")),
-        )
-        .collect();
-    let mut seen = Vec::new();
-    names.retain(|n| {
-        let new = !seen.contains(n);
-        seen.push(*n);
-        new
-    });
-    names
-}
-
-#[derive(Clone)]
-pub struct Cookie {
-    pub host: String,
-    pub name: String,
-    pub value: String,
-    pub path: String,
-    pub secure: bool,
-    /// Unix seconds; 0 for a session cookie.
-    pub expires: i64,
-}
-
-/// A browser's YouTube and Google cookies.
-#[derive(Clone)]
-pub struct Session {
-    /// "Google Chrome (Default)", for the account menu.
-    pub source: String,
-    /// The [`Profile::id`] it came from.
-    pub profile: String,
-    cookies: Vec<Cookie>,
-}
-
-impl std::fmt::Debug for Session {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Session")
-            .field("source", &self.source)
-            .field("cookies", &self.cookies.len())
-            .finish()
-    }
-}
-
-impl Session {
-    /// The `Cookie` header for music.youtube.com: every youtube.com cookie,
-    /// the most specific host winning a repeated name.
-    pub fn header(&self) -> String {
-        let mut chosen: Vec<&Cookie> = Vec::new();
-        for cookie in self.cookies.iter().filter(|c| applies_to_music(&c.host)) {
-            match chosen.iter_mut().find(|c| c.name == cookie.name) {
-                Some(existing) if specificity(&cookie.host) > specificity(&existing.host) => {
-                    *existing = cookie
-                }
-                Some(_) => {}
-                None => chosen.push(cookie),
-            }
-        }
-        chosen
-            .iter()
-            .map(|c| format!("{}={}", c.name, c.value))
-            .collect::<Vec<_>>()
-            .join("; ")
-    }
-
-    /// The value InnerTube's SAPISIDHASH authorization is computed from.
-    pub fn sapisid(&self) -> Option<&str> {
-        ["SAPISID", "__Secure-3PAPISID"].iter().find_map(|name| {
-            self.cookies
-                .iter()
-                .find(|c| c.name == *name && applies_to_music(&c.host))
-                .map(|c| c.value.as_str())
-        })
-    }
-
-    /// A youtube.com cookie's value (`__Secure-1PAPISID` and
-    /// `__Secure-3PAPISID` for the other SAPISIDHASH schemes).
-    pub fn cookie(&self, name: &str) -> Option<&str> {
-        self.cookies
-            .iter()
-            .find(|c| c.name == name && applies_to_music(&c.host))
-            .map(|c| c.value.as_str())
-    }
-
-    /// Writes the cookies as a Netscape cookie file (mode 0600).
-    pub fn write_netscape(&self, path: &Path) -> Result<()> {
-        let mut text = String::from("# Netscape HTTP Cookie File\n");
-        for c in &self.cookies {
-            let domain_flag = if c.host.starts_with('.') {
-                "TRUE"
-            } else {
-                "FALSE"
-            };
-            let secure = if c.secure { "TRUE" } else { "FALSE" };
-            text.push_str(&format!(
-                "{}\t{domain_flag}\t{}\t{secure}\t{}\t{}\t{}\n",
-                c.host, c.path, c.expires, c.name, c.value
-            ));
-        }
-        let temporary = path.with_extension("tmp");
-        let mut file = crate::paths::private_file().open(&temporary)?;
-        file.write_all(text.as_bytes())?;
-        drop(file);
-        std::fs::rename(&temporary, path)?;
-        Ok(())
-    }
-}
-
-fn applies_to_music(host: &str) -> bool {
-    host == "music.youtube.com"
-        || host == ".music.youtube.com"
-        || host == ".youtube.com"
-        || host == "youtube.com"
-}
-
-fn specificity(host: &str) -> usize {
-    host.trim_start_matches('.').len()
-}
+pub(crate) use browser::installed_browsers;
+pub use browser::supported_browsers;
+use browser::{BROWSERS, Browser, GECKOS, Gecko, browser_config_dir, gecko_base};
 
 /// How a profile's cookie database is read.
 enum Store {
@@ -650,41 +341,6 @@ fn store(name: &str, cookies: Vec<Cookie>) -> Result<Profile> {
     })
 }
 
-/// The cookies of a `Cookie` request header, `name=value; name=value`, as
-/// youtube.com cookies. Tolerates a leading `Cookie:` and quotes around it
-/// (from "Copy as cURL"). They are session cookies: a header carries no
-/// expiry.
-fn parse_cookie_header(text: &str) -> Vec<Cookie> {
-    let mut text = text.trim();
-    let lower = text.to_ascii_lowercase();
-    if let Some(at) = lower.find("cookie:") {
-        text = &text[at + "cookie:".len()..];
-    }
-    let text = text
-        .trim()
-        .trim_start_matches(['\'', '"'])
-        .split(['\'', '"', '\n', '\r'])
-        .next()
-        .unwrap_or_default();
-    text.split(';')
-        .filter_map(|pair| {
-            let (name, value) = pair.trim().split_once('=')?;
-            let name = name.trim();
-            if name.is_empty() || name.contains(char::is_whitespace) {
-                return None;
-            }
-            Some(Cookie {
-                host: ".youtube.com".into(),
-                name: name.into(),
-                value: value.trim().into(),
-                path: "/".into(),
-                secure: true,
-                expires: 0,
-            })
-        })
-        .collect()
-}
-
 /// Reads the YouTube sign-in from `preferred` (a [`Profile::id`]) when it
 /// has one, else from the most recently used signed-in browser profile.
 ///
@@ -737,15 +393,43 @@ fn with_copy<T>(
     let read_no = READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let copy = scratch.join(format!("cookies-{}-{read_no}.sqlite", std::process::id()));
     let copy_wal = wal_of(&copy);
-    std::fs::copy(&candidate.cookies, &copy).context("copying the cookie database")?;
+    let mut copies = Copies::default();
+    copies
+        .copy(&candidate.cookies, &copy)
+        .context("copying the cookie database")?;
     let wal = wal_of(&candidate.cookies);
-    if wal.exists() {
-        let _ = std::fs::copy(&wal, &copy_wal);
+    if let Err(error) = copies.copy(&wal, &copy_wal)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(error).context("copying the cookie write-ahead log");
     }
-    let result = read(&copy);
-    let _ = std::fs::remove_file(&copy);
-    let _ = std::fs::remove_file(&copy_wal);
-    result
+    read(&copy)
+}
+
+#[derive(Default)]
+struct Copies(Vec<PathBuf>);
+
+impl Copies {
+    fn copy(&mut self, from: &Path, to: &Path) -> std::io::Result<()> {
+        let mut source = std::fs::File::open(from)?;
+        let mut copy = crate::paths::create_private(to)?;
+        // Register only files we created, before a potentially failing copy.
+        self.0.push(to.to_owned());
+        std::io::copy(&mut source, &mut copy)?;
+        Ok(())
+    }
+}
+
+impl Drop for Copies {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            if let Err(error) = std::fs::remove_file(path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                log::warn!("couldn't remove private browser snapshot: {error}");
+            }
+        }
+    }
 }
 
 /// What Encore can read from one browser profile, to diagnose sign-in.
@@ -1087,252 +771,41 @@ fn cookie_file_cookies(path: &Path) -> Result<Vec<Cookie>> {
     Ok(parse_netscape(&text))
 }
 
-/// The youtube.com and google.com lines of a Netscape cookie file:
-/// `host, subdomains, path, secure, expires, name, value`, tab-separated.
-/// `#HttpOnly_` marks an HttpOnly cookie; other `#` lines are comments.
-fn parse_netscape(text: &str) -> Vec<Cookie> {
-    text.lines()
-        .filter_map(|line| {
-            let line = line.trim_end_matches('\r');
-            let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
-            if line.starts_with('#') {
-                return None;
-            }
-            let mut fields = line.split('\t');
-            let host = fields.next()?;
-            let _subdomains = fields.next()?;
-            let path = fields.next()?;
-            let secure = fields.next()?;
-            let expires = fields.next()?;
-            let name = fields.next()?;
-            let value = fields.next().unwrap_or_default();
-            if !(host.ends_with("youtube.com") || host.ends_with("google.com")) {
-                return None;
-            }
-            Some(Cookie {
-                host: host.to_owned(),
-                name: name.to_owned(),
-                value: value.to_owned(),
-                path: path.to_owned(),
-                secure: secure.eq_ignore_ascii_case("TRUE"),
-                expires: expires.parse::<i64>().unwrap_or(0).max(0),
-            })
-        })
-        .collect()
-}
-
-/// The browser's "Safe Storage" password and where it came from: the Secret
-/// Service (libsecret), else KWallet. `None` when neither has one.
-#[cfg(not(target_os = "macos"))]
-fn safe_storage_password(browser: &Browser) -> Result<Option<(Vec<u8>, &'static str)>> {
-    if let Some(password) = secret_service_password(browser.keyring) {
-        return Ok(Some((password, "the Secret Service")));
-    }
-    match kwallet::password(browser.vendor) {
-        Ok(Some(password)) => Ok(Some((password, "KWallet"))),
-        Ok(None) => Ok(None),
-        Err(error) => Err(error.context("reading KWallet")),
-    }
-}
-
-/// `secret-tool lookup application <application>`, without the trailing
-/// newline. `None` when it is empty or `secret-tool` is missing.
-#[cfg(not(target_os = "macos"))]
-fn secret_service_password(application: &str) -> Option<Vec<u8>> {
-    let output = Command::new("secret-tool")
-        .args(["lookup", "application", application])
-        .output()
-        .ok()?;
-    let mut password = output.stdout;
-    while password.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
-        password.pop();
-    }
-    Some(password).filter(|p| !p.is_empty())
-}
-
-/// PBKDF2 rounds Chromium uses for its macOS key (1 on Linux).
-#[cfg(any(target_os = "macos", test))]
-const MAC_ITERATIONS: u32 = 1003;
-
-/// The Keychain's Safe Storage password for `browser`:
-/// `security find-generic-password -w -a <vendor> -s <keychain>`, without
-/// the trailing newline. `None` when there is none or access was denied.
-#[cfg(target_os = "macos")]
-fn keychain_password(browser: &Browser) -> Option<Vec<u8>> {
-    let output = Command::new("security")
-        .args([
-            "find-generic-password",
-            "-w",
-            "-a",
-            browser.vendor,
-            "-s",
-            browser.keychain,
-        ])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let mut password = output.stdout;
-    while password.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
-        password.pop();
-    }
-    Some(password).filter(|p| !p.is_empty())
-}
-
-/// KDE's wallet over D-Bus (`org.kde.KWallet`), as Chromium uses it on KDE.
-#[cfg(not(target_os = "macos"))]
-mod kwallet {
-    use anyhow::{Result, bail};
-    use zbus::blocking::{Connection, Proxy};
-
-    /// How Encore names itself to kwalletd (its access prompt shows it).
-    const APP_ID: &str = crate::APP_NAME;
-
-    /// kwalletd6 (Plasma 6), then kwalletd5.
-    const DAEMONS: &[(&str, &str)] = &[
-        ("org.kde.kwalletd6", "/modules/kwalletd6"),
-        ("org.kde.kwalletd5", "/modules/kwalletd5"),
-    ];
-
-    /// The password in folder "<name> Keys", entry "<name> Safe Storage" of
-    /// the network wallet. `None` when no wallet daemon runs or the entry
-    /// is missing or empty.
-    pub fn password(name: &str) -> Result<Option<Vec<u8>>> {
-        let Ok(bus) = Connection::session() else {
-            return Ok(None);
-        };
-        for (service, path) in DAEMONS {
-            let Ok(proxy) = Proxy::new(&bus, *service, *path, "org.kde.KWallet") else {
-                continue;
-            };
-            // No such daemon (and none to start): try the next.
-            let Ok(enabled) = proxy.call::<_, _, bool>("isEnabled", &()) else {
-                continue;
-            };
-            if !enabled {
-                return Ok(None);
-            }
-            let wallet = proxy
-                .call::<_, _, String>("networkWallet", &())
-                .ok()
-                .filter(|w| !w.is_empty())
-                .unwrap_or_else(|| "kdewallet".into());
-            return read(&proxy, &wallet, name);
-        }
-        Ok(None)
-    }
-
-    fn read(proxy: &Proxy<'_>, wallet: &str, name: &str) -> Result<Option<Vec<u8>>> {
-        // Asks the person to unlock the wallet if it is closed.
-        let handle: i32 = proxy.call("open", &(wallet, 0i64, APP_ID))?;
-        if handle < 0 {
-            bail!("the wallet “{wallet}” didn't open");
-        }
-        let folder = format!("{name} Keys");
-        let entry = format!("{name} Safe Storage");
-        let found = proxy
-            .call::<_, _, bool>(
-                "hasEntry",
-                &(handle, folder.as_str(), entry.as_str(), APP_ID),
-            )
-            .unwrap_or(false);
-        let password = if found {
-            proxy.call::<_, _, String>(
-                "readPassword",
-                &(handle, folder.as_str(), entry.as_str(), APP_ID),
-            )
-        } else {
-            Ok(String::new())
-        };
-        let _ = proxy.call::<_, _, i32>("close", &(handle, false, APP_ID));
-        Ok(Some(password?.into_bytes()).filter(|p| !p.is_empty()))
-    }
-}
-
-/// The keys a Chromium profile's values are encrypted with. Linux: `v10`
-/// with the fixed password, `v11` with the Safe Storage one. macOS: `v10`
-/// with the Keychain's.
-struct Keys {
-    v10: Option<[u8; 16]>,
-    v11: Option<[u8; 16]>,
-}
-
-fn derive_key(password: &[u8], iterations: u32) -> [u8; 16] {
-    let mut key = [0u8; 16];
-    pbkdf2::pbkdf2_hmac::<sha1::Sha1>(password, b"saltysalt", iterations, &mut key);
-    key
-}
-
-fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -> Option<String> {
-    let key = match encrypted.get(..3)? {
-        b"v10" => keys.v10.as_ref()?,
-        b"v11" => keys.v11.as_ref()?,
-        _ => return None,
-    };
-    let body = &encrypted[3..];
-    let decryptor = cbc::Decryptor::<aes::Aes128>::new(key.into(), &[b' '; 16].into());
-    let plain = decryptor.decrypt_padded_vec_mut::<Pkcs7>(body).ok()?;
-    // Schema 24 prefixes the value with SHA-256 of its host.
-    let plain = if version >= 24
-        && plain.len() >= 32
-        && plain[..32] == sha2::Sha256::digest(host.as_bytes())[..]
-    {
-        &plain[32..]
-    } else {
-        &plain[..]
-    };
-    String::from_utf8(plain.to_vec()).ok()
-}
-
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests copy synthetic bytes, never browser data"
+)]
 mod tests {
     use super::*;
-    use aes::cipher::BlockEncryptMut;
-
-    /// A value encrypted the way Chrome does on macOS (schema 24): the
-    /// Keychain password through PBKDF2 (1003 rounds), AES-128-CBC with an
-    /// IV of spaces, `v10`, the host's SHA-256 in front. Synthetic password
-    /// and value.
-    #[test]
-    fn decrypts_a_macos_value() {
-        let key = derive_key(b"synthetic keychain password", MAC_ITERATIONS);
-        let host = ".youtube.com";
-        let mut plain = sha2::Sha256::digest(host.as_bytes()).to_vec();
-        plain.extend_from_slice(b"synthetic-value");
-        let body = cbc::Encryptor::<aes::Aes128>::new(&key.into(), &[b' '; 16].into())
-            .encrypt_padded_vec_mut::<Pkcs7>(&plain);
-        let encrypted = [b"v10".as_slice(), &body].concat();
-        let keys = Keys {
-            v10: Some(key),
-            v11: None,
-        };
-        assert_eq!(
-            decrypt(&encrypted, &keys, host, 24).as_deref(),
-            Some("synthetic-value")
-        );
-        let wrong = Keys {
-            v10: Some(derive_key(b"synthetic keychain password", 1)),
-            v11: None,
-        };
-        assert_ne!(
-            decrypt(&encrypted, &wrong, host, 24).as_deref(),
-            Some("synthetic-value")
-        );
-    }
 
     #[test]
-    fn reads_a_pasted_cookie_header() {
-        let cookies = parse_cookie_header("Cookie: PREF=f6=1; SAPISID=abc/def; HSID=x=y\n");
-        let pairs: Vec<_> = cookies
-            .iter()
-            .map(|c| (c.name.as_str(), c.value.as_str()))
-            .collect();
-        assert_eq!(
-            pairs,
-            [("PREF", "f6=1"), ("SAPISID", "abc/def"), ("HSID", "x=y")]
-        );
-        assert!(cookies.iter().any(|c| signs_in(&c.host, &c.name)));
-        let curl = parse_cookie_header("-H 'cookie: SAPISID=a; SID=b' \\");
-        assert_eq!(curl.len(), 2);
-        assert!(parse_cookie_header("hello there").is_empty());
+    fn snapshots_are_private_and_cleanup_only_removes_owned_files() {
+        let dir = std::env::temp_dir().join(format!("encore-snapshot-test-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let source = dir.join("source");
+        let copy = dir.join("copy");
+        std::fs::write(&source, "synthetic bytes").unwrap();
+        {
+            let mut files = Copies::default();
+            files.copy(&source, &copy).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    std::fs::metadata(&copy).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            assert_eq!(std::fs::read(&copy).unwrap(), b"synthetic bytes");
+            let mut other = Copies::default();
+            assert!(other.copy(&source, &copy).is_err());
+            drop(other);
+            assert!(copy.exists());
+        }
+        assert!(!copy.exists());
+        assert!(source.exists());
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(dir).unwrap();
     }
 }

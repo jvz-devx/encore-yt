@@ -29,6 +29,7 @@ actions!(music, [Back, Forward]);
 const STALE: Duration = Duration::from_secs(300);
 /// How many views Back remembers.
 const HISTORY: usize = 50;
+const MAX_CACHED_PAGES: usize = 128;
 
 pub struct Pages {
     pub view: View,
@@ -69,6 +70,43 @@ pub struct Transition {
 }
 
 impl Pages {
+    fn trim_cache(&mut self) {
+        if self.states.len() <= MAX_CACHED_PAGES {
+            return;
+        }
+        // History and the library must remain available to navigation and the
+        // sidebar. Together these occupy fewer slots than the cache limit.
+        let protected: HashSet<String> = self
+            .history
+            .iter()
+            .chain(&self.forward)
+            .chain(std::iter::once(&self.view))
+            .map(|view| view.target().key())
+            .chain(LibraryTab::ALL.into_iter().map(|tab| tab.target().key()))
+            .chain([
+                View::Home.target().key(),
+                View::Explore.target().key(),
+                Target::browse("VLLM").key(),
+            ])
+            .collect();
+        while self.states.len() > MAX_CACHED_PAGES {
+            let Some(key) = self
+                .states
+                .iter()
+                .filter(|(key, _)| !protected.contains(*key))
+                .min_by_key(|(_, state)| state.seq)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            self.states.remove(&key);
+            self.lists.remove(&key);
+            self.carousels.retain(|(page, _), _| page != &key);
+            self.glides.retain(|(page, _), _| page != &key);
+            self.expanded.remove(&key);
+        }
+    }
+
     pub fn new(
         paths: &Paths,
         _window: &mut Window,
@@ -272,6 +310,7 @@ impl MusicApp {
         state.error = None;
         state.reload = None;
         state.seq = seq;
+        self.pages.trim_cache();
     }
 
     /// The click timing (M28): how long page `key` took to show after

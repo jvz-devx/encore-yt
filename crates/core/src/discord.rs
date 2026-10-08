@@ -144,7 +144,9 @@ impl Presence {
         } else {
             track.duration.map_or(0.0, f64::from)
         };
-        let start = unix_ms - (now.playback.position.max(0.0) * 1000.0) as i64;
+        // Float-to-int casts saturate. The following arithmetic must do so too
+        // when a corrupt session or remote seek supplied an extreme position.
+        let start = unix_ms.saturating_sub((now.playback.position.max(0.0) * 1000.0) as i64);
         Some(Self {
             video_id: track.video_id.clone(),
             title: track.title.clone(),
@@ -154,7 +156,7 @@ impl Presence {
                 .clone()
                 .filter(|url| url.starts_with("https://")),
             start,
-            end: (duration > 0.0).then(|| start + (duration * 1000.0) as i64),
+            end: (duration > 0.0).then(|| start.saturating_add((duration * 1000.0) as i64)),
         })
     }
 
@@ -218,7 +220,7 @@ fn text(value: &str) -> String {
 fn unix_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 enum Message {
@@ -448,8 +450,24 @@ impl Worker {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extreme_playback_times_do_not_overflow_presence_timestamps() {
+        let mut playing = now(true, 0.0);
+        playing.playback.duration = f64::MAX;
+        let presence = Presence::of(&playing, i64::MAX).unwrap();
+        assert_eq!(presence.end, Some(i64::MAX));
+        playing.playback.position = f64::MAX;
+        let presence = Presence::of(&playing, i64::MIN).unwrap();
+        assert_eq!(presence.start, i64::MIN);
+    }
     use crate::model::{Run, Track};
 
     fn now(playing: bool, position: f64) -> Now {
@@ -535,13 +553,31 @@ mod tests {
         use std::io::{Read, Write};
         use std::os::unix::net::UnixListener;
 
-        let dir = std::env::temp_dir().join(format!("encore-discord-test-{}", std::process::id()));
+        // Set the child's environment before it starts. Mutating this process's
+        // environment is unsafe while the parallel test runner has live threads.
+        if std::env::var_os("ENCORE_DISCORD_TEST_CHILD").is_none() {
+            let dir =
+                std::env::temp_dir().join(format!("encore-discord-test-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "discord::tests::talks_to_a_discord_socket",
+                    "--nocapture",
+                ])
+                .env("ENCORE_DISCORD_TEST_CHILD", "1")
+                .env("XDG_RUNTIME_DIR", &dir)
+                .status()
+                .unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            assert!(status.success());
+            return;
+        }
+        let dir = std::path::PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("discord-ipc-0");
         let _ = std::fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket).unwrap();
-        // The only test that reads this variable.
-        unsafe { std::env::set_var("XDG_RUNTIME_DIR", &dir) };
 
         // A fake Discord: answers the handshake, records every frame.
         let (frames_tx, frames) = mpsc::channel::<(u32, serde_json::Value)>();
@@ -597,6 +633,5 @@ mod tests {
         // Turning it off closes the connection.
         flags.discord.set_enabled(false);
         runtime.shutdown_timeout(Duration::from_secs(2));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

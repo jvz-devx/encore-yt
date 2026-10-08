@@ -49,7 +49,10 @@ pub fn decode_mono(url: &str, rate: u32) -> Result<Decoded> {
         .context("no audio codec parameters")?
         .clone();
     let track_id = track.id;
-    let codec_rate = params.sample_rate.context("no sample rate")?;
+    let codec_rate = params
+        .sample_rate
+        .filter(|rate| *rate > 0)
+        .context("no valid sample rate")?;
     let mut decoder = CODECS
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .context("unsupported codec")?;

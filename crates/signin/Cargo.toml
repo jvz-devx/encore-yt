@@ -16,6 +16,9 @@ publish = false
 name = "encore-yt-signin"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 wry = "0.57"
 tao = "0.37"

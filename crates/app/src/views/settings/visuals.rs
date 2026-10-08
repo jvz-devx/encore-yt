@@ -256,7 +256,10 @@ fn tab_reset(tab: Tab, s: &VisualsConfig, c: &Colors, cx: &mut Context<MusicApp>
 }
 
 /// A switch row inside a card.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "switch presentation and its typed settings callback"
+)]
 fn toggle(
     id: &'static str,
     label: &'static str,

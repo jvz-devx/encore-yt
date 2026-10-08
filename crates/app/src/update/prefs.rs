@@ -36,19 +36,7 @@ impl Default for Prefs {
 
 impl Prefs {
     pub fn load(path: &Path) -> Self {
-        std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn save(&self, path: &Path) {
-        let written = serde_json::to_vec_pretty(self)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
-        if let Err(e) = written {
-            log::warn!("couldn't save {}: {e}", path.display());
-        }
+        encore_core::paths::read_json(path).unwrap_or_default()
     }
 
     pub fn prereleases(&self) -> bool {

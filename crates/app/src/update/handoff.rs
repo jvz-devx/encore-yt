@@ -78,7 +78,7 @@ pub fn probe(exe: &Path, version: &str) -> Result<()> {
     let start = Instant::now();
     while child.try_wait()?.is_none() {
         if start.elapsed() > PROBE {
-            let _ = child.kill();
+            stop_child(&mut child);
             bail!("The new version doesn't answer");
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -119,7 +119,9 @@ fn mac_extract(job: &Job) -> Result<PathBuf> {
         run(Command::new("ditto").arg(&app).arg(&new)).context("Couldn't copy the new app")?;
         Ok::<_, anyhow::Error>(new)
     })();
-    let _ = run(Command::new("hdiutil").arg("detach").arg(&mount));
+    if let Err(error) = run(Command::new("hdiutil").arg("detach").arg(&mount)) {
+        log::warn!("couldn't detach update disk image: {error:#}");
+    }
     let new = copied?;
     let id = Command::new("/usr/libexec/PlistBuddy")
         .args(["-c", "Print :CFBundleIdentifier"])
@@ -129,10 +131,15 @@ fn mac_extract(job: &Job) -> Result<PathBuf> {
         String::from_utf8_lossy(&id.stdout).trim() == "io.github.jvz-devx.encore-yt",
         "The disk image holds another app"
     );
-    let _ = Command::new("xattr")
+    match Command::new("xattr")
         .args(["-dr", "com.apple.quarantine"])
         .arg(&new)
-        .status();
+        .status()
+    {
+        Ok(status) if status.success() => {}
+        Ok(status) => log::warn!("couldn't clear update quarantine: {status}"),
+        Err(error) => log::warn!("couldn't clear update quarantine: {error}"),
+    }
     Ok(new)
 }
 
@@ -183,7 +190,7 @@ fn wait_ready(job: &Job, child: &mut Child) -> Result<()> {
             );
         }
         if start.elapsed() > HELPER_READY {
-            let _ = child.kill();
+            stop_child(child);
             bail!("The update helper didn't start. Try again.");
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -203,4 +210,32 @@ pub fn run(command: &mut Command) -> Result<()> {
         command.get_program()
     );
     Ok(())
+}
+
+pub(super) fn stop_child(child: &mut Child) {
+    if let Err(error) = child.kill() {
+        log::warn!("couldn't stop update child: {error}");
+    }
+    if let Err(error) = child.wait() {
+        log::warn!("couldn't reap update child: {error}");
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests launch only a synthetic local child"
+)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stopped_children_are_reaped() {
+        let mut child = Command::new("sh")
+            .args(["-c", "exec sleep 30"])
+            .spawn()
+            .unwrap();
+        stop_child(&mut child);
+        assert!(child.try_wait().unwrap().is_some());
+    }
 }

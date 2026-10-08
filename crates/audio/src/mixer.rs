@@ -53,6 +53,8 @@ pub struct Source {
     waiting: bool,
     /// A seek is under way: silent until its samples arrive.
     held: bool,
+    /// Preserve the actual end time while retrying a full event queue.
+    ended_at: Option<u64>,
 }
 
 impl Source {
@@ -79,6 +81,7 @@ impl Source {
             seeked: false,
             waiting: true,
             held: false,
+            ended_at: None,
         }
     }
 }
@@ -169,10 +172,20 @@ impl Mixer {
     /// Fills `out` (interleaved, `channels` per frame).
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         self.apply_commands();
-        let frames = out.len() / channels.max(1);
-        if self.scratch.len() < frames * 2 {
-            self.scratch.resize(frames * 2, 0.0);
+        out.fill(0.0);
+        if channels == 0 {
+            return;
         }
+        // Device callback sizes vary. Reuse the fixed stereo scratch buffer
+        // for every chunk instead of allocating on the real-time thread.
+        let chunk_samples = channels.saturating_mul(self.scratch.len() / 2);
+        for chunk in out.chunks_mut(chunk_samples) {
+            self.render_chunk(chunk, channels);
+        }
+    }
+
+    fn render_chunk(&mut self, out: &mut [f32], channels: usize) {
+        let frames = out.len() / channels;
         let mix = &mut self.scratch[..frames * 2];
         mix.fill(0.0);
         for (deck, voice) in self.voices.iter_mut().enumerate() {
@@ -236,6 +249,7 @@ impl Mixer {
                         source.seeked = true;
                         source.held = false;
                         source.waiting = true;
+                        source.ended_at = None;
                     }
                 }
                 Command::Stop(deck) => {
@@ -288,12 +302,20 @@ impl Voice {
                     let shared = &source.shared;
                     let end =
                         shared.base.load(Ordering::Relaxed) + shared.played.load(Ordering::Relaxed);
-                    let _ = events.push(MixEvent::Ended {
-                        deck,
-                        track: shared.id,
-                        at: frame0 + i as u64,
-                        end,
-                    });
+                    let at = *source.ended_at.get_or_insert(frame0 + i as u64);
+                    if events
+                        .push(MixEvent::Ended {
+                            deck,
+                            track: shared.id,
+                            at,
+                            end,
+                        })
+                        .is_err()
+                    {
+                        // Retry next callback without losing the transition or
+                        // blocking the audio thread when the consumer falls behind.
+                        break;
+                    }
                     self.current = self.next.take();
                     continue;
                 }
@@ -310,14 +332,18 @@ impl Voice {
             }
             let at = frame0 + i as u64;
             if !source.started {
-                source.started = true;
                 let track = source.shared.id;
-                let _ = events.push(MixEvent::Started { deck, track, at });
+                if events.push(MixEvent::Started { deck, track, at }).is_err() {
+                    break;
+                }
+                source.started = true;
             }
             if source.seeked {
-                source.seeked = false;
                 let track = source.shared.id;
-                let _ = events.push(MixEvent::Seeked { deck, track, at });
+                if events.push(MixEvent::Seeked { deck, track, at }).is_err() {
+                    break;
+                }
+                source.seeked = false;
             }
             let n = available.min(frames - i);
             let Ok(chunk) = source.ring.read_chunk(n * 2) else {
@@ -336,5 +362,108 @@ impl Voice {
             source.shared.played.fetch_add(n as u64, Ordering::Relaxed);
             i += n;
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
+mod tests {
+    use super::*;
+    use rtrb::RingBuffer;
+
+    fn source(frames: usize) -> Source {
+        let (mut tx, rx) = RingBuffer::new(frames * 2);
+        for _ in 0..frames {
+            tx.push(0.25).unwrap();
+            tx.push(-0.25).unwrap();
+        }
+        Source::new(
+            Arc::new(TrackShared {
+                id: 1,
+                ..TrackShared::default()
+            }),
+            rx,
+            Arc::new(AtomicBool::new(true)),
+            1.0,
+        )
+    }
+
+    #[test]
+    fn large_callbacks_reuse_scratch_and_keep_frame_positions() {
+        let _tap = crate::tap::test_lock();
+        let (mut commands, rx) = RingBuffer::new(8);
+        let (events, mut received) = RingBuffer::new(8);
+        let mut mixer = Mixer::new(48_000, rx, events);
+        let scratch = mixer.scratch.as_ptr();
+        let capacity = mixer.scratch.capacity();
+        assert!(commands.push(Command::Load(0, source(10_000))).is_ok());
+        let mut output = vec![0.0; 20_002];
+        mixer.render(&mut output, 2);
+        assert_eq!(mixer.scratch.as_ptr(), scratch);
+        assert_eq!(mixer.scratch.capacity(), capacity);
+        assert!(
+            output[..20_000]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .all(|s| *s == [0.25, -0.25])
+        );
+        assert_eq!(&output[20_000..], &[0.0, 0.0]);
+        assert!(matches!(
+            received.pop(),
+            Ok(MixEvent::Started { at: 0, .. })
+        ));
+        assert!(matches!(
+            received.pop(),
+            Ok(MixEvent::Ended { at: 10_000, .. })
+        ));
+    }
+
+    #[test]
+    fn full_event_ring_retries_transitions_without_consuming_samples() {
+        let _tap = crate::tap::test_lock();
+        let (mut commands, rx) = RingBuffer::new(8);
+        let (mut events, mut received) = RingBuffer::new(1);
+        events
+            .push(MixEvent::Started {
+                deck: 1,
+                track: 0,
+                at: 0,
+            })
+            .unwrap();
+        let mut mixer = Mixer::new(48_000, rx, events);
+        let source = source(1);
+        let shared = source.shared.clone();
+        assert!(commands.push(Command::Load(0, source)).is_ok());
+        let mut output = [0.0; 4];
+        mixer.render(&mut output, 2);
+        assert_eq!(shared.played.load(Ordering::Relaxed), 0);
+        received.pop().unwrap();
+        mixer.render(&mut output, 2);
+        assert_eq!(shared.played.load(Ordering::Relaxed), 1);
+        assert!(matches!(
+            received.pop(),
+            Ok(MixEvent::Started { track: 1, .. })
+        ));
+        mixer.render(&mut output, 2);
+        assert!(matches!(
+            received.pop(),
+            Ok(MixEvent::Ended { track: 1, .. })
+        ));
+    }
+
+    #[test]
+    fn malformed_channel_layout_is_silent() {
+        let _tap = crate::tap::test_lock();
+        let (_commands, rx) = RingBuffer::new(8);
+        let (events, _received) = RingBuffer::new(8);
+        let mut mixer = Mixer::new(48_000, rx, events);
+        let mut output = [1.0; 3];
+        mixer.render(&mut output, 0);
+        assert_eq!(output, [0.0; 3]);
     }
 }

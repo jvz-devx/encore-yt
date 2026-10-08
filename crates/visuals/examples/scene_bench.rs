@@ -14,6 +14,10 @@ use std::time::Instant;
 
 use encore_visuals::{BANDS, Gpu, Look, Pace, Scene, SceneKind, SceneParams, seed};
 
+#[allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional; CODE-QUALITY.md V4"
+)]
 fn main() -> anyhow::Result<()> {
     let frames: usize = std::env::args()
         .nth(1)

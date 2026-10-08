@@ -15,6 +15,32 @@ fn home_key() -> String {
     Target::browse("FEmusic_home").key()
 }
 
+#[gpui_kit::test]
+fn page_cache_is_bounded_without_evicting_navigation_history(cx: &mut TestAppContext) {
+    let (mut ui, _) = on_home(cx);
+    let app = ui.app.clone();
+    ui.cx.update(|_, cx| {
+        app.update(cx, |app, _| {
+            let remembered = Target::browse("remembered");
+            app.ensure_page(remembered.clone(), false);
+            app.pages
+                .history
+                .push(crate::nav::View::Page(remembered.clone()));
+            for n in 0..300 {
+                app.ensure_page(Target::browse(format!("synthetic-{n}")), false);
+            }
+            assert_eq!(app.pages.states.len(), 128);
+            assert!(app.pages.states.contains_key(&remembered.key()));
+            assert!(app.pages.states.contains_key(&home_key()));
+            assert!(
+                app.pages
+                    .states
+                    .contains_key(&Target::browse("synthetic-299").key())
+            );
+        })
+    });
+}
+
 /// The page keys asked for in `sent`.
 fn fetched(sent: &[Command]) -> Vec<String> {
     sent.iter()

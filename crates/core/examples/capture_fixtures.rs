@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Refreshes the parser fixtures in `tests/fixtures/innertube/`: signed-out
 //! `WEB_REMIX` responses captured with Encore's own client (no cookies), with
 //! the tracking and session parts the parser never reads removed, and song
@@ -65,7 +70,7 @@ fn main() -> Result<()> {
 }
 
 async fn capture(dir: &Path) -> Result<()> {
-    let client = Client::new();
+    let client = Client::new()?;
     save(dir, "home", client.browse("FEmusic_home", None).await?)?;
     save(
         dir,

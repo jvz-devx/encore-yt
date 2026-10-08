@@ -354,7 +354,12 @@ pub trait Type: Styled + Sized {
     }
     /// Digits of equal width, for times and counters that change.
     fn tabular(self) -> Self {
-        self.font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+        static FEATURES: std::sync::OnceLock<FontFeatures> = std::sync::OnceLock::new();
+        self.font_features(
+            FEATURES
+                .get_or_init(|| FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+                .clone(),
+        )
     }
 }
 
@@ -364,8 +369,14 @@ impl<T: Styled + Sized> Type for T {}
 /// and keeps following the desktop while the app runs.
 pub fn init(asking: Asking, cx: &mut App) {
     let portal = match asking.0 {
-        Some(thread) => thread.join().ok().flatten(),
-        None => portal::Portal::connect(),
+        Some(thread) => match thread.join() {
+            Ok(portal) => portal,
+            Err(_) => {
+                log::warn!("desktop appearance worker panicked; using the default theme");
+                None
+            }
+        },
+        None => None,
     };
     setup(portal, cx);
 }
@@ -378,7 +389,13 @@ pub struct Asking(Option<std::thread::JoinHandle<Option<portal::Portal>>>);
 /// Starts reading the desktop's look; [`init`] takes the answer.
 pub fn ask_desktop() -> Asking {
     let thread = std::thread::Builder::new().name("encore-portal".into());
-    Asking(thread.spawn(portal::Portal::connect).ok())
+    Asking(match thread.spawn(portal::Portal::connect) {
+        Ok(thread) => Some(thread),
+        Err(error) => {
+            log::warn!("couldn't start desktop appearance worker: {error}");
+            None
+        }
+    })
 }
 
 /// The look without the desktop's portal (D-Bus), for the UI tests.
@@ -407,7 +424,7 @@ fn setup(portal: Option<portal::Portal>, cx: &mut App) {
 /// Listens to the portal on a background task and applies each change on
 /// the foreground.
 fn watch(portal: portal::Portal, cx: &mut App) {
-    let (tx, rx) = smol::channel::unbounded();
+    let (tx, rx) = smol::channel::bounded(1);
     cx.background_spawn(async move {
         if let Err(e) = portal.watch(tx).await {
             log::warn!("stopped following the desktop's appearance: {e:#}");

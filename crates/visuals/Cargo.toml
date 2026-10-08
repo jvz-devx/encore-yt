@@ -9,6 +9,9 @@ publish = false
 
 # No GPUI here: `cargo check -p encore-visuals` and its tests build without
 # the app. The app wraps this crate in GPUI views (crates/app/src/visuals).
+[lints]
+workspace = true
+
 [dependencies]
 # Our own offscreen device for the shader effects. Keep equal to the wgpu
 # that gpui-pre-wgpu uses, so the tree holds one wgpu.

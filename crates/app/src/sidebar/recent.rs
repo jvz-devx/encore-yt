@@ -28,8 +28,8 @@ pub fn playlist_id(target: &Target) -> Option<&str> {
 
 /// The same collection, whichever button started it (Play or Shuffle).
 pub fn same(a: &Item, b: &Item) -> bool {
-    let id = |i: &Item| i.play.as_ref().and_then(playlist_id).map(str::to_string);
-    id(a).is_some() && id(a) == id(b)
+    let a = a.play.as_ref().and_then(playlist_id);
+    a.is_some() && a == b.play.as_ref().and_then(playlist_id)
 }
 
 pub fn push(list: &mut Vec<Item>, item: Item) {
@@ -39,22 +39,9 @@ pub fn push(list: &mut Vec<Item>, item: Item) {
 }
 
 pub fn load(path: &Path) -> Vec<Item> {
-    let Ok(bytes) = std::fs::read(path) else {
-        return Vec::new();
-    };
-    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-        log::warn!("ignoring {}: {e}", path.display());
-        Vec::new()
-    })
-}
-
-pub fn save(path: &Path, list: &[Item]) {
-    let written = serde_json::to_vec(list)
-        .map_err(std::io::Error::other)
-        .and_then(|bytes| encore_core::paths::write_atomic(path, &bytes));
-    if let Err(e) = written {
-        log::warn!("couldn't save {}: {e}", path.display());
-    }
+    let mut recent: Vec<Item> = encore_core::paths::read_json(path).unwrap_or_default();
+    recent.truncate(KEEP);
+    recent
 }
 
 /// What a collection target is, from the pages the app holds (the open one

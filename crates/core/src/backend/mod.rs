@@ -106,7 +106,9 @@ impl Backend {
     }
 
     pub fn send(&self, command: Command) {
-        let _ = self.commands.send(command);
+        if self.commands.send(command).is_err() {
+            log::warn!("backend stopped before accepting a command");
+        }
     }
 
     /// A sender for backend commands from other threads (MPRIS, the command line).
@@ -129,8 +131,10 @@ impl Backend {
     /// dropped; call it first if the process ends any other way.
     pub fn shutdown(&self) {
         let (done, wait) = std::sync::mpsc::channel();
-        if self.shutdown.send(done).is_ok() {
-            let _ = wait.recv_timeout(Duration::from_secs(2));
+        if self.shutdown.send(done).is_ok()
+            && let Err(error) = wait.recv_timeout(Duration::from_secs(2))
+        {
+            log::warn!("backend shutdown was not acknowledged: {error}");
         }
     }
 }

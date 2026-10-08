@@ -487,6 +487,17 @@ impl MusicApp {
         self.send(Command::Notifications(on));
         cx.notify();
     }
+
+    /// Settings: show the playing song in Discord (M34).
+    pub fn discord(&self) -> bool {
+        self.desktop.flags.discord.enabled()
+    }
+
+    pub fn set_discord(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.desktop.flags.discord.set_enabled(on);
+        self.send(Command::Discord(on));
+        cx.notify();
+    }
 }
 
 /// Text fields for `dialog`, made in `window`: a name and a description,

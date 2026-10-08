@@ -29,6 +29,8 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 # The tray icon (StatusNotifierItem) while the window is closed; on the same
 # zbus and `async-io` reactor, for the same reason.
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
+# Discord Rich Presence over Discord's local IPC (MIT).
+discord-rich-presence = "1.1"
 # Reads the browser's cookie store (a copy; the browser keeps it open).
 rusqlite = "0.37"
 # Chromium's cookie encryption on Linux: PBKDF2-SHA1 key, AES-128-CBC.

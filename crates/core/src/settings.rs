@@ -19,6 +19,9 @@ pub struct Settings {
     /// Show a desktop notification when the song changes (off by default).
     #[serde(default)]
     pub notifications: bool,
+    /// Show the playing song in Discord (off by default).
+    #[serde(default)]
+    pub discord: bool,
     /// Even out loudness between songs from YouTube's loudness data; unset
     /// means on. See [`Settings::normalizes`].
     #[serde(default)]

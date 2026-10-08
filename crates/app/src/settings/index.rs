@@ -79,6 +79,12 @@ const PLAYBACK: &[Line] = &[
     (
         Category::Playback,
         None,
+        "Show what you're playing in Discord",
+        "Rich Presence: the song, artist, cover and a link; only talks to the Discord app on this computer",
+    ),
+    (
+        Category::Playback,
+        None,
         "Load pages when you point at them",
         "Loading ahead: albums and playlists open at once, and Play starts sooner",
     ),

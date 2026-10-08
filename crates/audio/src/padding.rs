@@ -27,13 +27,15 @@ fn block_group(bytes: &[u8]) -> Option<i64> {
     }
     let (size, size_len) = vint(&bytes[id_len..])?;
     let start = id_len + size_len;
-    let body = bytes.get(start..start + usize::try_from(size).ok()?)?;
+    let end = start.checked_add(usize::try_from(size).ok()?)?;
+    let body = bytes.get(start..end)?;
     let (mut at, mut has_block, mut padding) = (0, false, None);
     while at < body.len() {
         let (child, child_len) = element_id(&body[at..])?;
         let (len, len_len) = vint(&body[at + child_len..])?;
         let from = at + child_len + len_len;
-        let value = body.get(from..from + usize::try_from(len).ok()?)?;
+        let end = from.checked_add(usize::try_from(len).ok()?)?;
+        let value = body.get(from..end)?;
         match child {
             BLOCK => has_block = true,
             DISCARD_PADDING if (1..=8).contains(&value.len()) => padding = Some(signed(value)),
@@ -106,5 +108,9 @@ mod tests {
     #[test]
     fn ignores_bytes_that_do_not_parse_as_a_block_group() {
         assert_eq!(discard_padding(&[0xA0, 0x85, 0x75, 0xA2, 0x81, 0x10]), None);
+        assert_eq!(
+            discard_padding(&[0xA0, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+            None
+        );
     }
 }

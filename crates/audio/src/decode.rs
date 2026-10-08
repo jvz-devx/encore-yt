@@ -151,7 +151,10 @@ fn run(job: Job) -> Result<()> {
         .context("no audio codec parameters")?
         .clone();
     let track_id = track.id;
-    let codec_rate = params.sample_rate.context("no sample rate")?;
+    let codec_rate = params
+        .sample_rate
+        .filter(|rate| *rate > 0)
+        .context("no valid sample rate")?;
     let time_base = track
         .time_base
         .or_else(|| TimeBase::try_from_recip(codec_rate))

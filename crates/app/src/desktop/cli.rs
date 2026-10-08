@@ -27,6 +27,10 @@ pub struct Launch {
 /// Reads the arguments. `None` when the process is done: the message went
 /// to the running instance, or help was printed. Bad arguments exit.
 /// `args` are the arguments after the program's name.
+#[allow(
+    clippy::print_stdout,
+    reason = "--version and --help are command-line output"
+)]
 pub fn command_line(paths: &Paths, args: Vec<String>) -> Option<Launch> {
     let Some(word) = args.first().map(String::as_str) else {
         if single_instance::notify(&paths.runtime, &Message::Show) {

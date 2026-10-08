@@ -18,6 +18,11 @@ mod sync;
 mod xml;
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests;
 
 pub use device::{Device, Kind};

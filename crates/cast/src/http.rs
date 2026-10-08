@@ -137,6 +137,11 @@ pub fn head(status: u16, reason: &str, headers: &[(&str, String)]) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
 

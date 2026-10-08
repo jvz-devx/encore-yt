@@ -3,8 +3,13 @@
 
 // No console window behind the app in a Windows release build.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+#![allow(
+    elided_lifetimes_in_paths,
+    reason = "GPUI callback Context lifetimes follow their borrowed event context; explicit placeholders add no ownership information"
+)]
 
 // GPUI's derive macros (Action, IntoElement) name the `gpui` crate.
+#[allow(unused_extern_crates, reason = "GPUI derives resolve this crate alias")]
 extern crate gpui_kit as gpui;
 
 mod account;
@@ -28,6 +33,11 @@ mod views;
 mod visuals;
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod ui_tests;
 
 use std::sync::Arc;

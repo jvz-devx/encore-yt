@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Lists the Cast devices (mDNS `_googlecast._tcp`) and DLNA renderers
 //! (SSDP `MediaRenderer:1`) on the local network, with what each DLNA
 //! renderer says it plays. Read-only: nothing is launched or changed.

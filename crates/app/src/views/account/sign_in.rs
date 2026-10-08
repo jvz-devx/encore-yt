@@ -169,7 +169,10 @@ fn choose(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
 
 /// A route: a disc with its icon (filled for the suggested one), a title
 /// and what it does.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "route content plus the shared theme and event context"
+)]
 fn route_row(
     route: Route,
     icon: IconName,

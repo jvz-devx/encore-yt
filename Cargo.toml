@@ -12,6 +12,24 @@ rust-version = "1.98"
 license = "MIT"
 repository = "https://github.com/jvz-devx/encore-yt"
 
+# Selected, actionable gates; pedantic/nursery as a whole remain audit tools.
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+undocumented_unsafe_blocks = "warn"
+checked_conversions = "warn"
+cloned_instead_of_copied = "warn"
+flat_map_option = "warn"
+filter_map_next = "warn"
+manual_string_new = "warn"
+
 # Versions shared by more than one crate; each crate adds its own features.
 [workspace.dependencies]
 encore-core = { path = "crates/core" }

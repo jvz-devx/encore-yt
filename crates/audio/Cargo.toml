@@ -9,6 +9,9 @@ publish = false
 
 # No GPUI: the backend (crates/core/src/player/rust.rs) plays through it and the
 # visuals crate reads its tap and decoder. See docs/gpui/AUDIO.md.
+[lints]
+workspace = true
+
 [dependencies]
 # Demux WebM/Matroska (Opus) and MP4 (AAC), decode AAC; Ogg for local
 # Opus test files (ENCORE_FAKE_STREAM).

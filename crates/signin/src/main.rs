@@ -36,6 +36,10 @@ struct Row {
     value: String,
 }
 
+#[allow(
+    clippy::print_stdout,
+    reason = "signed in/cancelled is the helper protocol"
+)]
 fn main() {
     let Some(out) = out_path() else {
         eprintln!("usage: encore-yt-signin --out <cookies file>");
@@ -213,6 +217,11 @@ fn write(out: &Path, rows: &[Row]) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
 

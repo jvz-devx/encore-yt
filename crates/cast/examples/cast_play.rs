@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Plays a local file on a Cast device or DLNA renderer through the relay,
 //! for a few seconds, then stops it. Prints the device's status as it goes
 //! and every request the device made to the relay (ranges, user agent).
@@ -37,10 +42,10 @@ struct Options {
 async fn main() -> Result<()> {
     struct Stdout;
     impl log::Log for Stdout {
-        fn enabled(&self, m: &log::Metadata) -> bool {
+        fn enabled(&self, m: &log::Metadata<'_>) -> bool {
             m.level() <= log::Level::Info && m.target().starts_with("encore_cast")
         }
-        fn log(&self, r: &log::Record) {
+        fn log(&self, r: &log::Record<'_>) {
             if self.enabled(r.metadata()) {
                 println!("    [{}] {}", r.target(), r.args());
             }

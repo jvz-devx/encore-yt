@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! A tiny static file server with `Range` support and an optional rate
 //! limit, which logs every request (to show the player's range requests).
 //!

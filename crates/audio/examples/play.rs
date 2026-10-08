@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Plays a track over HTTP, seeks, turns on an EQ preset and continues
 //! gaplessly into a second track, printing a timestamp for every step.
 //!
@@ -30,12 +35,12 @@ macro_rules! step {
 struct Logger;
 
 impl log::Log for Logger {
-    fn enabled(&self, m: &log::Metadata) -> bool {
+    fn enabled(&self, m: &log::Metadata<'_>) -> bool {
         // DEBUG=<target prefix> shows that module's debug lines too.
         let debug = std::env::var("DEBUG").is_ok_and(|t| m.target().starts_with(&t));
         m.level() <= log::Level::Info || debug
     }
-    fn log(&self, r: &log::Record) {
+    fn log(&self, r: &log::Record<'_>) {
         if self.enabled(r.metadata()) {
             eprintln!("[{:8.3}] {} {}", now(), r.level(), r.args());
         }

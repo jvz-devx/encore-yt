@@ -99,3 +99,22 @@ chmod 600 ~/.config/encore-yt/cookies.txt
 When YouTube Music says the session has expired, export a fresh one the same way.
 
 Cookies are never logged or written anywhere readable by other users. To see what Encore can read from each profile (counts only, no values), run `cargo run --example sign_in`. Apart from a pasted or imported session, saved as a cookie file in `~/.config/encore-yt/` (0600), the session's cookies stay in memory.
+
+## Discord Rich Presence
+
+Off by default (Settings, Playback). `crates/core/src/discord.rs` follows the
+playing state and shows a "Listening" activity (title, artist, YouTube's
+cover URL, start and end times, and an "Open on YouTube Music" button) in the
+Discord app on the same computer, through the `discord-rich-presence` crate
+(MIT) over Discord's local IPC: `discord-ipc-N` under `$XDG_RUNTIME_DIR` (and
+its Flatpak and Snap folders) on Linux, `$TMPDIR` on macOS, the
+`\\?\pipe\discord-ipc-N` pipe on Windows. Nothing goes anywhere else. A pause
+clears the activity; quitting closes the socket, which drops it. A worker
+thread owns the connection, so Discord being absent or slow never touches the
+UI or the audio; it looks again every 30 seconds and logs at debug level.
+
+`DISCORD_CLIENT_ID` is empty until the project registers a Discord
+application named "Encore" and pastes its id. Until then Settings says
+"Discord isn't set up in this build". The status line in a member list reads
+"Listening to <title>" (`status_display_type` set to details); the profile
+card header uses the application's name.

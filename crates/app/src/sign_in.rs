@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use encore_core::auth::{BrowserScan, Profile};
 use encore_core::backend::Command;
+use encore_core::browsers::{self, Browser, Plan};
 use encore_core::model::Account;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
@@ -41,7 +42,11 @@ pub enum Step {
     Waiting {
         started: Instant,
         checked: Option<Vec<String>>,
+        /// Why a browser other than the default was opened.
+        note: Option<String>,
     },
+    /// The browser route can't work here: no installed browser can be read.
+    CantRead,
     /// The browser route gave up after [`WAIT`].
     TimedOut {
         checked: Vec<String>,
@@ -64,6 +69,10 @@ pub struct SignIn {
     pub paste: Option<Entity<InputState>>,
     pub path: Option<Entity<InputState>>,
     poll: Option<Task<()>>,
+    /// What the browser route found on this system; tests set it.
+    pub(crate) browsers: Option<browsers::Report>,
+    /// The browser the route opened instead of the default, to open again.
+    open_in: Option<Browser>,
     /// The sign-in window's process, killed when this is dropped.
     pub(crate) window: Option<crate::sign_in_window::Helper>,
     /// The cookie file the window wrote, removed once the backend saved it.
@@ -80,6 +89,8 @@ impl SignIn {
             paste: None,
             path: None,
             poll: None,
+            browsers: None,
+            open_in: None,
             window: None,
             window_file: None,
             _subscriptions: Vec::new(),
@@ -165,13 +176,31 @@ impl MusicApp {
         cx.notify();
     }
 
-    /// Opens YouTube Music in the browser and looks for a signed-in
-    /// profile now and every few seconds, for a few minutes.
+    /// Opens YouTube Music in a browser Encore can read and looks for a
+    /// signed-in profile now and every few seconds, for a few minutes. Where
+    /// no installed browser can be read it says so at once instead.
     pub fn sign_in_with_browser(&mut self, cx: &mut Context<Self>) {
-        cx.open_url(MUSIC_URL);
+        let report = self
+            .sign_in
+            .browsers
+            .clone()
+            .unwrap_or_else(browsers::detect);
+        let (open, note) = match browsers::plan(&report) {
+            Plan::Unreadable { .. } => {
+                self.sign_in.poll = None;
+                self.sign_in.open_in = None;
+                self.sign_in.step = Step::CantRead;
+                cx.notify();
+                return;
+            }
+            Plan::Wait { open, note } => (open, note),
+        };
+        self.sign_in.open_in = open;
+        self.open_music(cx);
         self.sign_in.step = Step::Waiting {
             started: Instant::now(),
             checked: None,
+            note,
         };
         self.send(Command::ScanBrowsers);
         self.sign_in.poll = Some(cx.spawn(async move |this, cx| {
@@ -186,9 +215,25 @@ impl MusicApp {
         cx.notify();
     }
 
+    /// Opens YouTube Music in the browser the route picked, else the
+    /// system's.
+    pub(crate) fn open_music(&self, cx: &mut Context<Self>) {
+        let opened = self
+            .sign_in
+            .open_in
+            .as_ref()
+            .is_some_and(|browser| !cfg!(test) && browsers::open_in(browser, MUSIC_URL));
+        if !opened {
+            cx.open_url(MUSIC_URL);
+        }
+    }
+
     /// One tick of the browser route; false once it stops.
     fn poll_browsers(&mut self, cx: &mut Context<Self>) -> bool {
-        let Step::Waiting { started, checked } = &self.sign_in.step else {
+        let Step::Waiting {
+            started, checked, ..
+        } = &self.sign_in.step
+        else {
             return false;
         };
         if started.elapsed() >= WAIT {

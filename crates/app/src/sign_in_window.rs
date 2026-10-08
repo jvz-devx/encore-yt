@@ -80,6 +80,7 @@ impl MusicApp {
         self.sign_in.step = Step::Waiting {
             started: Instant::now(),
             checked: None,
+            note: None,
         };
         self.sign_in.set_poll(cx.spawn(async move |this, cx| {
             let status = loop {

@@ -18,6 +18,7 @@ mod player;
 mod prefetch;
 mod search;
 mod settings;
+mod sign_in;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;

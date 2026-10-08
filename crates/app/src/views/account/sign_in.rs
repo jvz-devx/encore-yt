@@ -11,7 +11,7 @@ use gpui_kit::*;
 
 use super::super::widgets::{self, Pill};
 use crate::app::MusicApp;
-use crate::sign_in::{MUSIC_URL, Route, Step};
+use crate::sign_in::{Route, Step};
 use crate::theme::{self, Colors, Type, radius, size, space};
 
 const WIDTH: Pixels = px(480.);
@@ -194,6 +194,7 @@ fn route_row(
         .cursor_pointer()
         .hover(|s| s.bg(c.hover))
         .active(|s| s.bg(c.pressed))
+        .debug_selector(move || format!("sign-in-route:{title}"))
         .child(
             h_flex()
                 .size(px(40.))
@@ -223,8 +224,12 @@ fn route_row(
 fn browser(step: &Step, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     let col = v_flex().gap(space::LG);
     match step {
-        Step::Waiting { checked, .. } => col
+        Step::Waiting { checked, note, .. } => col
             .child(working("Waiting for you to sign in", c))
+            .children(
+                note.as_ref()
+                    .map(|note| widgets::muted_line(note.clone(), c)),
+            )
             .child(paragraph(
                 "YouTube Music is open in your browser. Sign in there, and Music connects as soon \
                  as it finds the sign-in.",
@@ -243,10 +248,18 @@ fn browser(step: &Step, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
                             Pill::Secondary,
                             c,
                         )
-                        .on_click(cx.listener(|_, _, _, cx| cx.open_url(MUSIC_URL))),
+                        .on_click(cx.listener(|this, _, _, cx| this.open_music(cx))),
                     )
                     .child(cancel(c, cx)),
             ),
+        Step::CantRead => col
+            .child(
+                div()
+                    .debug_selector(|| "sign-in-cant-read".into())
+                    .child(alert(CANT_READ, c)),
+            )
+            .child(other_ways(c, cx))
+            .child(h_flex().justify_end().child(cancel(c, cx))),
         Step::TimedOut { checked } => col
             .child(alert("No browser is signed in to YouTube Music yet.", c))
             .child(checked_line(Some(checked), c))
@@ -261,6 +274,46 @@ fn browser(step: &Step, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
             .child(h_flex().justify_end().child(cancel(c, cx))),
     }
     .into_any_element()
+}
+
+/// What the browser route says where it can't read any installed browser.
+const CANT_READ: &str = "Encore can't read Edge, Chrome or Brave on Windows. Sign in with \
+                         Firefox, import a cookies file or paste cookies.";
+
+/// The routes that still work, as on the first page.
+fn other_ways(c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
+    v_flex()
+        .mx(-space::MD)
+        .gap(space::XS)
+        .child(route_row(
+            Route::File,
+            IconName::FileUp,
+            "Import a cookies file",
+            "A cookies.txt exported from a browser where you're signed in.",
+            false,
+            c,
+            cx,
+        ))
+        .child(route_row(
+            Route::Paste,
+            IconName::ClipboardPaste,
+            "Paste cookies",
+            "The Cookie header, copied from your browser's developer tools.",
+            false,
+            c,
+            cx,
+        ))
+        .when(crate::sign_in_window::enabled(), |list| {
+            list.child(route_row(
+                Route::Window,
+                IconName::Globe,
+                "Sign in in a window (test)",
+                "Opens a small sign-in window inside Encore. Needs the encore-yt-signin helper.",
+                false,
+                c,
+                cx,
+            ))
+        })
 }
 
 /// The sign-in window route: waits for its helper, shows why it ended.

@@ -259,7 +259,7 @@ impl Backend {
             wake: Arc::new(wake),
             now: Arc::new(now_tx),
         };
-        let client = Arc::new(Client::new());
+        let client = Arc::new(Client::new()?);
         let http = client.http().clone();
         let resolver = Arc::new(Resolver::new(paths.runtime.clone()));
         resolver.use_innertube(client.clone(), &paths);
@@ -512,8 +512,12 @@ impl Worker {
         mut commands: mpsc::UnboundedReceiver<Command>,
         mut shutdown: mpsc::UnboundedReceiver<std::sync::mpsc::Sender<()>>,
     ) {
-        let mut internal = self.internal_rx.take().expect("internal receiver");
-        let mut player_events = self.player_rx.take().expect("player receiver");
+        let (Some(mut internal), Some(mut player_events)) =
+            (self.internal_rx.take(), self.player_rx.take())
+        else {
+            log::error!("backend started without its event receivers");
+            return;
+        };
         self.restore_session();
         self.connect();
         loop {

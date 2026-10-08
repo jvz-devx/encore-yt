@@ -4,6 +4,8 @@
 //! authorization, as music.youtube.com itself does. Without a session the
 //! same requests browse the public catalogue.
 
+use crate::sync::Recover;
+
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -79,27 +81,21 @@ pub struct PlayerClient {
     pub host: &'static str,
 }
 
-impl Default for Client {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Client {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .connect_timeout(Duration::from_secs(8))
             .gzip(true)
             .brotli(true)
             .build()
-            .expect("the HTTP client builds");
-        Self {
+            .map_err(|error| ApiError::Offline(format!("initialize HTTP client: {error}")))?;
+        Ok(Self {
             http,
             session: RwLock::new(None),
             page_id: RwLock::new(None),
             visitor: RwLock::new(None),
-        }
+        })
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -107,41 +103,41 @@ impl Client {
     }
 
     pub fn set_session(&self, session: Option<Session>) {
-        *self.session.write().expect("session lock") = session;
+        *self.session.write().recover() = session;
     }
 
     /// Acts as the channel with this page id from the next request on
     /// (`None`: the account's own channel).
     pub fn set_page_id(&self, page_id: Option<String>) {
-        *self.page_id.write().expect("page id lock") = page_id;
+        *self.page_id.write().recover() = page_id;
     }
 
     pub fn signed_in(&self) -> bool {
-        self.session.read().expect("session lock").is_some()
+        self.session.read().recover().is_some()
     }
 
     /// The session's `Cookie` header, for requests made outside this
     /// client (`crate::streams`).
     pub fn cookie_header(&self) -> Option<String> {
-        let session = self.session.read().expect("session lock");
+        let session = self.session.read().recover();
         session.as_ref().map(Session::header)
     }
 
     /// One of the session's youtube.com cookies.
     pub fn cookie(&self, name: &str) -> Option<String> {
-        let session = self.session.read().expect("session lock");
+        let session = self.session.read().recover();
         session.as_ref()?.cookie(name).map(str::to_owned)
     }
 
     /// The channel (brand account) acted as, if not the account's own.
     pub fn page_id(&self) -> Option<String> {
-        self.page_id.read().expect("page id lock").clone()
+        self.page_id.read().recover().clone()
     }
 
     /// The visitor id from the last response, which stream requests need
     /// to pass YouTube's bot check.
     pub fn visitor_data(&self) -> Option<String> {
-        self.visitor.read().expect("visitor lock").clone()
+        self.visitor.read().recover().clone()
     }
 
     fn remember_visitor(&self, value: &Value) {
@@ -149,7 +145,7 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|v| !v.is_empty())
         {
-            let mut current = self.visitor.write().expect("visitor lock");
+            let mut current = self.visitor.write().recover();
             if current.as_deref() != Some(visitor) {
                 *current = Some(visitor.to_owned());
             }
@@ -165,14 +161,14 @@ impl Client {
         request: reqwest::RequestBuilder,
         origin: &str,
     ) -> reqwest::RequestBuilder {
-        let session = self.session.read().expect("session lock");
+        let session = self.session.read().recover();
         let Some(session) = session.as_ref() else {
             return request;
         };
         let mut request = request
             .header("Cookie", session.header())
             .header("X-Goog-AuthUser", "0");
-        if let Some(page_id) = self.page_id.read().expect("page id lock").as_deref() {
+        if let Some(page_id) = self.page_id.read().recover().as_deref() {
             request = request.header("X-Goog-PageId", page_id);
         }
         if let Some(sapisid) = session.sapisid() {

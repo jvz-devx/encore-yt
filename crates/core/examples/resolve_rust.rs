@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Live check of the Rust stream resolver (`encore_core::streams`): resolves the
 //! given songs and fetches the first KB of each URL. Each song costs one
 //! `player` request and one range fetch; signed out, one search-suggestions
@@ -52,7 +57,7 @@ async fn main() -> Result<()> {
         }
     }
     let paths = Paths::new()?;
-    let client = Arc::new(Client::new());
+    let client = Arc::new(Client::new()?);
     let mut requests = 0;
     if signed_in {
         let preferred = encore_core::settings::Settings::load(&paths).browser_profile;

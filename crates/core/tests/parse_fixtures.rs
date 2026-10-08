@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "integration test assertions report fixture failures"
+)]
+
 //! Runs saved signed-out InnerTube responses (`tests/fixtures/innertube/`,
 //! refreshed with `cargo run -p encore-core --example capture_fixtures`) through the real
 //! parser, so a change in YouTube Music's responses shows up as a failing

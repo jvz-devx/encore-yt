@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Real-stream check of the audio engine (PLAN M19, M23): resolves one song
 //! with the stream resolver in several formats at once (one search
 //! suggestion for the visitor id, the player script only when it isn't
@@ -41,12 +46,12 @@ macro_rules! step {
 struct Logger;
 
 impl log::Log for Logger {
-    fn enabled(&self, m: &log::Metadata) -> bool {
+    fn enabled(&self, m: &log::Metadata<'_>) -> bool {
         m.level() <= log::Level::Info
             && (m.target().starts_with("encore_audio")
                 || m.target().starts_with("encore_core::streams"))
     }
-    fn log(&self, r: &log::Record) {
+    fn log(&self, r: &log::Record<'_>) {
         if self.enabled(r.metadata()) {
             println!("[{:8.3}]   {}", now(), r.args());
         }
@@ -140,7 +145,7 @@ fn resolve(video: &str, list: &str, signed_in: bool) -> Result<Vec<Format>> {
 /// agent (`NA`), URL.
 async fn resolve_now(video: &str, signed_in: bool) -> Result<String> {
     let paths = encore_core::paths::Paths::new()?;
-    let client = Arc::new(encore_core::innertube::Client::new());
+    let client = Arc::new(encore_core::innertube::Client::new()?);
     if signed_in {
         let preferred = encore_core::settings::Settings::load(&paths).browser_profile;
         let session = encore_core::auth::load(&paths.runtime, preferred.as_deref())?;

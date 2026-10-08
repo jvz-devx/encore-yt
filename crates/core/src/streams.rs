@@ -7,6 +7,8 @@
 
 mod tv;
 
+use crate::sync::Recover;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -288,7 +290,7 @@ impl Native {
         };
         let key = format!("{}:{}", failure.player, failure.preparing);
         let first = {
-            let mut logged = self.logged.lock().expect("logged lock");
+            let mut logged = self.logged.lock().recover();
             if logged.len() > 64 {
                 logged.clear();
             }
@@ -511,7 +513,7 @@ impl Native {
     /// TV client (docs/gpui/RESOLVER.md, M27).
     async fn tv_sts(&self, current: &Current) -> u32 {
         let id = &current.player.id;
-        if let Some((known, sts)) = self.tv_sts.lock().expect("tv sts lock").as_ref()
+        if let Some((known, sts)) = self.tv_sts.lock().recover().as_ref()
             && known == id
         {
             return *sts;
@@ -528,7 +530,7 @@ impl Native {
         };
         match read {
             Ok(sts) => {
-                *self.tv_sts.lock().expect("tv sts lock") = Some((id.clone(), sts));
+                *self.tv_sts.lock().recover() = Some((id.clone(), sts));
                 sts
             }
             Err(error) => {
@@ -710,11 +712,7 @@ impl Native {
     /// releases, the files come from yt-dlp-ejs's GitHub release, and both
     /// must match their pinned SHA-256 before they are saved or run.
     fn refresh_solver(&self, player: &str) {
-        let first = self
-            .refreshed
-            .lock()
-            .expect("refresh lock")
-            .insert(player.to_owned());
+        let first = self.refreshed.lock().recover().insert(player.to_owned());
         if !first {
             return;
         }
@@ -780,8 +778,8 @@ async fn fetch_solver(
         }
         files.push(text);
     }
-    let core = files.pop().expect("two files");
-    let lib = files.pop().expect("two files");
+    let core = files.pop().context("missing downloaded solver core")?;
+    let lib = files.pop().context("missing downloaded solver library")?;
     let found = scripts::Scripts::verified(lib, core, &pins)?;
     std::fs::create_dir_all(dir).context("creating the solver directory")?;
     for (name, text) in [
@@ -941,6 +939,11 @@ fn set_param(url: &str, name: &str, value: &str) -> Result<String> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -1007,7 +1010,11 @@ mod tests {
 
     fn native() -> Native {
         let dir = std::env::temp_dir().join("encore-streams-test");
-        Native::new(Arc::new(Client::new()), &dir, &dir)
+        Native::new(
+            Arc::new(Client::new().expect("create test HTTP client")),
+            &dir,
+            &dir,
+        )
     }
 
     /// An account client's stream that fails to play before Premium was

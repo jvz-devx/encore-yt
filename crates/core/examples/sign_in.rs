@@ -1,3 +1,8 @@
+#![allow(
+    clippy::print_stdout,
+    reason = "command-line example output is intentional"
+)]
+
 //! Shows what Encore can read from each sign-in source, then checks the
 //! session it would use with YouTube Music. Prints counts and sources only,
 //! never a cookie value, password or account name.
@@ -55,7 +60,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
     let source = session.source.clone();
-    let client = std::sync::Arc::new(encore_core::innertube::Client::new());
+    let client = std::sync::Arc::new(encore_core::innertube::Client::new()?);
     client.set_session(Some(session));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)

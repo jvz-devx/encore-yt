@@ -30,14 +30,26 @@ use sha2::Digest;
 struct Browser {
     name: &'static str,
     dir: &'static str,
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    #[cfg_attr(
+        target_os = "macos",
+        allow(dead_code, reason = "only Linux uses Secret Service keys")
+    )]
     keyring: &'static str,
     vendor: &'static str,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "only macOS uses Keychain names")
+    )]
     keychain: &'static str,
 }
 
-#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos")),
+    allow(
+        dead_code,
+        reason = "browser import is implemented for Linux and macOS"
+    )
+)]
 const fn browser(
     name: &'static str,
     dir: &'static str,
@@ -1284,6 +1296,11 @@ fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -> Option<St
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
     use aes::cipher::BlockEncryptMut;

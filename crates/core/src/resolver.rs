@@ -11,6 +11,8 @@
 //! can start at once. A song whose stream failed to play is resolved again
 //! without the account (`crate::streams::Native::resolve`).
 
+use crate::sync::Recover;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
@@ -157,7 +159,7 @@ impl Request {
 impl Drop for Waiting {
     fn drop(&mut self) {
         let abort = {
-            let mut flights = self.resolver.flights.lock().expect("flights lock");
+            let mut flights = self.resolver.flights.lock().recover();
             let last = self.flight.waiters.fetch_sub(1, Ordering::SeqCst) == 1;
             if !(last
                 && self.flight.cancellable.load(Ordering::SeqCst)
@@ -171,7 +173,7 @@ impl Drop for Waiting {
             {
                 flights.remove(&self.id);
             }
-            self.flight.abort.lock().expect("abort lock").take()
+            self.flight.abort.lock().recover().take()
         };
         if let Some(abort) = abort {
             abort.abort();
@@ -195,7 +197,7 @@ impl Drop for Landing {
                 .result
                 .send_replace(Some(Err("the stream lookup stopped".into())));
         }
-        let mut flights = self.resolver.flights.lock().expect("flights lock");
+        let mut flights = self.resolver.flights.lock().recover();
         if flights
             .get(&self.id)
             .is_some_and(|f| Arc::ptr_eq(f, &self.flight))
@@ -257,7 +259,7 @@ impl Resolver {
             return Some(stream);
         }
         let signed_in = self.signed_in();
-        let cache = self.cache.lock().expect("cache lock");
+        let cache = self.cache.lock().recover();
         cache
             .get(video_id)
             .filter(|c| c.expires > now() + MARGIN && (c.signed_in || !signed_in))
@@ -268,13 +270,13 @@ impl Resolver {
     /// goes without the account.
     pub fn forget(&self, video_id: &str) {
         {
-            let mut failed = self.failed.lock().expect("failed lock");
+            let mut failed = self.failed.lock().recover();
             if failed.len() > 256 {
                 failed.clear();
             }
             failed.insert(video_id.to_owned());
         }
-        let gone = self.cache.lock().expect("cache lock").remove(video_id);
+        let gone = self.cache.lock().recover().remove(video_id);
         if let (Some(gone), Some(native)) = (gone, self.native.get()) {
             native.stream_failed(&gone.url);
         }
@@ -289,7 +291,7 @@ impl Resolver {
     /// Asks for a stream for playback. The share is taken at once, so a run
     /// handed from one waiter to the next is never stopped in between.
     pub fn request(self: &Arc<Self>, video_id: &str) -> Request {
-        let mut flights = self.flights.lock().expect("flights lock");
+        let mut flights = self.flights.lock().recover();
         if let Some(stream) = self.cached(video_id) {
             return Request::Ready(Ok(stream));
         }
@@ -314,7 +316,7 @@ impl Resolver {
         }
         {
             // A playback run that is also a good guess keeps going if playback moves on.
-            let flights = self.flights.lock().expect("flights lock");
+            let flights = self.flights.lock().recover();
             for id in &video_ids {
                 if let Some(flight) = flights.get(id) {
                     flight.cancellable.store(false, Ordering::SeqCst);
@@ -322,7 +324,7 @@ impl Resolver {
             }
         }
         {
-            let mut backlog = self.backlog.lock().expect("backlog lock");
+            let mut backlog = self.backlog.lock().recover();
             backlog.retain(|id| !video_ids.contains(id));
             for id in video_ids.into_iter().rev() {
                 backlog.push_front(id);
@@ -346,7 +348,7 @@ impl Resolver {
                 return Ok(stream);
             }
             let share = {
-                let flights = self.flights.lock().expect("flights lock");
+                let flights = self.flights.lock().recover();
                 flights.get(video_id).cloned().map(|flight| {
                     flight.waiters.fetch_add(1, Ordering::SeqCst);
                     Waiting {
@@ -364,12 +366,7 @@ impl Resolver {
             }
             // Still waiting for a speculative slot: stay first in line.
             self.prepare(video_id);
-            if !self
-                .flights
-                .lock()
-                .expect("flights lock")
-                .contains_key(video_id)
-            {
+            if !self.flights.lock().recover().contains_key(video_id) {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             }
         }
@@ -381,9 +378,9 @@ impl Resolver {
             let Ok(permit) = self.speculative.clone().try_acquire_owned() else {
                 return;
             };
-            let mut flights = self.flights.lock().expect("flights lock");
+            let mut flights = self.flights.lock().recover();
             let next = loop {
-                let Some(id) = self.backlog.lock().expect("backlog lock").pop_front() else {
+                let Some(id) = self.backlog.lock().recover().pop_front() else {
                     break None;
                 };
                 if !flights.contains_key(&id) && self.cached(&id).is_none() {
@@ -457,12 +454,12 @@ impl Resolver {
                 this.pump();
             }
         });
-        *flight.abort.lock().expect("abort lock") = Some(task.abort_handle());
+        *flight.abort.lock().recover() = Some(task.abort_handle());
         flight
     }
 
     fn store(&self, video_id: &str, stream: &Stream, signed_in: bool) {
-        self.cache.lock().expect("cache lock").insert(
+        self.cache.lock().recover().insert(
             video_id.to_owned(),
             Cached {
                 itag: stream.itag,
@@ -478,9 +475,9 @@ impl Resolver {
     /// Writes the valid streams to the runtime directory, readable only by
     /// the user (the URLs are tied to the account).
     fn save(&self) {
-        let _turn = self.saving.lock().expect("saving lock");
+        let _turn = self.saving.lock().recover();
         let bytes = {
-            let cache = self.cache.lock().expect("cache lock");
+            let cache = self.cache.lock().recover();
             let deadline = now() + MARGIN;
             let valid: HashMap<&String, &Cached> =
                 cache.iter().filter(|(_, c)| c.expires > deadline).collect();
@@ -508,7 +505,7 @@ impl Resolver {
             .native
             .get()
             .context("the stream resolver isn't ready")?;
-        let failed = self.failed.lock().expect("failed lock").contains(video_id);
+        let failed = self.failed.lock().recover().contains(video_id);
         let signed_in = self.signed_in();
         let started = Instant::now();
         let (stream, client) = native.resolve(video_id, signed_in && !failed).await?;

@@ -19,6 +19,8 @@
 
 pub mod scripts;
 
+use crate::sync::Recover;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -120,16 +122,16 @@ impl Solver {
 
     /// The solver release in use.
     pub fn version(&self) -> String {
-        self.scripts.lock().expect("scripts lock").version.clone()
+        self.scripts.lock().recover().version.clone()
     }
 
     /// Switches to other solver scripts (a newer pinned release): players
     /// the old ones failed on get another try.
     pub fn set_scripts(&self, scripts: Scripts) {
         log::info!("switching to EJS solver {}", scripts.version);
-        *self.scripts.lock().expect("scripts lock") = scripts;
-        self.known.lock().expect("solutions lock").clear();
-        self.health.lock().expect("health lock").broken.clear();
+        *self.scripts.lock().recover() = scripts;
+        self.known.lock().recover().clear();
+        self.health.lock().recover().broken.clear();
     }
 
     /// Solves the challenges, from memory where they were solved before.
@@ -147,20 +149,10 @@ impl Solver {
     /// preprocessed (preprocessing is a ~15 s job in QuickJS, once per
     /// player version), or known not to work with this solver.
     pub fn status(&self, player: &Player) -> Status {
-        if let Some(reason) = self
-            .health
-            .lock()
-            .expect("health lock")
-            .broken
-            .get(&player.id)
-        {
+        if let Some(reason) = self.health.lock().recover().broken.get(&player.id) {
             return Status::Broken(reason.clone());
         }
-        let loaded = self
-            .known
-            .lock()
-            .expect("solutions lock")
-            .contains_key(&player.id);
+        let loaded = self.known.lock().recover().contains_key(&player.id);
         if loaded || player.preprocessed(&self.version()).exists() {
             Status::Ready
         } else {
@@ -174,7 +166,7 @@ impl Solver {
         self.note(player, loaded)?;
         self.known
             .lock()
-            .expect("solutions lock")
+            .recover()
             .entry(player.id.clone())
             .or_default();
         Ok(())
@@ -184,7 +176,7 @@ impl Solver {
     /// is logged once and the player is marked broken for this solver.
     pub fn warm(&self, player: &Player) {
         {
-            let mut health = self.health.lock().expect("health lock");
+            let mut health = self.health.lock().recover();
             if health.broken.contains_key(&player.id) || !health.warming.insert(player.id.clone()) {
                 return;
             }
@@ -192,7 +184,7 @@ impl Solver {
         let health = self.health.clone();
         let id = player.id.clone();
         let Ok((sender, job, answer)) = self.job(player, Challenges::default()) else {
-            health.lock().expect("health lock").warming.remove(&id);
+            health.lock().recover().warming.remove(&id);
             return;
         };
         let version = job.scripts.version.clone();
@@ -205,7 +197,7 @@ impl Solver {
             } else {
                 Err(anyhow!("the JS engine stopped"))
             };
-            let mut health = health.lock().expect("health lock");
+            let mut health = health.lock().recover();
             health.warming.remove(&id);
             if let Err(error) = result {
                 log::warn!("EJS solver {version} can't use player {id}: {error:#}");
@@ -225,7 +217,7 @@ impl Solver {
     )> {
         let (reply, answer) = tokio::sync::oneshot::channel();
         let job = Job {
-            scripts: self.scripts.lock().expect("scripts lock").clone(),
+            scripts: self.scripts.lock().recover().clone(),
             player: player.clone(),
             challenges,
             reply,
@@ -252,7 +244,7 @@ impl Solver {
             );
             self.health
                 .lock()
-                .expect("health lock")
+                .recover()
                 .broken
                 .insert(player.id.clone(), format!("{error:#}"));
         }
@@ -261,7 +253,7 @@ impl Solver {
 
     /// Splits the request into what is already known and what isn't.
     fn split(&self, player: &Player, challenges: Challenges) -> (Solutions, Challenges) {
-        let known = self.known.lock().expect("solutions lock");
+        let known = self.known.lock().recover();
         let cached = known.get(&player.id);
         let mut have = Solutions::default();
         let mut missing = Challenges::default();
@@ -287,7 +279,7 @@ impl Solver {
     }
 
     fn merge(&self, player: &Player, mut have: Solutions, solved: Solutions) -> Solutions {
-        let mut known = self.known.lock().expect("solutions lock");
+        let mut known = self.known.lock().recover();
         // One player version at a time: a new one replaces the old answers.
         known.retain(|id, _| *id == player.id);
         let entry = known.entry(player.id.clone()).or_default();
@@ -303,7 +295,7 @@ impl Solver {
     }
 
     fn sender(&self) -> Result<mpsc::Sender<Job>> {
-        let mut jobs = self.jobs.lock().expect("jobs lock");
+        let mut jobs = self.jobs.lock().recover();
         if let Some(sender) = jobs.as_ref() {
             return Ok(sender.clone());
         }
@@ -384,10 +376,10 @@ impl Engine {
             self.load(player)?;
         }
         self.context.with(|ctx| {
-            let solver: Object = ctx.globals().get("__encore").map_err(|e| js(&ctx, e))?;
+            let solver: Object<'_> = ctx.globals().get("__encore").map_err(|e| js(&ctx, e))?;
             let mut solutions = Solutions::default();
             if !challenges.n.is_empty() {
-                let n: Function = solver.get("n").map_err(|e| js(&ctx, e))?;
+                let n: Function<'_> = solver.get("n").map_err(|e| js(&ctx, e))?;
                 for challenge in &challenges.n {
                     let answer: String = n
                         .call((challenge.as_str(),))
@@ -400,7 +392,7 @@ impl Engine {
                 }
             }
             if !challenges.sig_lengths.is_empty() {
-                let sig: Function = solver.get("sig").map_err(|e| js(&ctx, e))?;
+                let sig: Function<'_> = solver.get("sig").map_err(|e| js(&ctx, e))?;
                 for &length in &challenges.sig_lengths {
                     let probe: String = (0..length as u32).filter_map(char::from_u32).collect();
                     let answer: String = sig
@@ -451,10 +443,10 @@ impl Engine {
             )
             .catch(&ctx)
             .map_err(|e| anyhow!("loading the player: {e}"))?;
-            let solver: Object = ctx.globals().get("__encore").map_err(|e| js(&ctx, e))?;
+            let solver: Object<'_> = ctx.globals().get("__encore").map_err(|e| js(&ctx, e))?;
             for name in ["n", "sig"] {
                 if solver
-                    .get::<_, Option<Function>>(name)
+                    .get::<_, Option<Function<'_>>>(name)
                     .ok()
                     .flatten()
                     .is_none()
@@ -483,7 +475,7 @@ impl Engine {
                     .map_err(|e| anyhow!("loading the EJS solver: {e}"))?;
                 self.has_ejs = true;
             }
-            let jsc: Function = ctx.globals().get("jsc").map_err(|e| js(&ctx, e))?;
+            let jsc: Function<'_> = ctx.globals().get("jsc").map_err(|e| js(&ctx, e))?;
             let input = Object::new(ctx.clone()).map_err(|e| js(&ctx, e))?;
             input.set("type", "player").map_err(|e| js(&ctx, e))?;
             input.set("player", source).map_err(|e| js(&ctx, e))?;
@@ -493,7 +485,7 @@ impl Engine {
             input
                 .set("output_preprocessed", true)
                 .map_err(|e| js(&ctx, e))?;
-            let output: Object = jsc
+            let output: Object<'_> = jsc
                 .call((input,))
                 .catch(&ctx)
                 .map_err(|e| anyhow!("EJS: {e}"))?;

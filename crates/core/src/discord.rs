@@ -449,6 +449,11 @@ impl Worker {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions report fixture failures"
+)]
 mod tests {
     use super::*;
     use crate::model::{Run, Track};
@@ -536,13 +541,31 @@ mod tests {
         use std::io::{Read, Write};
         use std::os::unix::net::UnixListener;
 
-        let dir = std::env::temp_dir().join(format!("encore-discord-test-{}", std::process::id()));
+        // Set the child's environment before it starts. Mutating this process's
+        // environment is unsafe while the parallel test runner has live threads.
+        if std::env::var_os("ENCORE_DISCORD_TEST_CHILD").is_none() {
+            let dir =
+                std::env::temp_dir().join(format!("encore-discord-test-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "discord::tests::talks_to_a_discord_socket",
+                    "--nocapture",
+                ])
+                .env("ENCORE_DISCORD_TEST_CHILD", "1")
+                .env("XDG_RUNTIME_DIR", &dir)
+                .status()
+                .unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            assert!(status.success());
+            return;
+        }
+        let dir = std::path::PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("discord-ipc-0");
         let _ = std::fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket).unwrap();
-        // The only test that reads this variable.
-        unsafe { std::env::set_var("XDG_RUNTIME_DIR", &dir) };
 
         // A fake Discord: answers the handshake, records every frame.
         let (frames_tx, frames) = mpsc::channel::<(u32, serde_json::Value)>();
@@ -598,6 +621,5 @@ mod tests {
         // Turning it off closes the connection.
         flags.discord.set_enabled(false);
         runtime.shutdown_timeout(Duration::from_secs(2));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

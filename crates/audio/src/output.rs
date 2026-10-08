@@ -2,9 +2,10 @@
 //! `Send` on every host, and the backend wants a `Send` engine).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -28,7 +29,8 @@ pub fn spawn(
     let handle = thread::Builder::new()
         .name("audio-output".into())
         .spawn(move || {
-            let stream = match open(commands, events) {
+            let first_frames = Arc::new(AtomicUsize::new(0));
+            let stream = match open(commands, events, first_frames.clone()) {
                 Ok((stream, rate)) => {
                     let _ = ready_tx.send(Ok(rate));
                     stream
@@ -39,30 +41,48 @@ pub fn spawn(
                 }
             };
             while !stop.load(Ordering::Acquire) {
-                thread::park();
+                let frames = first_frames.swap(0, Ordering::Relaxed);
+                if frames != 0 {
+                    log::info!("audio output: {frames} frames per callback");
+                }
+                thread::park_timeout(Duration::from_secs(1));
             }
             drop(stream);
-        })?;
+        })
+        .context("spawn audio output thread")?;
     let rate = ready_rx
         .recv()
         .map_err(|_| anyhow!("audio output thread ended"))??;
     Ok((handle, rate))
 }
 
-fn open(commands: Consumer<Command>, events: Producer<MixEvent>) -> Result<(cpal::Stream, u32)> {
+fn open(
+    commands: Consumer<Command>,
+    events: Producer<MixEvent>,
+    first_frames: Arc<AtomicUsize>,
+) -> Result<(cpal::Stream, u32)> {
     let host = host();
     let device = host
         .default_output_device()
         .context("no audio output device")?;
-    let default = device.default_output_config()?;
+    let default = device
+        .default_output_config()
+        .context("read output device configuration")?;
     let rate = default.sample_rate();
     let channels = default.channels();
+    anyhow::ensure!(
+        rate > 0 && channels > 0,
+        "output device has an empty sample layout"
+    );
     if default.sample_format() != SampleFormat::F32 {
-        let f32_ok = device.supported_output_configs()?.any(|c| {
-            c.sample_format() == SampleFormat::F32
-                && c.channels() == channels
-                && (c.min_sample_rate()..=c.max_sample_rate()).contains(&rate)
-        });
+        let f32_ok = device
+            .supported_output_configs()
+            .context("read supported output formats")?
+            .any(|c| {
+                c.sample_format() == SampleFormat::F32
+                    && c.channels() == channels
+                    && (c.min_sample_rate()..=c.max_sample_rate()).contains(&rate)
+            });
         anyhow::ensure!(f32_ok, "the output device has no f32 format");
     }
     let fits = match default.buffer_size() {
@@ -85,24 +105,23 @@ fn open(commands: Consumer<Command>, events: Producer<MixEvent>) -> Result<(cpal
         config.buffer_size,
     );
     let mut mixer = Mixer::new(rate, commands, events);
-    let channels = channels as usize;
+    let channels = usize::from(channels);
     let mut first = true;
-    let stream = device.build_output_stream(
-        config,
-        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            if first {
-                first = false;
-                log::info!(
-                    "audio output: {} frames per callback",
-                    data.len() / channels
-                );
-            }
-            mixer.render(data, channels)
-        },
-        |e| log::warn!("audio output: {e}"),
-        None,
-    )?;
-    stream.play()?;
+    let stream = device
+        .build_output_stream(
+            config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                if first {
+                    first = false;
+                    first_frames.store(data.len() / channels, Ordering::Relaxed);
+                }
+                mixer.render(data, channels)
+            },
+            |e| log::warn!("audio output: {e}"),
+            None,
+        )
+        .context("create audio output stream")?;
+    stream.play().context("start audio output stream")?;
     Ok((stream, rate))
 }
 

@@ -20,6 +20,7 @@ mod playback;
 mod settings;
 mod sidebar;
 mod sign_in;
+mod sign_in_window;
 mod startup;
 mod theme;
 mod update;

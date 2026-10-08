@@ -293,9 +293,10 @@ Baseline warnings included 130 audio-library, 645 core-library,
 128 Cast-library, 229 visuals-library, 1,312 app-binary and 10 sign-in-binary
 diagnostics. Test duplicates are not independent findings.
 
-Every changed crate has passed `just verify <crate>`. Latest counts before
-the final workspace run are core 61, app 46, audio 13, Cast 25, sign-in 4
-and visuals 22. The visuals gate also validated seven shader entry files.
+Every changed crate has passed `just verify <crate>`. The final workspace
+run passed 171 tests: core 61, app 46, audio 13, Cast 25, sign-in 4 and
+visuals 22. The nested Discord subprocess is part of its parent test and
+is not counted twice. Seven shader entry files also passed validation.
 The configured pre-commit hook only handles `server/` paths, so these gates
 were run explicitly.
 
@@ -304,8 +305,14 @@ format and Clippy stages passed. No compiler or test failure was reported.
 No Cargo/compiler process survived in this worktree; the warm-cache rerun
 also includes the final tap-test isolation fix.
 
-Final `just verify-workspace`: pending. Temporary files and driver caches
-are redirected beneath ignored `artifacts/`. No release build, sign-in,
+Final `just verify-workspace`: passed at `87bc82b`, including workspace
+format checking, all-target Clippy with warnings denied, tests and shader
+validation. The log is `artifacts/quality-final-verification.log`; the
+intentional panic in the lock-recovery test is expected, with zero failed
+tests. Only this verification record changed after the successful gate.
+
+Temporary files and driver caches were redirected beneath ignored
+`artifacts/`. No release build, sign-in,
 real YouTube stream, account mutation, push, merge or tag was performed.
 `Cargo.lock` is unchanged.
 

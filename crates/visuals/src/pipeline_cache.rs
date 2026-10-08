@@ -192,6 +192,7 @@ fn write(file: &Path, data: &[u8], identity: u64) -> io::Result<()> {
         builder.mode(0o700);
     }
     builder.create(dir)?;
+    secure_existing_directory(dir)?;
     private_directory(dir)?;
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let temp = file.with_extension(format!(
@@ -213,6 +214,36 @@ fn write(file: &Path, data: &[u8], identity: u64) -> io::Result<()> {
     output.sync_all()?;
     drop(output);
     fs::rename(&cleanup.0, file)
+}
+
+/// Older builds made gpu/ with default permissions inside the private app
+/// cache. Tighten only that owned child of a private directory before writing
+/// a newly generated cache. Never load the old payload first, follow a
+/// directory symlink, or chmod an unrelated shared directory.
+fn secure_existing_directory(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let metadata = fs::symlink_metadata(dir)?;
+        if !metadata.file_type().is_dir() {
+            return Err(invalid());
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            let parent = private_directory(dir.parent().ok_or_else(invalid)?)?;
+            if metadata.uid() != parent.uid() {
+                return Err(invalid());
+            }
+            let directory = File::open(dir)?;
+            let opened = directory.metadata()?;
+            if metadata.dev() != opened.dev() || metadata.ino() != opened.ino() {
+                return Err(invalid());
+            }
+            directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
 
 struct Temporary(PathBuf);
@@ -335,6 +366,50 @@ mod tests {
         let linkdir = dir.join("linked-dir");
         symlink(&dir, &linkdir).expect("directory symlink");
         assert!(read(&linkdir.join("cache.bin"), 123).is_err());
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn old_cache_directory_is_secured_only_inside_a_private_parent() {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = directory();
+        let dir = parent.join("gpu");
+        let file = dir.join("cache.bin");
+        write(&file, &[1, 2, 3], 123).expect("save");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("legacy directory");
+        assert!(read(&file, 123).is_err());
+        write(&file, &[4, 5, 6], 123).expect("replace with newly generated data");
+        assert_eq!(
+            read(&file, 123).expect("private reload"),
+            Some(vec![4, 5, 6])
+        );
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).expect("shared parent");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("shared child");
+        assert!(write(&file, &[7], 123).is_err());
+        assert_eq!(
+            fs::metadata(&dir)
+                .expect("unchanged child")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        fs::remove_dir_all(parent).expect("cleanup");
+    }
+
+    #[test]
+    fn oversized_cache_is_rejected_before_reading_the_payload() {
+        let dir = directory();
+        let file = dir.join("cache.bin");
+        write(&file, &[1, 2, 3], 123).expect("save");
+        OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .expect("file")
+            .set_len(MAX_BYTES + 1)
+            .expect("oversized sparse file");
+        assert!(read(&file, 123).is_err());
         fs::remove_dir_all(dir).expect("cleanup");
     }
 

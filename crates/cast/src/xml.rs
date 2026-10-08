@@ -6,6 +6,29 @@ use anyhow::{Context, Result};
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
+const MAX_XML_BYTES: usize = 2 * 1024 * 1024;
+const MAX_XML_DEPTH: usize = 64;
+
+/// Device descriptions and SOAP replies are small. Bound the body while
+/// reading, before building either a string or the recursively owned tree.
+pub(crate) async fn read_body(mut response: reqwest::Response) -> Result<String> {
+    anyhow::ensure!(
+        response
+            .content_length()
+            .is_none_or(|len| len <= MAX_XML_BYTES as u64),
+        "device XML body is too large"
+    );
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.context("read device XML body")? {
+        anyhow::ensure!(
+            chunk.len() <= MAX_XML_BYTES - body.len(),
+            "device XML body is too large"
+        );
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Node {
     pub name: String,
@@ -15,6 +38,7 @@ pub struct Node {
 
 impl Node {
     pub fn parse(xml: &str) -> Result<Node> {
+        anyhow::ensure!(xml.len() <= MAX_XML_BYTES, "device XML body is too large");
         let mut reader = Reader::from_str(xml);
         let mut stack = vec![Node::default()];
         // Text arrives in pieces around entity references; they are joined
@@ -23,6 +47,10 @@ impl Node {
         loop {
             match reader.read_event().context("XML")? {
                 Event::Start(start) => {
+                    anyhow::ensure!(
+                        stack.len() <= MAX_XML_DEPTH,
+                        "device XML is too deeply nested"
+                    );
                     stack.push(Node {
                         name: local(start.local_name().as_ref()),
                         ..Node::default()
@@ -30,6 +58,10 @@ impl Node {
                     raw.push(String::new());
                 }
                 Event::Empty(start) => {
+                    anyhow::ensure!(
+                        stack.len() <= MAX_XML_DEPTH,
+                        "device XML is too deeply nested"
+                    );
                     let node = Node {
                         name: local(start.local_name().as_ref()),
                         ..Node::default()
@@ -115,6 +147,61 @@ fn local(name: &[u8]) -> String {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_oversized_and_deeply_nested_xml() {
+        let nested = format!(
+            "{}{}",
+            "<x>".repeat(MAX_XML_DEPTH + 1),
+            "</x>".repeat(MAX_XML_DEPTH + 1)
+        );
+        assert!(Node::parse(&nested).is_err());
+        assert!(Node::parse(&"x".repeat(MAX_XML_BYTES + 1)).is_err());
+        let allowed = format!(
+            "{}{}",
+            "<x>".repeat(MAX_XML_DEPTH),
+            "</x>".repeat(MAX_XML_DEPTH)
+        );
+        assert!(Node::parse(&allowed).is_ok());
+        let too_deep_leaf = format!(
+            "{}<leaf/>{}",
+            "<x>".repeat(MAX_XML_DEPTH),
+            "</x>".repeat(MAX_XML_DEPTH)
+        );
+        assert!(Node::parse(&too_deep_leaf).is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_a_large_advertised_body_without_waiting_for_its_bytes() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = tokio::io::BufReader::new(stream);
+            crate::http::read_request(&mut reader).await.unwrap();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                MAX_XML_BYTES + 1
+            );
+            reader
+                .into_inner()
+                .write_all(head.as_bytes())
+                .await
+                .unwrap();
+        });
+        let response = reqwest::get(format!("http://{address}/description"))
+            .await
+            .unwrap();
+        assert!(
+            read_body(response)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("too large")
+        );
+        server.await.unwrap();
+    }
 
     #[test]
     fn names_lose_their_prefix_and_text_its_entities() {

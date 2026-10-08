@@ -52,7 +52,9 @@ pub async fn call(
         .await
         .with_context(|| action.to_owned())?;
     let status = response.status();
-    let body = response.text().await.context("read SOAP response")?;
+    let body = crate::xml::read_body(response)
+        .await
+        .context("read SOAP response")?;
     let root = Node::parse(&body).with_context(|| format!("{action}: HTTP {status}, not XML"))?;
     if !status.is_success() {
         let error = root.find("UPnPError");

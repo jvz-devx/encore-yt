@@ -56,14 +56,14 @@ pub(crate) fn client() -> Result<reqwest::Client> {
 }
 
 async fn describe(http: &reqwest::Client, location: &str, ip: IpAddr) -> Result<Option<Renderer>> {
-    let xml = http
+    let response = http
         .get(location)
         .send()
         .await
         .context("fetch DLNA description")?
         .error_for_status()
-        .context("DLNA description status")?
-        .text()
+        .context("DLNA description status")?;
+    let xml = crate::xml::read_body(response)
         .await
         .context("read DLNA description")?;
     parse_description(&xml, location, ip)

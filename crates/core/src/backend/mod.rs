@@ -275,6 +275,7 @@ struct Worker {
     /// The sleep timer's fade: the share of the volume playing (1 = none).
     fade: f64,
     last_save: Instant,
+    session_writer: Option<resume::Writer>,
     /// The other decks: Smooth mixes and Audition.
     decks: deck::Decks,
 }
@@ -329,6 +330,7 @@ impl Worker {
             sleep_stamp: Arc::default(),
             fade: 1.0,
             last_save: Instant::now(),
+            session_writer: None,
             decks: deck::Decks::new(settings.mixes),
         }
     }
@@ -344,8 +346,9 @@ impl Worker {
             log::error!("backend started without its event receivers");
             return;
         };
-        self.restore_session();
+        self.restore_session().await;
         self.connect();
+        let mut stopped = None;
         loop {
             tokio::select! {
                 command = commands.recv() => match command {
@@ -355,11 +358,16 @@ impl Worker {
                 Some(message) = internal.recv() => self.internal(message).await,
                 Some((serial, event)) = player_events.recv() => self.deck_event(serial, event).await,
                 Some(done) = shutdown.recv() => {
-                    self.save_session(true);
-                    let _ = done.send(());
+                    stopped = Some(done);
                     break;
                 }
             }
+        }
+        self.save_session(true);
+        self.flush_session().await;
+        if let Some(done) = stopped {
+            // The shutdown caller may have reached its timeout already.
+            let _ = done.send(());
         }
     }
 
@@ -560,9 +568,10 @@ impl Worker {
             }
             Command::Reconnect => self.connect(),
             Command::UseProfile(profile) => {
-                let mut settings = crate::settings::Settings::load(&self.paths);
-                settings.browser_profile = Some(profile);
-                if let Err(error) = settings.save(&self.paths) {
+                if let Err(error) = self
+                    .change_settings(move |s| s.browser_profile = Some(profile))
+                    .await
+                {
                     self.sink.send(Event::Error(format!(
                         "Couldn't save the account choice: {error}"
                     )));
@@ -570,9 +579,10 @@ impl Worker {
                 self.connect();
             }
             Command::UseChannel(page_id) => {
-                let mut settings = crate::settings::Settings::load(&self.paths);
-                settings.channel = Some(page_id.unwrap_or_default());
-                if let Err(error) = settings.save(&self.paths) {
+                if let Err(error) = self
+                    .change_settings(move |s| s.channel = Some(page_id.unwrap_or_default()))
+                    .await
+                {
                     self.sink.send(Event::Error(format!(
                         "Couldn't save the channel choice: {error}"
                     )));
@@ -580,25 +590,33 @@ impl Worker {
                 self.connect();
             }
             Command::ImportCookies(path) => {
-                self.save_cookies(crate::auth::import_cookie_file(&path))
+                let saved =
+                    tokio::task::spawn_blocking(move || crate::auth::import_cookie_file(&path))
+                        .await
+                        .unwrap_or_else(|error| {
+                            Err(anyhow::anyhow!("cookie import worker stopped: {error}"))
+                        });
+                self.save_cookies(saved).await;
             }
             Command::PasteCookies(text) => {
-                self.save_cookies(crate::auth::store_cookie_header(&text))
+                let saved =
+                    tokio::task::spawn_blocking(move || crate::auth::store_cookie_header(&text))
+                        .await
+                        .unwrap_or_else(|error| {
+                            Err(anyhow::anyhow!("cookie import worker stopped: {error}"))
+                        });
+                self.save_cookies(saved).await;
             }
             Command::ScanBrowsers => self.scan_browsers(),
             Command::Notifications(on) => {
-                let mut settings = crate::settings::Settings::load(&self.paths);
-                settings.notifications = on;
-                if let Err(error) = settings.save(&self.paths) {
+                if let Err(error) = self.change_settings(move |s| s.notifications = on).await {
                     self.sink.send(Event::Error(format!(
                         "Couldn't save the notification setting: {error}"
                     )));
                 }
             }
             Command::Discord(on) => {
-                let mut settings = crate::settings::Settings::load(&self.paths);
-                settings.discord = on;
-                if let Err(error) = settings.save(&self.paths) {
+                if let Err(error) = self.change_settings(move |s| s.discord = on).await {
                     self.sink.send(Event::Error(format!(
                         "Couldn't save the Discord setting: {error}"
                     )));

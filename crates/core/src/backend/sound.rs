@@ -131,7 +131,7 @@ impl super::Worker {
     pub(super) async fn set_normalize(&mut self, on: bool) {
         self.state.normalize = on;
         self.emit(true);
-        self.update_settings(|s| s.normalize = Some(on));
+        self.update_settings(move |s| s.normalize = Some(on)).await;
         let gain = self
             .current()
             .map(|t| t.video_id.clone())
@@ -151,13 +151,29 @@ impl super::Worker {
     }
 
     /// Changes settings.json, keeping what other parts of Encore saved there.
-    pub(super) fn update_settings(&self, change: impl FnOnce(&mut crate::settings::Settings)) {
-        let mut settings = crate::settings::Settings::load(&self.paths);
-        change(&mut settings);
-        if let Err(error) = settings.save(&self.paths) {
+    pub(super) async fn update_settings(
+        &self,
+        change: impl FnOnce(&mut crate::settings::Settings) + Send + 'static,
+    ) {
+        if let Err(error) = self.change_settings(change).await {
             self.sink
                 .send(Event::Error(format!("Couldn't save the setting: {error}")));
         }
+    }
+
+    pub(super) async fn change_settings(
+        &self,
+        change: impl FnOnce(&mut crate::settings::Settings) + Send + 'static,
+    ) -> anyhow::Result<()> {
+        let paths = self.paths.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut settings = crate::settings::Settings::load(&paths);
+            change(&mut settings);
+            settings.save(&paths)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("settings writer stopped: {error}"))?
+        .map_err(Into::into)
     }
 
     // ---- equalizer ----
@@ -206,7 +222,7 @@ impl super::Worker {
             self.set_af(&decks, equalizer).await;
         }
         let equalizer = self.state.equalizer.clone();
-        self.update_settings(|s| s.equalizer = equalizer);
+        self.update_settings(move |s| s.equalizer = equalizer).await;
     }
 
     /// Sets every deck's equalizer whole.

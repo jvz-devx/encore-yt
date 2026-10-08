@@ -10,24 +10,23 @@ impl super::Worker {
         let sink = self.sink.clone();
         tokio::spawn(async move {
             let scratch = paths.runtime.clone();
-            let settings = crate::settings::Settings::load(&paths);
-            let preferred = settings.browser_profile;
             let loaded = tokio::task::spawn_blocking(move || {
-                let session = crate::auth::load(&scratch, preferred.as_deref());
-                (session, crate::auth::profiles(&scratch))
+                let settings = crate::settings::Settings::load(&paths);
+                let session = crate::auth::load(&scratch, settings.browser_profile.as_deref());
+                (session, crate::auth::profiles(&scratch), settings.channel)
             })
             .await
-            .map(|(session, profiles)| {
+            .map(|(session, profiles, channel)| {
                 let current = session.as_ref().ok().map(|s| s.profile.clone());
                 sink.send(Event::Profiles {
                     list: profiles,
                     current,
                 });
-                session
+                (session, channel)
             });
-            let session = match loaded {
-                Ok(Ok(session)) => session,
-                Ok(Err(error)) => {
+            let (session, channel) = match loaded {
+                Ok((Ok(session), channel)) => (session, channel),
+                Ok((Err(error), _)) => {
                     client.set_session(None);
                     client.set_page_id(None);
                     sink.send(Event::Channels(Vec::new()));
@@ -45,7 +44,7 @@ impl super::Worker {
             };
             let source = session.source.clone();
             client.set_session(Some(session));
-            let channels = act_as_channel(&client, settings.channel.as_deref()).await;
+            let channels = act_as_channel(&client, channel.as_deref()).await;
             let account = client.verify(&source).await;
             if matches!(account, Account::SignedOut { .. }) {
                 client.set_session(None);
@@ -60,12 +59,14 @@ impl super::Worker {
 
     /// Uses a cookie file just saved from an import or a paste: it becomes
     /// the chosen profile and the backend connects with it.
-    pub(super) fn save_cookies(&mut self, saved: anyhow::Result<crate::auth::Profile>) {
+    pub(super) async fn save_cookies(&mut self, saved: anyhow::Result<crate::auth::Profile>) {
         let saved = saved.map_err(|error| format!("{error:#}"));
         if let Ok(profile) = &saved {
-            let mut settings = crate::settings::Settings::load(&self.paths);
-            settings.browser_profile = Some(profile.id.clone());
-            if let Err(error) = settings.save(&self.paths) {
+            let id = profile.id.clone();
+            if let Err(error) = self
+                .change_settings(move |s| s.browser_profile = Some(id))
+                .await
+            {
                 log::warn!("could not save the account choice: {error:#}");
             }
         }
@@ -80,9 +81,19 @@ impl super::Worker {
         let scratch = self.paths.runtime.clone();
         let sink = self.sink.clone();
         tokio::spawn(async move {
-            let scan = tokio::task::spawn_blocking(move || crate::auth::scan_browsers(&scratch))
-                .await
-                .unwrap_or_default();
+            let scan =
+                match tokio::task::spawn_blocking(move || crate::auth::scan_browsers(&scratch))
+                    .await
+                {
+                    Ok(scan) => scan,
+                    Err(error) => {
+                        log::warn!("browser scan worker stopped: {error}");
+                        sink.send(Event::Error(
+                            "Couldn't check browser profiles. Try again.".into(),
+                        ));
+                        return;
+                    }
+                };
             sink.send(Event::BrowserScan(scan));
         });
     }

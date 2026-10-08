@@ -287,7 +287,7 @@ impl super::Worker {
         };
         self.state.mixes = mixes;
         self.decks.mixes = mixes;
-        self.update_settings(|s| s.mixes = mixes);
+        self.update_settings(move |s| s.mixes = mixes).await;
         self.emit(true);
         self.requeue_next().await;
         if !mixes.on {

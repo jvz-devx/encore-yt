@@ -34,6 +34,49 @@ struct Saved {
 /// How often the session is saved while only the position changes.
 const EVERY: Duration = Duration::from_secs(10);
 
+/// A single writer with one replaceable pending snapshot. Slow storage cannot
+/// block playback or accumulate a queue of obsolete session files.
+pub(super) struct Writer {
+    snapshots: tokio::sync::watch::Sender<Option<Arc<Saved>>>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Writer {
+    fn new(path: PathBuf) -> Self {
+        let (snapshots, mut pending) = tokio::sync::watch::channel(None::<Arc<Saved>>);
+        let task = tokio::spawn(async move {
+            while pending.changed().await.is_ok() {
+                let Some(saved) = pending.borrow_and_update().clone() else {
+                    continue;
+                };
+                let path = path.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let bytes = serde_json::to_vec(&*saved).map_err(std::io::Error::other)?;
+                    crate::paths::write_atomic(&path, &bytes)
+                })
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => log::warn!("couldn't save the session: {error}"),
+                    Err(error) => log::warn!("session writer stopped: {error}"),
+                }
+            }
+        });
+        Self { snapshots, task }
+    }
+
+    fn save(&self, saved: Saved) {
+        self.snapshots.send_replace(Some(Arc::new(saved)));
+    }
+
+    async fn finish(self) {
+        drop(self.snapshots);
+        if let Err(error) = self.task.await {
+            log::warn!("session writer stopped before shutdown: {error}");
+        }
+    }
+}
+
 impl super::Worker {
     fn session_file(&self) -> PathBuf {
         self.paths.cache.join("session.json")
@@ -67,19 +110,28 @@ impl super::Worker {
                 })
                 .collect(),
         };
-        let written = serde_json::to_vec(&saved)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| crate::paths::write_atomic(&self.session_file(), &bytes));
-        if let Err(error) = written {
-            log::warn!("couldn't save the session: {error}");
+        let path = self.session_file();
+        self.session_writer
+            .get_or_insert_with(|| Writer::new(path))
+            .save(saved);
+    }
+
+    pub(super) async fn flush_session(&mut self) {
+        if let Some(writer) = self.session_writer.take() {
+            writer.finish().await;
         }
     }
 
     /// Brings back the last session, paused: the player bar shows the song
     /// and position at once.
-    pub(super) fn restore_session(&mut self) {
-        let Ok(bytes) = std::fs::read(self.session_file()) else {
-            return;
+    pub(super) async fn restore_session(&mut self) {
+        let bytes = match tokio::fs::read(self.session_file()).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => {
+                log::warn!("couldn't read the saved session: {error}");
+                return;
+            }
         };
         let saved: Saved = match serde_json::from_slice(&bytes) {
             Ok(saved) => saved,
@@ -138,5 +190,39 @@ impl super::Worker {
         });
         self.resolving = Some(task.abort_handle());
         self.fetch_player(&video_id);
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests write only synthetic session state"
+)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn shutdown_flushes_the_latest_coalesced_snapshot() {
+        let path =
+            std::env::temp_dir().join(format!("encore-session-writer-{}", std::process::id()));
+        let writer = Writer::new(path.clone());
+        for position in 0..100 {
+            writer.save(Saved {
+                queue: queue::Queue::default().snapshot(),
+                index: None,
+                position: f64::from(position),
+                volume: 50.0,
+                shuffle: false,
+                repeat: Repeat::Off,
+                autoplay: false,
+                radio: false,
+                autoplayed: Vec::new(),
+            });
+        }
+        writer.finish().await;
+        let bytes = tokio::fs::read(&path).await.unwrap();
+        let saved: Saved = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(saved.position, 99.0);
+        tokio::fs::remove_file(path).await.unwrap();
     }
 }

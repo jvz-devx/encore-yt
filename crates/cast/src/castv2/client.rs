@@ -189,10 +189,10 @@ impl Client {
 }
 
 async fn send(writer: &Writer, destination: &str, namespace: &str, payload: &Value) -> Result<()> {
-    let frame = CastMessage::new(SENDER, destination, namespace, payload.to_string()).frame();
+    let frame = CastMessage::new(SENDER, destination, namespace, payload.to_string()).frame()?;
     let mut writer = writer.lock().await;
-    writer.write_all(&frame).await?;
-    writer.flush().await?;
+    writer.write_all(&frame).await.context("write Cast frame")?;
+    writer.flush().await.context("flush Cast frame")?;
     Ok(())
 }
 
@@ -243,13 +243,17 @@ async fn read_loop(
 
 async fn read_message(read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<CastMessage> {
     let mut len = [0u8; 4];
-    read.read_exact(&mut len).await?;
-    let len = u32::from_be_bytes(len) as usize;
+    read.read_exact(&mut len)
+        .await
+        .context("read Cast frame length")?;
+    let len = usize::try_from(u32::from_be_bytes(len)).context("Cast frame length")?;
     if len > MAX_MESSAGE {
         bail!("message of {len} bytes");
     }
     let mut body = vec![0u8; len];
-    read.read_exact(&mut body).await?;
+    read.read_exact(&mut body)
+        .await
+        .context("read Cast frame body")?;
     CastMessage::decode(&body)
 }
 

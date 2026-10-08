@@ -31,18 +31,24 @@ pub async fn read_request<R: AsyncRead + Unpin>(
 ) -> Result<Option<Request>> {
     let mut head = Vec::new();
     loop {
-        let read = reader.read_until(b'\n', &mut head).await?;
-        if read == 0 {
+        let available = reader.fill_buf().await.context("read request head")?;
+        if available.is_empty() {
             if head.is_empty() {
                 return Ok(None);
             }
             bail!("connection closed inside the request head");
         }
+        let read = available
+            .iter()
+            .position(|&byte| byte == b'\n')
+            .map_or(available.len(), |at| at + 1);
+        if read > MAX_HEAD - head.len() {
+            bail!("request head over {MAX_HEAD} bytes");
+        }
+        head.extend_from_slice(&available[..read]);
+        reader.consume(read);
         if head.ends_with(b"\r\n\r\n") || head.ends_with(b"\n\n") {
             break;
-        }
-        if head.len() > MAX_HEAD {
-            bail!("request head over {MAX_HEAD} bytes");
         }
     }
     let head = String::from_utf8(head).context("request head is not UTF-8")?;
@@ -62,13 +68,18 @@ pub async fn read_request<R: AsyncRead + Unpin>(
     }
     let length: usize = request
         .header("content-length")
-        .and_then(|v| v.parse().ok())
+        .map(str::parse)
+        .transpose()
+        .context("invalid Content-Length")?
         .unwrap_or(0);
     if length > MAX_BODY {
         bail!("request body over {MAX_BODY} bytes");
     }
     request.body.resize(length, 0);
-    reader.read_exact(&mut request.body).await?;
+    reader
+        .read_exact(&mut request.body)
+        .await
+        .context("read request body")?;
     Ok(Some(request))
 }
 
@@ -165,5 +176,35 @@ mod tests {
         assert_eq!(request.body, b"body");
         let mut empty = BufReader::new(&b""[..]);
         assert!(read_request(&mut empty).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn oversized_heads_are_rejected_before_reading_an_unbounded_line() {
+        for suffix in ["", "\r\n\r\n", "\n\n"] {
+            let raw = format!("GET / HTTP/1.1\r\nX: {}{suffix}", "x".repeat(MAX_HEAD));
+            let mut reader = BufReader::new(raw.as_bytes());
+            let error = read_request(&mut reader).await.unwrap_err();
+            assert!(error.to_string().contains("request head over"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_head_at_the_limit_is_accepted() {
+        let prefix = "GET / HTTP/1.1\r\nX: ";
+        let raw = format!(
+            "{prefix}{}\r\n\r\n",
+            "x".repeat(MAX_HEAD - prefix.len() - 4)
+        );
+        let mut reader = BufReader::new(raw.as_bytes());
+        assert!(read_request(&mut reader).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn invalid_body_lengths_are_not_treated_as_empty_requests() {
+        for length in ["abc", "-1", "18446744073709551616", "1048577"] {
+            let raw = format!("POST / HTTP/1.1\r\nContent-Length: {length}\r\n\r\n");
+            let mut reader = BufReader::new(raw.as_bytes());
+            assert!(read_request(&mut reader).await.is_err());
+        }
     }
 }

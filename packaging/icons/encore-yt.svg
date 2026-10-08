@@ -1,11 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2a2a33"/>
-      <stop offset="1" stop-color="#121216"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2530"/>
+      <stop offset="1" stop-color="#121014"/>
+    </linearGradient>
+    <linearGradient id="mark" gradientUnits="userSpaceOnUse" x1="760" y1="250" x2="300" y2="780">
+      <stop offset="0" stop-color="#ff6f86"/>
+      <stop offset="1" stop-color="#e3193f"/>
     </linearGradient>
   </defs>
-  <rect x="32" y="32" width="448" height="448" rx="104" fill="url(#bg)"/>
-  <circle cx="256" cy="256" r="148" fill="none" stroke="#f4f4f7" stroke-width="22"/>
-  <path d="M220 184 L332 256 L220 328 Z" fill="#f4f4f7" stroke="#f4f4f7" stroke-width="16" stroke-linejoin="round"/>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#tile)"/>
+  <!-- The encore loop: a ring that runs clockwise and ends in an arrowhead, open at the top right. -->
+  <path d="M743.8 418.3 A250 250 0 1 1 589.3 274.2" fill="none" stroke="url(#mark)" stroke-width="66" stroke-linecap="round"/>
+  <path d="M593.8 184.0 L691.8 338.3 L551.2 354.8 Z" fill="url(#mark)" stroke="url(#mark)" stroke-width="26" stroke-linejoin="round"/>
+  <!-- Play, nudged right of centre so it sits optically centred in the ring. -->
+  <path d="M446 382 L446 642 L668 512 Z" fill="url(#mark)" stroke="url(#mark)" stroke-width="40" stroke-linejoin="round"/>
 </svg>

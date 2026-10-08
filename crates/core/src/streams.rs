@@ -727,7 +727,13 @@ impl Native {
     /// releases, the files come from yt-dlp-ejs's GitHub release, and both
     /// must match their pinned SHA-256 before they are saved or run.
     fn refresh_solver(&self, player: &str) {
-        let first = self.refreshed.lock().recover().insert(player.to_owned());
+        let first = {
+            let mut refreshed = self.refreshed.lock().recover();
+            if refreshed.len() >= 64 {
+                refreshed.clear();
+            }
+            refreshed.insert(player.to_owned())
+        };
         if !first {
             return;
         }

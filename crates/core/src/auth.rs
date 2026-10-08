@@ -182,6 +182,18 @@ fn gecko_base(base: &directories::BaseDirs) -> &Path {
     }
 }
 
+/// Where the Chromium-family browsers keep their profiles. Normally the
+/// config directory; inside a Flatpak sandbox that directory is the app's own
+/// (`~/.var/app/<id>/config`), so look in the real `~/.config`, which the
+/// manifest opens read-only for the known browsers.
+fn browser_config_dir(base: &directories::BaseDirs) -> PathBuf {
+    if cfg!(target_os = "linux") && Path::new("/.flatpak-info").exists() {
+        base.home_dir().join(".config")
+    } else {
+        base.config_dir().to_path_buf()
+    }
+}
+
 /// The browsers Encore looks for on this system, for the sign-in sheet.
 pub fn supported_browsers() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = GECKOS
@@ -346,7 +358,7 @@ pub struct Profile {
 /// recently used first.
 fn candidates() -> Result<Vec<Candidate>> {
     let base = directories::BaseDirs::new().context("no home directory")?;
-    let config = base.config_dir().to_path_buf();
+    let config = browser_config_dir(&base);
     let mut candidates = Vec::new();
     for browser in BROWSERS {
         let Ok(entries) = std::fs::read_dir(config.join(browser.dir)) else {

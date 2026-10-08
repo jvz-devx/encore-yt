@@ -327,7 +327,7 @@ impl Root {
 
     #[zbus(property)]
     fn desktop_entry(&self) -> String {
-        crate::APP_ID.into()
+        crate::app_id().into()
     }
 
     #[zbus(property)]

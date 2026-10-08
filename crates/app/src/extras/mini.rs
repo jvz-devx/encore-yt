@@ -71,7 +71,7 @@ fn open(app: Entity<MusicApp>, cx: &mut App) -> anyhow::Result<AnyWindowHandle> 
             size: crate::views::extras::mini::SIZE,
         })),
         window_min_size: Some(crate::views::extras::mini::MIN_SIZE),
-        app_id: Some(format!("{}.mini", encore_core::APP_ID)),
+        app_id: Some(format!("{}.mini", encore_core::app_id())),
         ..Default::default()
     };
     let (handle, _) = gpui_kit::open_window(options, cx, move |_, cx| {

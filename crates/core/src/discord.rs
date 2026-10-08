@@ -145,7 +145,9 @@ impl Presence {
         } else {
             track.duration.map_or(0.0, f64::from)
         };
-        let start = unix_ms - (now.playback.position.max(0.0) * 1000.0) as i64;
+        // Float-to-int casts saturate. The following arithmetic must do so too
+        // when a corrupt session or remote seek supplied an extreme position.
+        let start = unix_ms.saturating_sub((now.playback.position.max(0.0) * 1000.0) as i64);
         Some(Self {
             video_id: track.video_id.clone(),
             title: track.title.clone(),
@@ -155,7 +157,7 @@ impl Presence {
                 .clone()
                 .filter(|url| url.starts_with("https://")),
             start,
-            end: (duration > 0.0).then(|| start + (duration * 1000.0) as i64),
+            end: (duration > 0.0).then(|| start.saturating_add((duration * 1000.0) as i64)),
         })
     }
 
@@ -219,7 +221,7 @@ fn text(value: &str) -> String {
 fn unix_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 enum Message {
@@ -456,6 +458,17 @@ impl Worker {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extreme_playback_times_do_not_overflow_presence_timestamps() {
+        let mut playing = now(true, 0.0);
+        playing.playback.duration = f64::MAX;
+        let presence = Presence::of(&playing, i64::MAX).unwrap();
+        assert_eq!(presence.end, Some(i64::MAX));
+        playing.playback.position = f64::MAX;
+        let presence = Presence::of(&playing, i64::MIN).unwrap();
+        assert_eq!(presence.start, i64::MIN);
+    }
     use crate::model::{Run, Track};
 
     fn now(playing: bool, position: f64) -> Now {

@@ -143,7 +143,7 @@ pub fn parse_ytcfg(page: &str) -> WebConfig {
         user_session: text("USER_SESSION_ID").or(user),
         delegated_session: text("DELEGATED_SESSION_ID").or(delegated),
         session_index: ytcfg_value(page, "SESSION_INDEX").and_then(|v| match v {
-            Value::Number(n) => n.as_u64().map(|n| n as u32),
+            Value::Number(n) => n.as_u64().and_then(|n| u32::try_from(n).ok()),
             Value::String(s) => s.parse().ok(),
             _ => None,
         }),
@@ -290,6 +290,18 @@ pub fn page_url(video_id: &str) -> String {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_oversized_session_index_is_not_wrapped() {
+        assert_eq!(
+            parse_ytcfg(r#"ytcfg.set({"SESSION_INDEX":4294967296});"#).session_index,
+            None
+        );
+        assert_eq!(
+            parse_ytcfg(r#"ytcfg.set({"SESSION_INDEX":4294967295});"#).session_index,
+            Some(u32::MAX)
+        );
+    }
     use crate::streams::TV_DOWNGRADED;
 
     const ORIGIN: &str = "https://www.youtube.com";

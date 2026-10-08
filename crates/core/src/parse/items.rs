@@ -366,7 +366,7 @@ fn nav_button(r: &Value) -> Option<Item> {
         index: None,
         stripe: at(r, &["solid", "leftStripeColor"])
             .and_then(Value::as_u64)
-            .map(|c| c as u32),
+            .and_then(|c| u32::try_from(c).ok()),
         editable: None,
     })
 }
@@ -427,5 +427,22 @@ fn liked_songs_toggle(item: &Value) -> Option<LikeStatus> {
         LikeStatus::Indifferent => Some(LikeStatus::Like),
         LikeStatus::Like => Some(LikeStatus::Indifferent),
         LikeStatus::Dislike => None,
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests inspect synthetic navigation renderers"
+)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_stripe_colours_are_omitted_instead_of_wrapping() {
+        let button = serde_json::json!({"solid": {"leftStripeColor": u64::MAX}});
+        assert_eq!(nav_button(&button).unwrap().stripe, None);
+        let button = serde_json::json!({"solid": {"leftStripeColor": u32::MAX}});
+        assert_eq!(nav_button(&button).unwrap().stripe, Some(u32::MAX));
     }
 }

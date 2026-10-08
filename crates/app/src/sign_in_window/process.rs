@@ -51,7 +51,7 @@ pub(super) fn start(
     Ok((Helper(cancel), result))
 }
 
-fn helper_path() -> PathBuf {
+pub(super) fn helper_path() -> PathBuf {
     std::env::var_os("ENCORE_SIGNIN_BIN")
         .map(PathBuf::from)
         .or_else(|| {

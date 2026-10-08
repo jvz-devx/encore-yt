@@ -104,7 +104,7 @@ fn header(route: Route, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElem
         )
 }
 
-/// The three routes, the browser first.
+/// The routes: the browser first, or the sign-in window on Windows.
 fn choose(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
     v_flex()
         .gap(space::LG)
@@ -117,12 +117,15 @@ fn choose(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
             v_flex()
                 .mx(-space::MD)
                 .gap(space::XS)
+                .when(crate::sign_in_window::suggested(), |list| {
+                    list.child(window_row(true, c, cx))
+                })
                 .child(route_row(
                     Route::Browser,
                     IconName::Globe,
                     "Sign in with your browser",
                     "Opens YouTube Music. Sign in there, and Music connects by itself.",
-                    true,
+                    !crate::sign_in_window::suggested(),
                     c,
                     cx,
                 ))
@@ -144,17 +147,10 @@ fn choose(c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
                     c,
                     cx,
                 ))
-                .when(crate::sign_in_window::enabled(), |list| {
-                    list.child(route_row(
-                        Route::Window,
-                        IconName::Globe,
-                        "Sign in in a window (test)",
-                        "Opens a small sign-in window inside Encore. Needs the encore-yt-signin helper.",
-                        false,
-                        c,
-                        cx,
-                    ))
-                }),
+                .when(
+                    crate::sign_in_window::enabled() && !crate::sign_in_window::suggested(),
+                    |list| list.child(window_row(false, c, cx)),
+                ),
         )
         .child(
             h_flex()
@@ -281,13 +277,16 @@ fn browser(step: &Step, c: &Colors, cx: &mut Context<MusicApp>) -> AnyElement {
 
 /// What the browser route says where it can't read any installed browser.
 const CANT_READ: &str = "Encore can't read Edge, Chrome or Brave on Windows. Sign in with \
-                         Firefox, import a cookies file or paste cookies.";
+                         Firefox or one of these instead.";
 
 /// The routes that still work, as on the first page.
 fn other_ways(c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
     v_flex()
         .mx(-space::MD)
         .gap(space::XS)
+        .when(crate::sign_in_window::enabled(), |list| {
+            list.child(window_row(true, c, cx))
+        })
         .child(route_row(
             Route::File,
             IconName::FileUp,
@@ -306,17 +305,19 @@ fn other_ways(c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
             c,
             cx,
         ))
-        .when(crate::sign_in_window::enabled(), |list| {
-            list.child(route_row(
-                Route::Window,
-                IconName::Globe,
-                "Sign in in a window (test)",
-                "Opens a small sign-in window inside Encore. Needs the encore-yt-signin helper.",
-                false,
-                c,
-                cx,
-            ))
-        })
+}
+
+/// The sign-in window route, filled where it's the suggested one.
+fn window_row(suggested: bool, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
+    route_row(
+        Route::Window,
+        IconName::LogIn,
+        "Sign in in a window",
+        "Opens a Google sign-in window. Music connects once you're in.",
+        suggested,
+        c,
+        cx,
+    )
 }
 
 /// The sign-in window route: waits for its helper, shows why it ended.

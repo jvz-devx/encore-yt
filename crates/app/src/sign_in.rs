@@ -31,7 +31,7 @@ pub enum Route {
     Browser,
     File,
     Paste,
-    /// The sign-in window (M31 spike, `ENCORE_SIGNIN_WINDOW=1`).
+    /// The sign-in window (M31), where its helper is installed.
     Window,
 }
 

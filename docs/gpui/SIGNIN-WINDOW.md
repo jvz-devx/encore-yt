@@ -25,8 +25,11 @@ window's own cookie store. No browser decryption is involved.
 - The app starts the helper from the Sign in sheet, waits for it, and imports
   the file through the same path as "Import a cookies file" (so it ends up as
   `imported-cookies.txt` in the config folder), then removes the temporary file.
-  The row "Sign in in a window (test)" shows only with `ENCORE_SIGNIN_WINDOW=1`.
-  The helper is found next to the app, or at `ENCORE_SIGNIN_BIN`.
+  The row "Sign in in a window" shows wherever the helper is installed (the
+  Windows and macOS installers ship it), and comes first on Windows, where the
+  browser route can only read Firefox. `ENCORE_SIGNIN_WINDOW=0` hides it, `=1`
+  shows it without the helper check. The helper is found next to the app, or
+  at `ENCORE_SIGNIN_BIN`.
 - `ENCORE_SIGNIN_URL` replaces the start page. In debug builds
   `ENCORE_SIGNIN_TEST_HOST=localhost` makes that host's cookies stand in for
   youtube.com's, for the local check below.
@@ -68,10 +71,9 @@ window's own cookie store. No browser decryption is involved.
 1. On the machine: `cargo build -p encore-yt -p encore-signin` (Windows may
    need `--release`), so both `encore-yt` and `encore-yt-signin` are in
    `target/<profile>/`.
-2. Start the app with `ENCORE_SIGNIN_WINDOW=1` set (PowerShell:
-   `$env:ENCORE_SIGNIN_WINDOW="1"; .\target\debug\encore-yt.exe`; macOS:
-   `ENCORE_SIGNIN_WINDOW=1 target/debug/encore-yt`), signed out.
-3. Sign in, then "Sign in in a window (test)". Sign in to Google in the window,
+2. Start the app (installed, or `target/debug/encore-yt` next to a built
+   helper), signed out.
+3. Sign in, then "Sign in in a window". Sign in to Google in the window,
    including any two-step prompt. Watch for "This browser or app may not be
    secure" or a block after entering the password.
 4. The window should close by itself a few seconds after music.youtube.com

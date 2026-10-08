@@ -157,10 +157,10 @@ pub(super) fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -
     let decryptor = cbc::Decryptor::<aes::Aes128>::new(key.into(), &[b' '; 16].into());
     let plain = decryptor.decrypt_padded_vec_mut::<Pkcs7>(body).ok()?;
     // Schema 24 prefixes the value with SHA-256 of its host.
-    let plain = if version >= 24
-        && plain.len() >= 32
-        && plain[..32] == sha2::Sha256::digest(host.as_bytes())[..]
-    {
+    let plain = if version >= 24 {
+        if plain.get(..32)? != &sha2::Sha256::digest(host.as_bytes())[..] {
+            return None;
+        }
         &plain[32..]
     } else {
         &plain[..]
@@ -172,6 +172,21 @@ pub(super) fn decrypt(encrypted: &[u8], keys: &Keys, host: &str, version: i64) -
 mod tests {
     use super::*;
     use aes::cipher::BlockEncryptMut;
+
+    #[test]
+    fn schema_24_rejects_a_missing_or_wrong_host_digest() {
+        let key = derive_key(b"synthetic password", 1);
+        let keys = Keys {
+            v10: Some(key),
+            v11: None,
+        };
+        for plain in [b"short".to_vec(), vec![0; 40]] {
+            let body = cbc::Encryptor::<aes::Aes128>::new(&key.into(), &[b' '; 16].into())
+                .encrypt_padded_vec_mut::<Pkcs7>(&plain);
+            let encrypted = [b"v10".as_slice(), &body].concat();
+            assert_eq!(decrypt(&encrypted, &keys, ".youtube.com", 24), None);
+        }
+    }
 
     /// A value encrypted the way Chrome does on macOS (schema 24): the
     /// Keychain password through PBKDF2 (1003 rounds), AES-128-CBC with an

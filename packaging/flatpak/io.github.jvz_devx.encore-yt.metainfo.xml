@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jvz_devx.encore-yt</id>
+  <name>Encore</name>
+  <summary>A native YouTube Music client</summary>
+  <developer id="io.github.jvz-devx">
+    <name>jvz-devx</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Encore is a YouTube Music app for the desktop, written in Rust. It has no browser engine: the interface is drawn on the GPU, the effects are shaders, and a built-in audio engine plays the music.</p>
+    <p>Browse Home, Explore and your Library, search, build a queue, read timed lyrics and watch the Now Playing visualiser. It integrates with the desktop through media keys, the shell player widget, notifications and a tray icon.</p>
+    <p>Encore is unofficial and not affiliated with YouTube or Google. It uses YouTube Music's private web API, so a change on YouTube's side can break it. It has no telemetry and no server of its own.</p>
+  </description>
+  <launchable type="desktop-id">io.github.jvz_devx.encore-yt.desktop</launchable>
+  <url type="homepage">https://github.com/jvz-devx/encore-yt</url>
+  <url type="bugtracker">https://github.com/jvz-devx/encore-yt/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Home</caption>
+      <image type="source">https://raw.githubusercontent.com/jvz-devx/encore-yt/main/docs/screenshots/home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Now Playing with lyrics</caption>
+      <image type="source">https://raw.githubusercontent.com/jvz-devx/encore-yt/main/docs/screenshots/now-playing.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The full-window visualiser</caption>
+      <image type="source">https://raw.githubusercontent.com/jvz-devx/encore-yt/main/docs/screenshots/visualiser.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image type="source">https://raw.githubusercontent.com/jvz-devx/encore-yt/main/docs/screenshots/settings.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1">
+    <content_attribute id="language-profanity">moderate</content_attribute>
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+  <provides>
+    <binary>encore-yt</binary>
+  </provides>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <releases>
+    <release version="0.2.0-alpha.2" date="2026-10-08" type="development"/>
+    <release version="0.2.0-alpha.1" date="2026-10-07" type="development"/>
+    <release version="0.1.1-alpha.1" date="2026-10-07" type="development"/>
+    <release version="0.1.0-alpha.2" date="2026-10-07" type="development"/>
+    <release version="0.1.0-alpha.1" date="2026-10-07" type="development"/>
+    <release version="0.1.0" date="2026-10-06" type="development"/>
+  </releases>
+</component>

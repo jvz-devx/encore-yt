@@ -1,0 +1,111 @@
+# Flatpak manifest for Encore. The app id has an underscore in the user part
+# (io.github.jvz_devx): Flatpak allows a hyphen only in the last segment, and
+# Flathub maps it the same way for the GitHub account jvz-devx.
+# Builds from this checkout with no network:
+# every crate comes from cargo-sources.json (update-sources.sh makes it from
+# Cargo.lock). See README.md for local builds and a Flathub submission.
+app-id: io.github.jvz_devx.encore-yt
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  # libclang for bindgen, which a few dependencies run at build time.
+  - org.freedesktop.Sdk.Extension.llvm21
+command: encore-yt
+
+finish-args:
+  # Window: Wayland, with X11 only when there is no Wayland session
+  # (fallback-x11 plus ipc for MIT-SHM).
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # The wgpu effects and the GPUI renderer (Vulkan/GL).
+  - --device=dri
+  # Audio. PipeWire serves the PulseAudio socket, so one permission covers both.
+  - --socket=pulseaudio
+  # InnerTube, cover art and streams.
+  - --share=network
+  # Desktop notifications on a track change.
+  - --talk-name=org.freedesktop.Notifications
+  # Media keys and the shell's player widget (MPRIS).
+  - --own-name=org.mpris.MediaPlayer2.encore-yt
+  # The tray icon (StatusNotifierItem).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # The key browsers store for their cookie encryption, read through
+  # secret-tool (Secret Service, GNOME Keyring and KeePassXC) or KWallet.
+  # Only used when signing in from a Chromium-family browser.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.kwalletd6
+  - --talk-name=org.kde.kwalletd5
+  # Signing in from a browser reads that browser's cookie database. These
+  # are the only folders the sign-in code looks in, each read-only and each
+  # needed only if that browser is installed. Flathub reviewers may ask for
+  # narrower access; "Import a cookies file" (through the file chooser
+  # portal, no permission) works without any of them.
+  - --filesystem=~/.mozilla:ro
+  - --filesystem=xdg-config/mozilla:ro
+  - --filesystem=~/.librewolf:ro
+  - --filesystem=~/.var/app/org.mozilla.firefox:ro
+  - --filesystem=~/.var/app/io.gitlab.librewolf-community:ro
+  - --filesystem=xdg-config/google-chrome:ro
+  - --filesystem=xdg-config/chromium:ro
+  - --filesystem=xdg-config/BraveSoftware:ro
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm21/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm21/lib
+  env:
+    CARGO_HOME: /run/build/encore-yt/cargo
+    # .cargo/config.toml wraps rustc with a local sccache script.
+    RUSTC_WRAPPER: ''
+    # The version the app reports and compares with the latest release; the
+    # release workflow sets it from the tag.
+    ENCORE_VERSION: 0.2.0-alpha.2
+  # The SDK's default -O2 reaches every C compiler call and overrides the -O0
+  # that aws-lc-sys's jitterentropy needs (it refuses to build optimised).
+  cflags: -pipe
+  cflags-override: true
+  cxxflags: -pipe
+  cxxflags-override: true
+  # The release profile is fat LTO in one codegen unit: -j is not the limit.
+
+modules:
+  # secret-tool, which the app runs to read the browser's key from the Secret
+  # Service. The runtime has libsecret but not the command.
+  - name: libsecret
+    buildsystem: meson
+    config-opts:
+      - -Dmanpage=false
+      - -Dgtk_doc=false
+      - -Dintrospection=false
+      - -Dvapi=false
+      - -Dbash_completion=disabled
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /share/man
+      - /share/bash-completion
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/libsecret/0.21/libsecret-0.21.7.tar.xz
+        sha256: 6b452e4750590a2b5617adc40026f28d2f4903de15f1250e1d1c40bfd68ed55e
+
+  - name: encore-yt
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --locked
+      - cargo --offline build --release --locked -j${FLATPAK_BUILDER_N_JOBS} -p encore-yt
+      - install -Dm755 target/release/encore-yt /app/bin/encore-yt
+      - install -Dm644 packaging/THIRD-PARTY.txt /app/share/doc/encore-yt/THIRD-PARTY.txt
+      # Launcher, icons and metadata under the app id, as Flatpak exports them.
+      - install -Dm644 packaging/linux/io.github.jvz-devx.encore-yt.desktop /app/share/applications/io.github.jvz_devx.encore-yt.desktop
+      - sed -i -e 's|^Icon=.*|Icon=io.github.jvz_devx.encore-yt|' -e 's|^StartupWMClass=.*|StartupWMClass=io.github.jvz_devx.encore-yt|' /app/share/applications/io.github.jvz_devx.encore-yt.desktop
+      - install -Dm644 packaging/flatpak/io.github.jvz_devx.encore-yt.metainfo.xml /app/share/metainfo/io.github.jvz_devx.encore-yt.metainfo.xml
+      - install -Dm644 packaging/icons/encore-yt.svg /app/share/icons/hicolor/scalable/apps/io.github.jvz_devx.encore-yt.svg
+      - install -Dm644 packaging/icons/encore-yt.png /app/share/icons/hicolor/512x512/apps/io.github.jvz_devx.encore-yt.png
+    sources:
+      - type: dir
+        path: ../..
+        skip: [.git, target, artifacts, notes, .flatpak-builder]
+      - cargo-sources.json

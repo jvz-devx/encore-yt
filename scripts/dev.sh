@@ -14,6 +14,7 @@
 #   visuals   the wgpu effects crate (crates/visuals, encore-visuals)
 #   audio     the Rust playback engine (crates/audio, encore-audio)
 #   signin    the sign-in window helper (crates/signin, encore-signin)
+#   cast      the casting spike (crates/cast, encore-cast)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 jobs="${JOBS:-4}"
@@ -28,7 +29,8 @@ package() {
         visuals) echo encore-visuals ;;
         audio) echo encore-audio ;;
         signin) echo encore-signin ;;
-        *) echo "unknown crate '$1' (app, core, visuals, audio, signin)" >&2; exit 2 ;;
+        cast) echo encore-cast ;;
+        *) echo "unknown crate '$1' (app, core, visuals, audio, signin, cast)" >&2; exit 2 ;;
     esac
 }
 

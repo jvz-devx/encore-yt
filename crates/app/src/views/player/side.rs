@@ -72,7 +72,7 @@ pub fn side(
         )
 }
 
-fn volume(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
+pub(super) fn volume(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
     let level = app.player.playback.volume;
     let muted = app.player.muted_from.is_some() || level <= 0.0;
     let icon = if muted {
@@ -94,11 +94,14 @@ fn volume(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoEl
             .on_click(cx.listener(|this, _, window, cx| this.toggle_mute(window, cx))),
         )
         .child(
-            div().w(VOLUME).child(
-                Slider::new(&app.player.volume)
-                    .bg(c.text_muted)
-                    .text_color(c.text),
-            ),
+            div()
+                .debug_selector(|| "volume-slider".to_owned())
+                .w(VOLUME)
+                .child(
+                    Slider::new(&app.player.volume)
+                        .bg(c.text_muted)
+                        .text_color(c.text),
+                ),
         )
 }
 

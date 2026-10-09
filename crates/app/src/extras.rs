@@ -73,6 +73,8 @@ pub struct Extras {
     pub stage: Stage,
     /// The full-window visualiser (V) is open.
     pub visualizer: bool,
+    /// Show the visualiser's controls only while the pointer is inside it.
+    pub visualizer_hovered: bool,
     pub(crate) hold: audition::Hold,
     /// The mini player's window while it is open.
     mini: Option<AnyWindowHandle>,
@@ -143,6 +145,7 @@ impl Extras {
                 sleep_tick: None,
                 stage: Stage::default(),
                 visualizer: false,
+                visualizer_hovered: false,
                 hold: audition::Hold::default(),
                 mini: None,
                 mix_length,
@@ -190,6 +193,7 @@ impl MusicApp {
         }
         let open = !self.extras.visualizer;
         self.extras.visualizer = open;
+        self.extras.visualizer_hovered = false;
         self.extras.equalizer_open = false;
         self.extras.sleep_open = false;
         log::info!("visualiser {}", if open { "opened" } else { "closed" });

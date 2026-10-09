@@ -4,6 +4,7 @@
 //! (`crate::visuals`) draws the backdrop and the visualiser where this
 //! view's slots say.
 
+use encore_core::backend::Command;
 use encore_core::model::Track;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
@@ -13,6 +14,7 @@ use gpui_kit::*;
 use super::super::page::covers;
 use super::super::{runs_text, widgets};
 use crate::app::MusicApp;
+use crate::assets::Glyph;
 use crate::theme::motion::MotionExt as _;
 use crate::theme::{self, Colors, Type, elevation, motion, radius, size, space};
 use crate::visuals::{self, Slot, config};
@@ -43,7 +45,13 @@ pub fn visualizer(
         visuals::clear_slot(Slot::Title, cx);
     }
     let shadow = !visuals::paints_cover_shadow(cx);
+    if !app.extras.visualizer_hovered {
+        visuals::clear_slot(Slot::Corner, cx);
+    }
     let inner = div()
+        .image_cache(covers::root_cache(cx))
+        .id("visualizer")
+        .debug_selector(|| "visualizer".to_owned())
         .key_context("Visualizer")
         .track_focus(&app.focus)
         .size_full()
@@ -51,7 +59,11 @@ pub fn visualizer(
         .when(!painted, |d| d.bg(c.base))
         .text_color(c.text)
         .type_body()
-        .image_cache(covers::root_cache(cx))
+        .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
+        .on_hover(cx.listener(|this, hovered, _, cx| {
+            this.extras.visualizer_hovered = *hovered;
+            cx.notify();
+        }))
         .child(visuals::slot(Slot::Stage))
         .child(visuals::slot(Slot::StageBody))
         .child(
@@ -63,7 +75,10 @@ pub fn visualizer(
                 .pb(px(h * 0.28))
                 .child(song(track.as_ref(), side, shadow, &c)),
         )
-        .child(top_bar(painted, &c, cx))
+        .when(app.extras.visualizer_hovered, |d| {
+            d.child(top_bar(painted, &c, cx))
+                .child(controls(app, &c, cx))
+        })
         .with_motion(
             "enter:visualizer",
             motion::Kind::NowPlaying,
@@ -77,6 +92,52 @@ pub fn visualizer(
     let root = crate::account::on_actions(root, cx);
     let root = crate::desktop::on_actions(root, cx);
     crate::extras::on_actions(root, cx).into_any_element()
+}
+
+/// Quiet controls over the scene, using the player bar's volume state.
+fn controls(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
+    h_flex()
+        .id("visualizer-controls")
+        .debug_selector(|| "visualizer-controls".to_owned())
+        .absolute()
+        .bottom(space::XL)
+        .left(space::LG)
+        .right(space::LG)
+        .justify_center()
+        .gap(space::LG)
+        .opacity(0.6)
+        .hover(|s| s.opacity(1.))
+        .child(
+            h_flex()
+                .gap(space::SM)
+                .child(super::super::player::volume(app, c, cx))
+                .child(
+                    div()
+                        .debug_selector(|| {
+                            format!(
+                                "visualizer-volume:{}",
+                                app.player.volume.read(cx).value().start()
+                            )
+                        })
+                        .type_caption()
+                        .tabular()
+                        .text_color(c.text_muted)
+                        .child(format!(
+                            "{:.0}%",
+                            app.player.volume.read(cx).value().start()
+                        )),
+                ),
+        )
+        .child(
+            widgets::icon_button(
+                "visualizer-next",
+                widgets::glyph(Glyph::SkipForward, size::ICON, c.text_muted),
+                c,
+            )
+            .debug_selector(|| "visualizer-next".to_owned())
+            .tooltip(widgets::tooltip("Next"))
+            .on_click(cx.listener(|this, _, _, _| this.send(Command::Next))),
+        )
 }
 
 /// The cover with the title and artists under it.
@@ -182,11 +243,15 @@ fn top_bar(painted: bool, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoEl
             .into_any_element()
     };
     h_flex()
+        .id("visualizer-menu")
+        .debug_selector(|| "visualizer-menu".to_owned())
         .absolute()
         .top(space::LG)
         .left(space::LG)
         .right(space::LG)
         .justify_between()
+        .opacity(0.6)
+        .hover(|s| s.opacity(1.))
         .child(visuals::slot(Slot::Corner))
         .child(left)
         .child(

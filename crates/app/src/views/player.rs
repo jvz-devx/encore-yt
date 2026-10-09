@@ -30,6 +30,11 @@ const SIDE: Pixels = px(300.);
 /// The seek bar's widest.
 const SEEK_MAX: Pixels = px(600.);
 
+/// The shared volume control, also used while the player bar is hidden.
+pub(super) fn volume(app: &MusicApp, c: &Colors, cx: &mut Context<MusicApp>) -> impl IntoElement {
+    side::volume(app, c, cx)
+}
+
 /// The room the player bar takes at the bottom of the app's views; the bar
 /// itself is drawn by [`layer::PlayerBar`], under them.
 pub fn space() -> impl IntoElement {

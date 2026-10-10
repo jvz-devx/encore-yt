@@ -15,12 +15,21 @@ window's own cookie store. No browser decryption is involved.
   would carry the web view code for a window most launches never open. The main
   binary does not change in size.
 - `encore-yt-signin --out FILE` opens a 480x720 window "Sign in to YouTube
-  Music" on Google's sign-in page (continuing to music.youtube.com), reads the
-  webview's cookies every second (`WebView::cookies`, private browsing so
-  nothing stays in the engine's profile), and once a `SAPISID` or
-  `__Secure-3PAPISID` cookie exists on youtube.com (the same test as
-  `auth::signs_in`) writes the YouTube and Google cookies as a Netscape cookie
-  file (0600 on Unix) and exits. Stdout is only `signed in` or `cancelled`;
+  Music" on Google's sign-in page (continuing to music.youtube.com). On
+  Windows it retains a dedicated WebView2 profile at
+  `%LOCALAPPDATA%\encore-yt\signin-profile`, so reopening the helper can reuse
+  its Google sign-in. Other platforms use private browsing by default.
+  `--profile DIRECTORY` explicitly selects a persistent profile for local
+  checks. The profile belongs to Encore; it does not share Edge's or Chrome's
+  cookies or extensions.
+- After the Music page finishes loading, the helper checks
+  `ytcfg.get('LOGGED_IN')` and reads cookies every second. Once Music reports
+  logged in and a `SAPISID` or `__Secure-3PAPISID` cookie exists on youtube.com
+  (the same test as `auth::signs_in`), it writes the YouTube and Google cookies
+  as a Netscape cookie file (0600 on Unix) and exits. Existing cookies alone
+  cannot finish sign-in, and a late page check cannot finish a newer
+  navigation. The backend then independently verifies the account.
+  Stdout is only `signed in` or `cancelled`;
   closing the window is cancelling; cookie names and values are never printed.
 - The app starts the helper from the Sign in sheet, waits for it, and imports
   the file through the same path as "Import a cookies file" (so it ends up as
@@ -30,11 +39,16 @@ window's own cookie store. No browser decryption is involved.
   browser route can only read Firefox. `ENCORE_SIGNIN_WINDOW=0` hides it, `=1`
   shows it without the helper check. The helper is found next to the app, or
   at `ENCORE_SIGNIN_BIN`.
+- Music API, watch-page and player responses renew the same session jar.
+  Encore atomically saves changed cookies back to its `imported-cookies.txt`
+  or `pasted-cookies.txt` before continuing, with expiry and deletion
+  attributes preserved. Browser databases and manually managed exports stay
+  read-only. Responses from an earlier sign-in cannot overwrite a new one.
 - `ENCORE_SIGNIN_URL` replaces the start page. In debug builds
   `ENCORE_SIGNIN_TEST_HOST=localhost` makes that host's cookies stand in for
   youtube.com's, for the local check below.
 
-## Checked on Linux (WebKitGTK 2.52, Fedora, Wayland)
+## Initial spike checks on Linux (WebKitGTK 2.52, Fedora, Wayland)
 
 - Local page that sets fake SAPISID, HSID and LOGIN_INFO cookies after 3
   seconds: the helper printed `signed in`, exited 0 and wrote a correct cookie
@@ -48,6 +62,26 @@ window's own cookie store. No browser decryption is involved.
   usually appears only after submitting credentials, which could not be tried
   here, so it is still the main open question.
 
+## Session persistence checks (2026-10-10)
+
+- `just verify-workspace` passes formatting, Clippy with warnings denied,
+  the workspace tests and all seven shaders. Three optional resolver capture
+  tests have no private captures and do not exercise their scenarios.
+- `renewal_survives_restarting_the_client` feeds synthetic Music and playback
+  HTTP responses into the shared jar, drops the client, and checks that a
+  fresh client loads the renewed cookies from the private on-disk file.
+  Cookie expiry/deletion, host/path scope, imports, failed-write retries and
+  late responses from an old account are covered separately. An old connection
+  attempt cannot clear or restore a session over a newer login. No real
+  account is read or contacted.
+- The helper's tests check that existing cookies cannot finish sign-in before
+  Music reports logged in, and that old page callbacks cannot finish a new
+  navigation. Local page fixtures now need to provide
+  `window.ytcfg.get('LOGGED_IN')` as well as synthetic cookies.
+- `cargo check --locked --target x86_64-pc-windows-gnu -p encore-signin`
+  passes from Linux. This is a compile check; actual WebView2 sign-in and a
+  Windows reboot remain device checks, following the steps below.
+
 ## Size and requirements
 
 - Linux release build of the helper (fat LTO, opt-level s, stripped): 774 KB.
@@ -58,8 +92,8 @@ window's own cookie store. No browser decryption is involved.
   loader is linked statically on MSVC targets (`WebView2LoaderStatic.lib`
   inside webview2-com-sys), so there is no extra DLL. `cargo xwin check
   --target x86_64-pc-windows-msvc -p encore-signin` passes. wry keeps its data
-  folder under `%LOCALAPPDATA%` by default; with private browsing it holds no
-  session.
+  folder is explicitly `%LOCALAPPDATA%\encore-yt\signin-profile` and private
+  browsing is disabled for that profile. This folder survives app/PC restarts.
 - macOS: WKWebView, always present. Not built here. wry reads cookies through
   `WKWebsiteDataStore.httpCookieStore.getAllCookies` (macOS 10.13+), which
   includes HttpOnly cookies, and spins the run loop until it answers. Private
@@ -79,8 +113,13 @@ window's own cookie store. No browser decryption is involved.
 4. The window should close by itself a few seconds after music.youtube.com
    loads, and the app should show your account.
 5. Check the session behaves like a browser's: Library loads, a track plays,
-   and it still works after restarting the app.
-6. Also try closing the window early (the sheet should return to the routes).
+   and it still works after restarting the app and rebooting Windows. Repeat
+   after leaving the app open and playing for a while, so renewed cookies
+   must survive the restart too.
+6. Reopen the helper: an existing valid Google sign-in should reach Music
+   without retyping credentials. A profile with rejected cookies must stay
+   open for sign-in instead of immediately exporting those cookies again.
+7. Also try closing the window early (the sheet should return to the routes).
 
 ## Risks
 

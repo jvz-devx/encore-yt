@@ -3,7 +3,8 @@
 //! session cookies that mean "signed in", and saves them as a Netscape
 //! cookie file for the app to import like any other.
 //!
-//! Usage: `encore-yt-signin --out <cookies file>`. Prints `signed in` or
+//! Usage: `encore-yt-signin --out <cookies file> [--profile <directory>]`.
+//! Windows retains an Encore-owned WebView2 profile between runs. Prints `signed in` or
 //! `cancelled` on stdout and nothing else; never a cookie name or value.
 //! Closing the window is cancelling. `ENCORE_SIGNIN_URL` replaces the start
 //! page (for checks against a local page).
@@ -13,18 +14,21 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::WindowBuilder;
-use wry::WebViewBuilder;
+use wry::{PageLoadEvent, WebContext, WebViewBuilder};
 
 /// Google's own sign-in, handing over to YouTube Music, which sets the
 /// youtube.com cookies the app signs in with.
 const START: &str = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F";
 const POLL: Duration = Duration::from_secs(1);
+const CHECK_LOGIN: &str =
+    "Boolean(window.ytcfg && window.ytcfg.get && window.ytcfg.get('LOGGED_IN'))";
 
 /// One cookie, as a line of a Netscape cookie file.
 struct Row {
@@ -41,17 +45,24 @@ struct Row {
     reason = "signed in/cancelled is the helper protocol"
 )]
 fn main() {
-    let Some(out) = out_path() else {
-        eprintln!("usage: encore-yt-signin --out <cookies file>");
+    let Some((out, profile)) = options() else {
+        eprintln!("usage: encore-yt-signin --out <cookies file> [--profile <directory>]");
         std::process::exit(2);
     };
     let start = std::env::var("ENCORE_SIGNIN_URL").unwrap_or_else(|_| START.into());
     // Persist only after the webview and event loop have closed, so filesystem
     // latency cannot stall an active sign-in window.
-    let result = run(&start).and_then(|rows| match rows {
-        Some(rows) => write(&out, &rows).map(|()| true).map_err(Into::into),
-        None => Ok(false),
-    });
+    let profile = match profile {
+        Some(profile) => Ok(Some(profile)),
+        None => default_profile(),
+    };
+    let result = profile
+        .map_err(Into::into)
+        .and_then(|profile| run(&start, profile.as_deref()))
+        .and_then(|rows| match rows {
+            Some(rows) => write(&out, &rows).map(|()| true).map_err(Into::into),
+            None => Ok(false),
+        });
     match result {
         Ok(true) => println!("signed in"),
         Ok(false) => println!("cancelled"),
@@ -62,25 +73,70 @@ fn main() {
     }
 }
 
-fn out_path() -> Option<PathBuf> {
+fn options() -> Option<(PathBuf, Option<PathBuf>)> {
     let mut args = std::env::args_os().skip(1);
+    let mut out = None;
+    let mut profile = None;
     while let Some(arg) = args.next() {
         if arg == "--out" {
-            return args.next().map(PathBuf::from);
+            out = Some(PathBuf::from(args.next()?));
+        } else if arg == "--profile" {
+            profile = Some(PathBuf::from(args.next()?));
+        } else {
+            return None;
         }
     }
-    None
+    Some((out?, profile))
+}
+
+fn default_profile() -> Result<Option<PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        // Stable across app and PC restarts. Never share Edge's user profile:
+        // this belongs to Encore and inherits the user's LOCALAPPDATA ACLs.
+        let local =
+            std::env::var_os("LOCALAPPDATA").ok_or("couldn't find the sign-in profile folder")?;
+        Ok(Some(
+            PathBuf::from(local)
+                .join("encore-yt")
+                .join("signin-profile"),
+        ))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(None)
+    }
 }
 
 /// Runs the window until session cookies appear or the user closes it.
-fn run(start: &str) -> Result<Option<Vec<Row>>, Box<dyn std::error::Error>> {
+fn run(
+    start: &str,
+    profile: Option<&Path>,
+) -> Result<Option<Vec<Row>>, Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::new().build();
     let window = WindowBuilder::new()
         .with_title("Sign in to YouTube Music")
         .with_inner_size(LogicalSize::new(480.0, 720.0))
         .build(&event_loop)?;
-    // Private browsing: nothing of this window stays on disk once it closes.
-    let builder = WebViewBuilder::new().with_incognito(true).with_url(start);
+    if let Some(profile) = profile {
+        let mut dir = std::fs::DirBuilder::new();
+        dir.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut dir, 0o700);
+        dir.create(profile)?;
+    }
+    let mut context = WebContext::new(profile.map(Path::to_owned));
+    let ready = Arc::new(Mutex::new(Readiness::default()));
+    let loaded = ready.clone();
+    let builder = WebViewBuilder::new_with_web_context(&mut context)
+        .with_incognito(profile.is_none())
+        .with_url(start)
+        .with_on_page_load_handler(move |event, url| {
+            loaded
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .load(event, &url);
+        });
     #[cfg(target_os = "linux")]
     let webview = {
         use tao::platform::unix::WindowExtUnix;
@@ -105,6 +161,33 @@ fn run(start: &str) -> Result<Option<Vec<Row>>, Box<dyn std::error::Error>> {
             Event::NewEvents(tao::event::StartCause::ResumeTimeReached { .. }) => {
                 next = Instant::now() + POLL;
                 *flow = ControlFlow::WaitUntil(next);
+                let state = ready.lock().unwrap_or_else(|e| e.into_inner());
+                let generation = state.generation;
+                let finished = state.finished;
+                let signed_in = state.signed_in;
+                drop(state);
+                if !finished {
+                    return;
+                }
+                if !signed_in {
+                    // A retained profile can already contain SAPISID while its
+                    // Google session needs another sign-in. Wait until Music
+                    // itself reports logged in; cookie presence alone isn't enough.
+                    let checked = ready.clone();
+                    if webview
+                        .evaluate_script_with_callback(CHECK_LOGIN, move |value| {
+                            checked
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .confirm(generation, value.trim() == "true");
+                        })
+                        .is_err()
+                    {
+                        outcome = Err("couldn't check the sign-in page".into());
+                        *flow = ControlFlow::Exit;
+                    }
+                    return;
+                }
                 let Ok(cookies) = webview.cookies() else {
                     // Web-engine errors may contain session details. Only report
                     // the failed operation, never cookies or the raw error.
@@ -113,7 +196,12 @@ fn run(start: &str) -> Result<Option<Vec<Row>>, Box<dyn std::error::Error>> {
                     return;
                 };
                 let rows: Vec<Row> = cookies.iter().filter_map(row).collect();
-                if rows.iter().any(signs_in) {
+                if rows.iter().any(signs_in)
+                    && ready
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .can_export(generation)
+                {
                     outcome = Ok(Some(rows));
                     *flow = ControlFlow::Exit;
                 }
@@ -123,7 +211,48 @@ fn run(start: &str) -> Result<Option<Vec<Row>>, Box<dyn std::error::Error>> {
     });
     drop(webview);
     drop(window);
+    drop(context);
     outcome.map_err(Into::into)
+}
+
+#[derive(Default)]
+struct Readiness {
+    generation: u64,
+    finished: bool,
+    signed_in: bool,
+}
+
+impl Readiness {
+    fn load(&mut self, event: PageLoadEvent, url: &str) {
+        match event {
+            PageLoadEvent::Started => {
+                self.generation = self.generation.wrapping_add(1);
+                self.finished = false;
+                self.signed_in = false;
+            }
+            PageLoadEvent::Finished => self.finished = music_page(url),
+        }
+    }
+
+    fn confirm(&mut self, generation: u64, signed_in: bool) {
+        if self.generation == generation && self.finished {
+            self.signed_in = signed_in;
+        }
+    }
+
+    fn can_export(&self, generation: u64) -> bool {
+        self.generation == generation && self.finished && self.signed_in
+    }
+}
+
+fn music_page(url: &str) -> bool {
+    let Ok(url) = url.parse::<wry::http::Uri>() else {
+        return false;
+    };
+    (url.scheme_str() == Some("https") && url.host() == Some("music.youtube.com"))
+        || (cfg!(debug_assertions)
+            && !test_host().is_empty()
+            && url.host() == Some(test_host().as_str()))
 }
 
 /// A YouTube or Google cookie as a row; others are left behind.
@@ -224,6 +353,39 @@ fn write(out: &Path, rows: &[Row]) -> Result<(), String> {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_cookies_are_not_exported_before_music_confirms_the_login() {
+        let mut state = Readiness::default();
+        state.load(PageLoadEvent::Started, START);
+        let generation = state.generation;
+        state.confirm(generation, true);
+        assert!(!state.can_export(generation));
+        state.load(PageLoadEvent::Finished, START);
+        state.confirm(generation, true);
+        assert!(!state.can_export(generation));
+        state.load(PageLoadEvent::Started, "https://music.youtube.com/");
+        let music = state.generation;
+        state.load(PageLoadEvent::Finished, "https://music.youtube.com/");
+        state.confirm(music, false);
+        assert!(!state.can_export(music));
+        state.confirm(music, true);
+        assert!(state.can_export(music));
+        // An asynchronous check of an earlier page must not close a new
+        // sign-in/challenge page using cookies already in the profile.
+        state.load(PageLoadEvent::Started, START);
+        state.confirm(music, true);
+        assert!(!state.can_export(state.generation));
+    }
+
+    #[test]
+    fn only_the_music_origin_can_finish_sign_in() {
+        assert!(music_page("https://music.youtube.com/"));
+        assert!(!music_page("https://music.youtube.com.example/"));
+        assert!(!music_page("https://example.com/music.youtube.com"));
+        assert!(!music_page("https://accounts.google.com/"));
+        assert!(!music_page("http://music.youtube.com/"));
+    }
 
     fn row(host: &str, name: &str) -> Row {
         Row {

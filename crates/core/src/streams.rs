@@ -598,26 +598,27 @@ impl Native {
     }
 
     async fn read_web_config(&self, video_id: &str) -> Result<tv::WebConfig> {
+        let url = reqwest::Url::parse(&tv::page_url(video_id))?;
         let mut request = self
             .innertube
             .http()
             .get(tv::page_url(video_id))
             .header("User-Agent", WEB_AGENT)
             .header("Accept-Language", "en-us,en;q=0.5");
-        if let Some(cookies) = self.innertube.cookie_header() {
+        let (cookies, token) = self
+            .innertube
+            .with_session(|session, token| (session.map(|s| s.header_for(&url)), token));
+        if let Some(cookies) = cookies {
             request = request.header("Cookie", cookies);
         }
         let response = request
             .send()
             .await
-            .context("asking for the session's page")?
-            .error_for_status()?;
-        let cookies = set_cookies(&response);
+            .context("asking for the session's page")?;
+        self.innertube.remember_cookies(token, &response).await;
+        let response = response.error_for_status()?;
         let page = response.text().await?;
-        let mut config = tv::parse_ytcfg(&page);
-        config
-            .cookies
-            .add(cookies.iter().map(String::as_str), this_year());
+        let config = tv::parse_ytcfg(&page);
         if config.player.is_none() && config.visitor.is_none() {
             bail!("the page has no config");
         }
@@ -641,42 +642,43 @@ impl Native {
         }
         // The app decides which channel to act as, not the browser's page.
         web.delegated_session = it.page_id();
-        let sids = tv::Sids {
-            sapisid: it
-                .cookie("SAPISID")
-                .or_else(|| it.cookie("__Secure-3PAPISID")),
-            one_p: it.cookie("__Secure-1PAPISID"),
-            three_p: it.cookie("__Secure-3PAPISID"),
-        };
+        let url =
+            reqwest::Url::parse(&format!("{}/youtubei/v1/player?prettyPrint=false", tv::WWW))?;
+        let (sids, cookies, token) = it.with_session(|session, token| {
+            let get = |name| {
+                session
+                    .and_then(|s| s.cookie_for(name, &url))
+                    .map(str::to_owned)
+            };
+            (
+                tv::Sids {
+                    sapisid: get("SAPISID").or_else(|| get("__Secure-3PAPISID")),
+                    one_p: get("__Secure-1PAPISID"),
+                    three_p: get("__Secure-3PAPISID"),
+                },
+                session.map(|s| s.header_for(&url)),
+                token,
+            )
+        });
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         let authorization = tv::sid_authorization(&sids, tv::WWW, web.user_session.as_deref(), now);
         let body = tv::player_body(client, video_id, sts);
-        let mut request = it
-            .http()
-            .post(format!("{}/youtubei/v1/player?prettyPrint=false", tv::WWW))
-            .body(body.to_string());
+        let mut request = it.http().post(url).body(body.to_string());
         for (name, value) in tv::player_headers(client, &web, authorization) {
             request = request.header(name, value);
         }
-        if let Some(cookies) = it.cookie_header() {
-            request = request.header("Cookie", web.cookies.apply(&cookies));
+        if let Some(cookies) = cookies {
+            request = request.header("Cookie", cookies);
         }
         let response = request.send().await.context("asking for the streams")?;
+        // Playback and Music use the same jar, including its on-disk snapshot.
+        it.remember_cookies(token, &response).await;
         let status = response.status();
         if !status.is_success() {
             bail!("YouTube answered the player request with HTTP {status}");
-        }
-        // Cookies it renews are kept for the next song, as a browser would.
-        let renewed = set_cookies(&response);
-        if !renewed.is_empty()
-            && let Some((config, _, _)) = self.web.lock().await.as_mut()
-        {
-            config
-                .cookies
-                .add(renewed.iter().map(String::as_str), this_year());
         }
         response.json().await.context("reading the player response")
     }
@@ -780,25 +782,6 @@ impl Native {
             }
         }
     }
-}
-
-/// A response's `Set-Cookie` headers.
-fn set_cookies(response: &reqwest::Response) -> Vec<String> {
-    response
-        .headers()
-        .get_all(reqwest::header::SET_COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok().map(str::to_owned))
-        .collect()
-}
-
-/// This year (UTC, near enough to tell a cookie deletion).
-fn this_year() -> u32 {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    1970 + (secs / 31_556_952) as u32
 }
 
 /// An audio format from a player response.

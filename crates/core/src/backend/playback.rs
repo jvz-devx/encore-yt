@@ -408,7 +408,15 @@ impl super::Worker {
         match message {
             Internal::Cast { stamp, message } => self.cast_message(stamp, message).await,
             Internal::CastDevices { result } => self.cast_devices(result),
-            Internal::Connected(account) => {
+            Internal::Connected {
+                connection,
+                account,
+                channels,
+            } => {
+                if !self.client.connection_is_current(connection) {
+                    return;
+                }
+                self.sink.send(Event::Channels(channels));
                 self.sink.send(Event::Account(account));
                 self.prepare_restored();
             }

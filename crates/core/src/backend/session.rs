@@ -21,6 +21,7 @@ impl super::Worker {
         self.last_connect = Some(Instant::now());
         self.sink.send(Event::Account(Account::Checking));
         let client = self.client.clone();
+        let connection = client.begin_connection();
         let paths = self.paths.clone();
         let tx = self.internal_tx.clone();
         let sink = self.sink.clone();
@@ -34,42 +35,62 @@ impl super::Worker {
             .await
             .map(|(session, profiles, channel)| {
                 let current = session.as_ref().ok().map(|s| s.profile.clone());
-                sink.send(Event::Profiles {
-                    list: profiles,
-                    current,
-                });
+                if client.connection_is_current(connection) {
+                    sink.send(Event::Profiles {
+                        list: profiles,
+                        current,
+                    });
+                }
                 (session, channel)
             });
             let (session, channel) = match loaded {
                 Ok((Ok(session), channel)) => (session, channel),
                 Ok((Err(error), _)) => {
-                    client.set_session(None);
-                    client.set_page_id(None);
-                    sink.send(Event::Channels(Vec::new()));
-                    let _ = tx.send(Internal::Connected(Account::SignedOut {
-                        reason: format!("{error:#}"),
-                    }));
+                    if !client.set_session_for_connection(connection, None) {
+                        return;
+                    }
+                    client.set_page_id_for_connection(connection, None);
+                    let _ = tx.send(Internal::Connected {
+                        connection,
+                        account: Account::SignedOut {
+                            reason: format!("{error:#}"),
+                        },
+                        channels: Vec::new(),
+                    });
                     return;
                 }
                 Err(error) => {
-                    let _ = tx.send(Internal::Connected(Account::SignedOut {
-                        reason: error.to_string(),
-                    }));
+                    let _ = tx.send(Internal::Connected {
+                        connection,
+                        account: Account::SignedOut {
+                            reason: error.to_string(),
+                        },
+                        channels: Vec::new(),
+                    });
                     return;
                 }
             };
             let source = session.source.clone();
-            client.set_session(Some(session));
-            let channels = act_as_channel(&client, channel.as_deref()).await;
+            if !client.set_session_for_connection(connection, Some(session)) {
+                return;
+            }
+            let mut channels = act_as_channel(&client, connection, channel.as_deref()).await;
+            if !client.connection_is_current(connection) {
+                return;
+            }
             let account = client.verify(&source).await;
             if matches!(account, Account::SignedOut { .. }) {
-                client.set_session(None);
-                client.set_page_id(None);
-                sink.send(Event::Channels(Vec::new()));
-            } else {
-                sink.send(Event::Channels(channels));
+                if !client.set_session_for_connection(connection, None) {
+                    return;
+                }
+                client.set_page_id_for_connection(connection, None);
+                channels.clear();
             }
-            let _ = tx.send(Internal::Connected(account));
+            let _ = tx.send(Internal::Connected {
+                connection,
+                account,
+                channels,
+            });
         });
     }
 
@@ -119,8 +140,14 @@ impl super::Worker {
 /// (see [`crate::settings::Settings::channel`]): the `X-Goog-PageId` of a
 /// brand account, none for the account's own channel. Without the list,
 /// requests act as the account's own channel.
-async fn act_as_channel(client: &Client, chosen: Option<&str>) -> Vec<crate::model::Channel> {
-    client.set_page_id(None);
+async fn act_as_channel(
+    client: &Client,
+    connection: crate::innertube::ConnectionToken,
+    chosen: Option<&str>,
+) -> Vec<crate::model::Channel> {
+    if !client.set_page_id_for_connection(connection, None) {
+        return Vec::new();
+    }
     let mut channels = match client.channels().await {
         Ok(value) => crate::parse::channels(&value),
         Err(error) => {
@@ -138,7 +165,11 @@ async fn act_as_channel(client: &Client, chosen: Option<&str>) -> Vec<crate::mod
     for (i, channel) in channels.iter_mut().enumerate() {
         channel.current = Some(i) == pick;
     }
-    client.set_page_id(pick.and_then(|i| channels[i].page_id.clone()));
+    if !client
+        .set_page_id_for_connection(connection, pick.and_then(|i| channels[i].page_id.clone()))
+    {
+        return Vec::new();
+    }
     log::info!(
         "{} channels, acting as {}",
         channels.len(),

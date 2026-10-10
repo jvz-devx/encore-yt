@@ -27,84 +27,6 @@ pub struct WebConfig {
     /// A brand channel's page id, when the page is one's.
     pub delegated_session: Option<String>,
     pub session_index: Option<u32>,
-    /// The cookies the page's response set (the session's SIDCC ones
-    /// among them), sent with the TV requests in place of the browser's,
-    /// as yt-dlp's cookie jar does.
-    pub cookies: SetCookies,
-}
-
-/// Cookies a response set: name and value, `None` for one it deleted.
-/// The values are secrets, so `Debug` shows only the names.
-#[derive(Clone, Default, PartialEq)]
-pub struct SetCookies(pub Vec<(String, Option<String>)>);
-
-impl std::fmt::Debug for SetCookies {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_list()
-            .entries(self.0.iter().map(|(name, _)| name))
-            .finish()
-    }
-}
-
-impl SetCookies {
-    /// Adds a response's `Set-Cookie` headers (`year`: this year, to tell
-    /// a deletion, which expires in the past).
-    pub fn add<'a>(&mut self, headers: impl IntoIterator<Item = &'a str>, year: u32) {
-        for header in headers {
-            let Some((name, value)) = parse_set_cookie(header, year) else {
-                continue;
-            };
-            self.0.retain(|(n, _)| *n != name);
-            self.0.push((name, value));
-        }
-    }
-
-    /// The `Cookie` header with these cookies in place of the session's.
-    pub fn apply(&self, header: &str) -> String {
-        let mut pairs: Vec<(String, String)> = header
-            .split("; ")
-            .filter_map(|pair| pair.split_once('='))
-            .map(|(n, v)| (n.to_owned(), v.to_owned()))
-            .collect();
-        for (name, value) in &self.0 {
-            match (pairs.iter_mut().find(|(n, _)| n == name), value) {
-                (Some(pair), Some(value)) => pair.1 = value.clone(),
-                (None, Some(value)) => pairs.push((name.clone(), value.clone())),
-                (_, None) => pairs.retain(|(n, _)| n != name),
-            }
-        }
-        pairs
-            .iter()
-            .map(|(n, v)| format!("{n}={v}"))
-            .collect::<Vec<_>>()
-            .join("; ")
-    }
-}
-
-/// One `Set-Cookie` header: its name, and its value unless it deletes the
-/// cookie (`Max-Age=0`, or an `Expires` before this year).
-fn parse_set_cookie(header: &str, year: u32) -> Option<(String, Option<String>)> {
-    let mut parts = header.split(';').map(str::trim);
-    let (name, value) = parts.next()?.split_once('=')?;
-    if name.is_empty() {
-        return None;
-    }
-    let deleted = parts.any(|attr| {
-        let (key, val) = attr.split_once('=').unwrap_or((attr, ""));
-        match key.to_ascii_lowercase().as_str() {
-            "max-age" => val.trim().parse::<i64>().is_ok_and(|age| age <= 0),
-            "expires" => val
-                .split([' ', '-'])
-                .find_map(|word| {
-                    (word.len() == 4)
-                        .then(|| word.parse::<u32>().ok())
-                        .flatten()
-                })
-                .is_some_and(|y| y < year),
-            _ => false,
-        }
-    });
-    Some((name.to_owned(), (!deleted).then(|| value.to_owned())))
 }
 
 impl WebConfig {
@@ -147,7 +69,6 @@ pub fn parse_ytcfg(page: &str) -> WebConfig {
             Value::String(s) => s.parse().ok(),
             _ => None,
         }),
-        cookies: SetCookies::default(),
     }
 }
 
@@ -355,7 +276,6 @@ mod tests {
                 user_session: Some("user-1".into()),
                 delegated_session: None,
                 session_index: Some(0),
-                cookies: SetCookies::default(),
             }
         );
         let brand = parse_ytcfg(r#"{"DATASYNC_ID":"page-2||user-1","SESSION_INDEX":1}"#);
@@ -379,30 +299,6 @@ mod tests {
         )
         .expect("json");
         assert_eq!(body, expected);
-    }
-
-    /// The page's cookies replace the browser's (yt-dlp's jar), and a
-    /// deleted one is dropped.
-    #[test]
-    fn page_cookies_replace_the_sessions() {
-        let mut set = SetCookies::default();
-        set.add(
-            [
-                "SIDCC=new-1; expires=Thu, 07-Oct-2027 14:18:25 GMT; path=/; domain=.youtube.com",
-                "__Secure-YEC=gone; Domain=.youtube.com; Expires=Thu, 11-Jan-2024 14:18:25 GMT; Path=/",
-                "NEWONE=new-2; Path=/",
-                "OLD=x; Max-Age=0",
-            ],
-            2026,
-        );
-        assert_eq!(
-            set.apply("SID=a; SIDCC=old; __Secure-YEC=b; OLD=c"),
-            "SID=a; SIDCC=new-1; NEWONE=new-2"
-        );
-        assert_eq!(
-            format!("{set:?}"),
-            r#"["SIDCC", "__Secure-YEC", "NEWONE", "OLD"]"#
-        );
     }
 
     #[test]

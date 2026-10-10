@@ -15,6 +15,10 @@ use sha1::Digest;
 use crate::auth::Session;
 use crate::model::Target;
 
+mod session;
+use session::Sessions;
+pub(crate) use session::{ConnectionToken, SessionToken};
+
 const ORIGIN: &str = "https://music.youtube.com";
 const CLIENT_VERSION: &str = "1.20260923.01.00";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -59,7 +63,7 @@ pub struct Stream {
 
 pub struct Client {
     http: reqwest::Client,
-    session: RwLock<Option<Session>>,
+    session: Sessions,
     /// The channel (brand account) to act as: its page id, sent as
     /// `X-Goog-PageId`. `None` is the Google account's own channel.
     page_id: RwLock<Option<String>>,
@@ -92,7 +96,7 @@ impl Client {
             .map_err(|error| ApiError::Offline(format!("initialize HTTP client: {error}")))?;
         Ok(Self {
             http,
-            session: RwLock::new(None),
+            session: Sessions::default(),
             page_id: RwLock::new(None),
             visitor: RwLock::new(None),
         })
@@ -103,7 +107,41 @@ impl Client {
     }
 
     pub fn set_session(&self, session: Option<Session>) {
-        *self.session.write().recover() = session;
+        self.session.set(session);
+    }
+
+    pub(crate) fn begin_connection(&self) -> ConnectionToken {
+        self.session.begin_connection()
+    }
+
+    pub(crate) fn connection_is_current(&self, token: ConnectionToken) -> bool {
+        self.session.connection_is_current(token)
+    }
+
+    pub(crate) fn set_session_for_connection(
+        &self,
+        token: ConnectionToken,
+        session: Option<Session>,
+    ) -> bool {
+        self.session.set_for_connection(token, session)
+    }
+
+    pub(crate) fn set_page_id_for_connection(
+        &self,
+        token: ConnectionToken,
+        page_id: Option<String>,
+    ) -> bool {
+        self.session
+            .for_connection(token, || self.set_page_id(page_id))
+    }
+
+    /// Called on the blocking pool so an import cannot be overwritten by
+    /// an in-flight response from the previous session.
+    pub(crate) fn replace_cookies(
+        &self,
+        save: impl FnOnce() -> anyhow::Result<crate::auth::Profile>,
+    ) -> anyhow::Result<crate::auth::Profile> {
+        self.session.replace(save)
     }
 
     /// Acts as the channel with this page id from the next request on
@@ -113,20 +151,35 @@ impl Client {
     }
 
     pub fn signed_in(&self) -> bool {
-        self.session.read().recover().is_some()
+        self.session.with(|session, _| session.is_some())
     }
 
     /// The session's `Cookie` header, for requests made outside this
     /// client (`crate::streams`).
     pub fn cookie_header(&self) -> Option<String> {
-        let session = self.session.read().recover();
-        session.as_ref().map(Session::header)
+        self.session.with(|session, _| session.map(Session::header))
     }
 
     /// One of the session's youtube.com cookies.
     pub fn cookie(&self, name: &str) -> Option<String> {
-        let session = self.session.read().recover();
-        session.as_ref()?.cookie(name).map(str::to_owned)
+        self.session
+            .with(|session, _| session?.cookie(name).map(str::to_owned))
+    }
+
+    /// The exact credentials and session generation for an external request.
+    pub(crate) fn with_session<T>(
+        &self,
+        read: impl FnOnce(Option<&Session>, Option<SessionToken>) -> T,
+    ) -> T {
+        self.session.with(read)
+    }
+
+    pub(crate) async fn remember_cookies(
+        &self,
+        token: Option<SessionToken>,
+        response: &reqwest::Response,
+    ) {
+        self.session.remember(token, response).await;
     }
 
     /// The channel (brand account) acted as, if not the account's own.
@@ -152,35 +205,50 @@ impl Client {
         }
     }
 
-    fn auth_headers(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        self.auth_headers_for(request, ORIGIN)
+    fn auth_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+        url: &str,
+    ) -> (reqwest::RequestBuilder, Option<SessionToken>) {
+        self.auth_headers_for(request, ORIGIN, url)
     }
 
     fn auth_headers_for(
         &self,
         request: reqwest::RequestBuilder,
         origin: &str,
-    ) -> reqwest::RequestBuilder {
-        let session = self.session.read().recover();
-        let Some(session) = session.as_ref() else {
-            return request;
-        };
-        let mut request = request
-            .header("Cookie", session.header())
-            .header("X-Goog-AuthUser", "0");
-        if let Some(page_id) = self.page_id.read().recover().as_deref() {
-            request = request.header("X-Goog-PageId", page_id);
-        }
-        if let Some(sapisid) = session.sapisid() {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let hash = sha1::Sha1::digest(format!("{now} {sapisid} {origin}").as_bytes());
-            let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-            request = request.header("Authorization", format!("SAPISIDHASH {now}_{hex}"));
-        }
-        request
+        url: &str,
+    ) -> (reqwest::RequestBuilder, Option<SessionToken>) {
+        self.session.with(|session, token| {
+            let Some(session) = session else {
+                return (request, None);
+            };
+            let Ok(url) = reqwest::Url::parse(url) else {
+                return (request, None);
+            };
+            if url.scheme() != "https" {
+                return (request, None);
+            }
+            let mut request = request
+                .header("Cookie", session.header_for(&url))
+                .header("X-Goog-AuthUser", "0");
+            if let Some(page_id) = self.page_id.read().recover().as_deref() {
+                request = request.header("X-Goog-PageId", page_id);
+            }
+            if let Some(sapisid) = session
+                .cookie_for("SAPISID", &url)
+                .or_else(|| session.cookie_for("__Secure-3PAPISID", &url))
+            {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let hash = sha1::Sha1::digest(format!("{now} {sapisid} {origin}").as_bytes());
+                let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+                request = request.header("Authorization", format!("SAPISIDHASH {now}_{hex}"));
+            }
+            (request, token)
+        })
     }
 
     async fn call(&self, endpoint: &str, body: Value) -> Result<Value> {
@@ -188,16 +256,19 @@ impl Client {
         log::debug!("request: {endpoint}");
         let mut body = body;
         body["context"] = json!({"client": {"clientName": "WEB_REMIX", "clientVersion": CLIENT_VERSION, "hl": "en", "gl": "US"}});
+        let url = format!("{ORIGIN}/youtubei/v1/{endpoint}?prettyPrint=false");
         let request = self
             .http
-            .post(format!("{ORIGIN}/youtubei/v1/{endpoint}?prettyPrint=false"))
+            .post(&url)
             .header("Content-Type", "application/json")
             .header("Origin", ORIGIN)
             .header("X-Origin", ORIGIN)
             .header("Referer", format!("{ORIGIN}/"))
             .header("User-Agent", USER_AGENT)
             .json(&body);
-        let response = self.auth_headers(request).send().await.map_err(offline)?;
+        let (request, token) = self.auth_headers(request, &url);
+        let response = request.send().await.map_err(offline)?;
+        self.remember_cookies(token, &response).await;
         let status = response.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(ApiError::Auth);
@@ -255,9 +326,10 @@ impl Client {
             "contentCheckOk": true,
             "racyCheckOk": true,
         });
+        let url = format!("{host}/youtubei/v1/player?prettyPrint=false");
         let mut request = self
             .http
-            .post(format!("{host}/youtubei/v1/player?prettyPrint=false"))
+            .post(&url)
             .header("Content-Type", "application/json")
             .header("Origin", host)
             .header("X-YouTube-Client-Name", client.number.to_string())
@@ -267,13 +339,17 @@ impl Client {
         if let Some(visitor) = &visitor {
             request = request.header("X-Goog-Visitor-Id", visitor);
         }
-        if authed && self.signed_in() {
-            request = self
-                .auth_headers_for(request, host)
-                .header("X-Origin", host)
-                .header("X-Youtube-Bootstrap-Logged-In", "true");
+        let mut token = None;
+        if authed {
+            (request, token) = self.auth_headers_for(request, host, &url);
+            if token.is_some() {
+                request = request
+                    .header("X-Origin", host)
+                    .header("X-Youtube-Bootstrap-Logged-In", "true");
+            }
         }
         let response = request.send().await.map_err(offline)?;
+        self.remember_cookies(token, &response).await;
         let status = response.status();
         if !status.is_success() {
             return Err(ApiError::Http(status.as_u16()));
@@ -377,14 +453,17 @@ impl Client {
     /// `getAccountSwitcherEndpoint` is a plain GET answered with JSON behind
     /// an XSSI prefix.
     pub async fn channels(&self) -> Result<Value> {
+        let url = format!("{ORIGIN}/getAccountSwitcherEndpoint");
         let request = self
             .http
-            .get(format!("{ORIGIN}/getAccountSwitcherEndpoint"))
+            .get(&url)
             .header("Origin", ORIGIN)
             .header("X-Origin", ORIGIN)
             .header("Referer", format!("{ORIGIN}/"))
             .header("User-Agent", USER_AGENT);
-        let response = self.auth_headers(request).send().await.map_err(offline)?;
+        let (request, token) = self.auth_headers(request, &url);
+        let response = request.send().await.map_err(offline)?;
+        self.remember_cookies(token, &response).await;
         let status = response.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(ApiError::Auth);
@@ -451,13 +530,16 @@ impl Client {
                 ALPHABET[fastrand::usize(..ALPHABET.len())] as char
             })
             .collect();
+        let url = format!("{base}&ver=2&c=WEB_REMIX&cpn={cpn}");
         let request = self
             .http
-            .get(format!("{base}&ver=2&c=WEB_REMIX&cpn={cpn}"))
+            .get(&url)
             .header("Origin", ORIGIN)
             .header("Referer", format!("{ORIGIN}/"))
             .header("User-Agent", USER_AGENT);
-        let response = self.auth_headers(request).send().await.map_err(offline)?;
+        let (request, token) = self.auth_headers(request, &url);
+        let response = request.send().await.map_err(offline)?;
+        self.remember_cookies(token, &response).await;
         if !response.status().is_success() {
             return Err(ApiError::Http(response.status().as_u16()));
         }

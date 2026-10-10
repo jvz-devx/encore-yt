@@ -154,7 +154,11 @@ enum Internal {
     CastDevices {
         result: anyhow::Result<Vec<encore_cast::Device>>,
     },
-    Connected(Account),
+    Connected {
+        connection: crate::innertube::ConnectionToken,
+        account: Account,
+        channels: Vec<crate::model::Channel>,
+    },
     AuthFailed,
     Started {
         generation: u64,
@@ -624,21 +628,25 @@ impl Worker {
                 self.connect();
             }
             Command::ImportCookies(path) => {
-                let saved =
-                    tokio::task::spawn_blocking(move || crate::auth::import_cookie_file(&path))
-                        .await
-                        .unwrap_or_else(|error| {
-                            Err(anyhow::anyhow!("cookie import worker stopped: {error}"))
-                        });
+                let client = self.client.clone();
+                let saved = tokio::task::spawn_blocking(move || {
+                    client.replace_cookies(|| crate::auth::import_cookie_file(&path))
+                })
+                .await
+                .unwrap_or_else(|error| {
+                    Err(anyhow::anyhow!("cookie import worker stopped: {error}"))
+                });
                 self.save_cookies(saved).await;
             }
             Command::PasteCookies(text) => {
-                let saved =
-                    tokio::task::spawn_blocking(move || crate::auth::store_cookie_header(&text))
-                        .await
-                        .unwrap_or_else(|error| {
-                            Err(anyhow::anyhow!("cookie import worker stopped: {error}"))
-                        });
+                let client = self.client.clone();
+                let saved = tokio::task::spawn_blocking(move || {
+                    client.replace_cookies(|| crate::auth::store_cookie_header(&text))
+                })
+                .await
+                .unwrap_or_else(|error| {
+                    Err(anyhow::anyhow!("cookie import worker stopped: {error}"))
+                });
                 self.save_cookies(saved).await;
             }
             Command::ScanBrowsers => self.scan_browsers(),

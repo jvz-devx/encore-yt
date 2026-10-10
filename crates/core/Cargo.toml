@@ -20,6 +20,8 @@ serde.workspace = true
 serde_json.workspace = true
 directories = "6"
 fastrand = "2"
+# Parse renewed session cookies, including expiry and deletion attributes.
+cookie = "0.18"
 # The backend runtime: InnerTube requests, cover downloads and stream resolving.
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 reqwest = { workspace = true, features = ["json", "gzip", "brotli"] }
@@ -50,3 +52,7 @@ encore-cast.workspace = true
 # Windows has no system SQLite to link; build it in.
 [target.'cfg(windows)'.dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }
+
+[dev-dependencies]
+# Synthetic reqwest responses; restart checks never contact a real account.
+http = "1"

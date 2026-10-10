@@ -23,6 +23,9 @@ mod crypto;
 pub use cookies::{Cookie, Session};
 use cookies::{applies_to_music, parse_cookie_header, parse_netscape};
 
+#[cfg(test)]
+pub(crate) use cookies::parse_netscape as test_parse_netscape;
+
 #[cfg(not(target_os = "macos"))]
 use crypto::safe_storage_password;
 use crypto::{Keys, decrypt, derive_key};
@@ -330,6 +333,7 @@ fn store(name: &str, cookies: Vec<Cookie>) -> Result<Profile> {
         source: label.clone(),
         profile: format!("{COOKIE_DIR}/{name}"),
         cookies,
+        persist: None,
     };
     session
         .write_netscape(&dir.join(name))
@@ -670,6 +674,7 @@ fn read_copy(candidate: &Candidate, browser: &Browser, copy: &Path) -> Result<Op
         source: candidate.label.clone(),
         profile: candidate.id.clone(),
         cookies,
+        persist: None,
     }))
 }
 
@@ -728,6 +733,7 @@ fn read_firefox_copy(candidate: &Candidate, copy: &Path) -> Result<Option<Sessio
         source: candidate.label.clone(),
         profile: candidate.id.clone(),
         cookies,
+        persist: None,
     }))
 }
 
@@ -737,10 +743,17 @@ fn read_cookie_file(candidate: &Candidate, path: &Path) -> Result<Option<Session
         return Ok(None);
     }
     log::info!("read {} cookies from {}", cookies.len(), candidate.label);
+    // Renew only the slots Encore created, never a browser database or a
+    // hand-managed export (including symlinks to one).
+    let owned = path
+        .file_name()
+        .is_some_and(|name| name == IMPORTED || name == PASTED)
+        && std::fs::symlink_metadata(path)?.file_type().is_file();
     Ok(Some(Session {
         source: candidate.label.clone(),
         profile: candidate.id.clone(),
         cookies,
+        persist: owned.then(|| path.to_owned()),
     }))
 }
 
@@ -778,6 +791,50 @@ fn cookie_file_cookies(path: &Path) -> Result<Vec<Cookie>> {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_encores_owned_cookie_slots_are_persisted() {
+        let dir = std::env::temp_dir().join(format!(
+            "encore-cookie-slots-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        for name in [IMPORTED, PASTED, "browser-cookies.txt"] {
+            let path = dir.join(name);
+            let session = Session {
+                source: "Synthetic import".into(),
+                profile: "synthetic".into(),
+                cookies: parse_cookie_header("SAPISID=synthetic"),
+                persist: None,
+            };
+            session.write_netscape(&path).unwrap();
+            let candidate = Candidate {
+                store: Store::CookieFile,
+                id: format!("{COOKIE_DIR}/{name}"),
+                label: "Synthetic import".into(),
+                cookies: path.clone(),
+                modified: SystemTime::UNIX_EPOCH,
+                default: false,
+            };
+            let loaded = read_cookie_file(&candidate, &path).unwrap().unwrap();
+            assert_eq!(loaded.persist.is_some(), name != "browser-cookies.txt");
+            #[cfg(unix)]
+            if name == IMPORTED {
+                let alias = dir.join(format!("alias-{name}"));
+                std::fs::rename(&path, &alias).unwrap();
+                std::os::unix::fs::symlink(&alias, &path).unwrap();
+                assert!(
+                    read_cookie_file(&candidate, &path)
+                        .unwrap()
+                        .unwrap()
+                        .persist
+                        .is_none()
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn snapshots_are_private_and_cleanup_only_removes_owned_files() {

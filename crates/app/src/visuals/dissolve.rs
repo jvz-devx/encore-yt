@@ -154,7 +154,10 @@ impl Change {
         };
         let corners = Corners::all(corner(bounds.size.width));
         let (image, fitted) = match self.frames.image().filter(|_| self.started.is_some()) {
-            Some(frame) => (frame, bounds),
+            Some(frame) => {
+                let fitted = super::frames::image_bounds(bounds, &frame);
+                (frame, fitted)
+            }
             None => (old.clone(), cover_fit(bounds, old)),
         };
         super::frames::PaintLayer::Dissolve

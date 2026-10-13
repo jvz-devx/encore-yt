@@ -18,7 +18,7 @@ pub struct Frames {
 }
 
 impl Frames {
-    /// The frame on screen.
+    /// The frame on screen, including its one-texel sampling border.
     pub fn image(&self) -> Option<Arc<RenderImage>> {
         self.shown.clone()
     }
@@ -69,8 +69,11 @@ impl Frames {
     }
 }
 
-/// Public renderer frames can be constructed by any caller. Reject empty,
-/// overflowing, short and overlong buffers before replacing a valid image.
+/// Add a one-texel border that repeats the edge colours, including alpha.
+/// GPUI filters atlas tiles linearly: an upscaled edge can otherwise sample
+/// a neighbouring tile, which changes as animated frames enter the atlas.
+/// Paint these images with `image_bounds` or `cover_bounds` to hide the border.
+/// Reject invalid buffers before replacing a valid image.
 fn pixels(frame: encore_visuals::Frame) -> Option<image::RgbaImage> {
     if frame.width == 0 || frame.height == 0 {
         return None;
@@ -82,7 +85,57 @@ fn pixels(frame: encore_visuals::Frame) -> Option<image::RgbaImage> {
     if expected != frame.bgra.len() {
         return None;
     }
-    image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)
+    let width = frame.width.checked_add(2)?;
+    let height = frame.height.checked_add(2)?;
+    let stride = usize::try_from(width).ok()?.checked_mul(4)?;
+    let length = stride.checked_mul(usize::try_from(height).ok()?)?;
+    let source_stride = usize::try_from(frame.width).ok()?.checked_mul(4)?;
+    let mut bytes = vec![0; length];
+    for (y, row) in bytes.chunks_exact_mut(stride).enumerate() {
+        let source_y = y.saturating_sub(1).min(frame.height as usize - 1);
+        let start = source_y * source_stride;
+        let source = &frame.bgra[start..start + source_stride];
+        row[..4].copy_from_slice(&source[..4]);
+        row[4..stride - 4].copy_from_slice(source);
+        row[stride - 4..].copy_from_slice(&source[source_stride - 4..]);
+    }
+    image::RgbaImage::from_raw(width, height, bytes)
+}
+
+/// Place the original frame in `bounds`, with its atlas border outside it.
+/// Pass `bounds` separately to `paint_image` for clipping and corner radii.
+pub fn image_bounds(bounds: Bounds<Pixels>, image: &RenderImage) -> Bounds<Pixels> {
+    let size = image.size(0);
+    let texel = gpui_kit::size(
+        bounds.size.width / (size.width.0 - 2).max(1) as f32,
+        bounds.size.height / (size.height.0 - 2).max(1) as f32,
+    );
+    Bounds::new(
+        bounds.origin - point(texel.width, texel.height),
+        gpui_kit::size(
+            bounds.size.width + texel.width * 2.,
+            bounds.size.height + texel.height * 2.,
+        ),
+    )
+}
+
+/// Cover-fit the original frame, preserving its aspect ratio independently
+/// of the border (important for narrow strips and non-square frames).
+pub fn cover_bounds(bounds: Bounds<Pixels>, image: &RenderImage) -> Bounds<Pixels> {
+    let size = image.size(0);
+    let (w, h) = (
+        (size.width.0 - 2).max(1) as f32,
+        (size.height.0 - 2).max(1) as f32,
+    );
+    let scale = (f32::from(bounds.size.width) / w).max(f32::from(bounds.size.height) / h);
+    let fitted = gpui_kit::size(px(w * scale), px(h * scale));
+    image_bounds(
+        Bounds::new(
+            bounds.center() - point(fitted.width / 2., fitted.height / 2.),
+            fitted,
+        ),
+        image,
+    )
 }
 
 /// Atlas insertion/painting errors are real failures, not weak-entity
@@ -109,8 +162,9 @@ impl PaintLayer {
 
 #[cfg(test)]
 mod tests {
-    use super::pixels;
+    use super::{cover_bounds, image_bounds, pixels};
     use encore_visuals::FrameCost;
+    use gpui_kit::{Bounds, RenderImage, point, px, size};
 
     fn frame(width: u32, height: u32, bytes: usize) -> encore_visuals::Frame {
         encore_visuals::Frame {
@@ -139,8 +193,58 @@ mod tests {
         let Some(image) = pixels(valid) else {
             panic!("valid frame rejected")
         };
-        assert_eq!(image.dimensions(), (2, 1));
-        assert_eq!(image.as_raw(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(image.dimensions(), (4, 3));
+        for row in image.as_raw().as_chunks::<16>().0 {
+            assert_eq!(row, &[1, 2, 3, 4, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7, 8]);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn border_repeats_all_edges_and_corners_without_changing_alpha() {
+        for (width, height) in [(1, 1), (1, 5), (5, 1), (3, 5), (4, 2)] {
+            let mut source = frame(width, height, (width * height * 4) as usize);
+            for (i, pixel) in source.bgra.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                pixel.copy_from_slice(&[i as u8, 23, 47, (i * 7) as u8]);
+            }
+            let original = source.bgra.clone();
+            let padded = pixels(source).unwrap_or_else(|| panic!("valid frame rejected"));
+            for (x, y, pixel) in padded.enumerate_pixels() {
+                let sx = x.saturating_sub(1).min(width - 1);
+                let sy = y.saturating_sub(1).min(height - 1);
+                let start = ((sy * width + sx) * 4) as usize;
+                assert_eq!(pixel.0, original[start..start + 4]);
+            }
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn painting_crops_only_the_border_at_fractional_and_odd_sizes() {
+        let padded = pixels(frame(3, 5, 60)).unwrap_or_else(|| panic!("valid frame rejected"));
+        let image = RenderImage::new([image::Frame::new(padded)]);
+        for (w, h) in [(3., 5.), (901., 703.), (720.8, 562.4)] {
+            let content = Bounds::new(point(px(13.25), px(27.5)), size(px(w), px(h)));
+            let outer = image_bounds(content, &image);
+            // Match GPUI's atlas-subtile calculation: the clipped rectangle
+            // must address the original 3x5 texels, starting at border (1, 1).
+            let offset = content.origin - outer.origin;
+            assert_eq!((offset.x / outer.size.width * 5.).round(), 1.);
+            assert_eq!((offset.y / outer.size.height * 7.).round(), 1.);
+            assert_eq!((content.size.width / outer.size.width * 5.).round(), 3.);
+            assert_eq!((content.size.height / outer.size.height * 7.).round(), 5.);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn cover_fit_uses_the_original_aspect_ratio() {
+        let padded = pixels(frame(3, 5, 60)).unwrap_or_else(|| panic!("valid frame rejected"));
+        let image = RenderImage::new([image::Frame::new(padded)]);
+        let panel = Bounds::new(point(px(10.), px(20.)), size(px(90.), px(90.)));
+        let fitted = cover_bounds(panel, &image);
+        // Original frame fits as 90x150; one border texel is 30 points.
+        assert_eq!(
+            fitted,
+            Bounds::new(point(px(-20.), px(-40.)), size(px(150.), px(210.)))
+        );
     }
 }
 

@@ -10,9 +10,9 @@ use gpui_kit::*;
 use super::Effects;
 use crate::theme::{self, radius, size};
 use crate::visuals::ambient::Field;
-use crate::visuals::frames::PaintLayer;
+use crate::visuals::frames::{self, PaintLayer};
 use crate::visuals::slots::{self, Slot, Slots};
-use crate::visuals::{backdrop, bar, dissolve, waveform};
+use crate::visuals::{backdrop, bar, waveform};
 
 /// What the layer paints, captured for the canvas.
 pub(super) struct Paint {
@@ -49,7 +49,7 @@ impl Paint {
         {
             PaintLayer::Bar.report(window.paint_image(
                 bar,
-                bar,
+                frames::image_bounds(bar, &image),
                 Corners::default(),
                 image,
                 0,
@@ -65,7 +65,7 @@ impl Paint {
             // over the whole panel costs GPU time in every window frame.
             match self.backdrop {
                 Some(image) => {
-                    let fitted = dissolve::cover_fit(panel, &image);
+                    let fitted = frames::cover_bounds(panel, &image);
                     PaintLayer::Backdrop
                         .report(window.paint_image(panel, fitted, corners, image, 0, false));
                 }
@@ -76,8 +76,16 @@ impl Paint {
             }
         }
         if let Some((image, bounds, corners)) = self.vis {
+            // A scene replaces the backdrop. Keep the last valid frame
+            // filling today's layout while the resized target warms up.
+            let (bounds, corners) = if self.fills {
+                backdrop_area(self.showing, cx).unwrap_or((bounds, corners))
+            } else {
+                (bounds, corners)
+            };
+            let fitted = frames::image_bounds(bounds, &image);
             PaintLayer::Visualizer
-                .report(window.paint_image(bounds, bounds, corners, image, 0, false));
+                .report(window.paint_image(bounds, fitted, corners, image, 0, false));
         }
         if !self.showing {
             return;

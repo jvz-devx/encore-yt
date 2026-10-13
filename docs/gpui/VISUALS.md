@@ -446,6 +446,14 @@ frames while music plays and the window is visible, not under reduced
 motion. The ring renders at full size on whole pixels: at 0.75 its frame's
 edge left a faint line in Stage.
 
+Effect frames now have a one-texel border repeating their edge colours and
+alpha (`visuals::frames`). Painting crops away the border and cover-fits
+using the original dimensions, so linear atlas sampling at an upscaled
+edge stays within that frame. Scene frames fill the current panel bounds
+while a resized target produces its first replacement frame. Tests cover
+odd and narrow frames, alpha, and fractional paint bounds; the reported
+edge flicker still needs visual verification on the affected desktop.
+
 **Colour and calm.** A sepia or black-and-white cover no longer turns the
 window muddy olive: the backdrop's tone mapping keeps less of the cover's
 colour the less colourful its palette is (from 25% under OKLab chroma

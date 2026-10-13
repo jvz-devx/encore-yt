@@ -1,9 +1,9 @@
 cask "encore-yt" do
   arch arm: "arm64", intel: "x86_64"
 
-  version "1.0.0-beta.3"
-  sha256 arm:   "15b815532621d78c156b9224301b80794035f779dbf90291d8e014dec791e99f",
-         intel: "89ebc34a754bc6c64ba9d444af1de5e51d5940a37a8e7a8da69619222dcf11c4"
+  version "1.0.0-beta.4"
+  sha256 arm:   "ff017ec2d187035aadc2b4176ea663402c4058c8200a49e8bbf74d6262ee5a86",
+         intel: "59902386bf14465e58dd3edcac4599fcca03c555f154c0f6734760f04ce0cfc9"
 
   depends_on macos: ">= :big_sur"
 

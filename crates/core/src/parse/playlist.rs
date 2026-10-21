@@ -109,9 +109,16 @@ fn decode(container: &Value, rows: &[Value]) -> Result<Part, ApiError> {
             continue;
         };
         counts.rows += 1;
-        if str_at(renderer, &["musicItemRendererDisplayPolicy"])
+        let unavailable = str_at(renderer, &["musicItemRendererDisplayPolicy"])
             == Some("MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT")
-        {
+            || text(
+                renderer
+                    .get("flexColumns")
+                    .and_then(|columns| columns.get(0))
+                    .and_then(|column| column.get("musicResponsiveListItemFlexColumnRenderer"))
+                    .and_then(|column| column.get("text")),
+            ) == "Song deleted";
+        if unavailable {
             counts.unavailable += 1;
         } else if let Some(track) = item(row).and_then(|item| item.track) {
             tracks.push(track);

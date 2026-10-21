@@ -587,6 +587,7 @@ impl Worker {
                 }
             }
             Command::TogglePause => {
+                self.keep_playlist_current_song();
                 if self.casting() {
                     self.cast_control(casting::Request::Pause(self.state.playing));
                 } else if self.state.loading {
@@ -606,13 +607,17 @@ impl Worker {
             }
             Command::Next => self.next(false).await,
             Command::Previous => {
+                self.keep_playlist_current_song();
                 if self.state.position > 3.0 || self.pos == Some(0) {
                     self.seek(0.0).await;
                 } else if let Some(pos) = self.pos {
                     self.start(pos - 1).await;
                 }
             }
-            Command::Seek(seconds) => self.seek(seconds).await,
+            Command::Seek(seconds) => {
+                self.keep_playlist_current_song();
+                self.seek(seconds).await;
+            }
             Command::Volume(volume) => {
                 self.state.volume = volume.clamp(0.0, 100.0);
                 if self.casting() {
@@ -654,6 +659,7 @@ impl Worker {
                 self.maybe_extend();
             }
             Command::JumpTo(pos) => {
+                self.keep_playlist_current_song();
                 if pos < self.queue.len() {
                     self.start(pos).await;
                 }

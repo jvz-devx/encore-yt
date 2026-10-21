@@ -83,7 +83,10 @@ impl Failure {
         } else {
             "Your queue is unchanged."
         };
-        format!("{reason} Loaded {} songs. {kept}", self.loaded)
+        format!(
+            "{reason} Loaded {} songs. {kept}: {}",
+            self.loaded, self.error
+        )
     }
 }
 
@@ -118,6 +121,12 @@ impl super::Worker {
         self.playlist_request
             .as_ref()
             .is_some_and(|pending| pending.optimistic_entry.is_some())
+    }
+
+    pub(super) fn keep_playlist_current_song(&mut self) {
+        if let Some(pending) = &mut self.playlist_request {
+            pending.advance_when_ready = false;
+        }
     }
 
     pub(super) fn cancel_optimistic_playlist(&mut self) {
@@ -601,6 +610,12 @@ where
             counts: Some(counts.clone()),
             ..Default::default()
         });
+        if counts.unparsed > 0 {
+            return Err(Failure {
+                loaded: tracks.len(),
+                error: ApiError::Invalid("some playlist entries could not be read".into()),
+            });
+        }
         log::debug!("playlist scan: {} songs loaded", tracks.len());
         let Some(next) = part.next else {
             return Ok((tracks, counts));

@@ -617,6 +617,11 @@ async fn provisional_queue_waits_instead_of_repeating_or_fetching_radio() {
     );
     assert!(worker.wait_for_playlist(0));
     assert!(worker.playlist_request.as_ref().unwrap().advance_when_ready);
+    worker.keep_playlist_current_song();
+    assert!(
+        !worker.playlist_request.as_ref().unwrap().advance_when_ready,
+        "explicit transport input takes precedence over pending auto-advance"
+    );
     worker.cancel_optimistic_playlist();
     assert!(!worker.wait_for_playlist(0));
     assert_eq!(worker.queue.tracks(), vec![track(1)]);
@@ -663,4 +668,30 @@ async fn metadata_progress_and_failures_do_not_override_audio_buffering_or_selec
     assert!(!worker.state.loading && worker.state.playing);
     assert!(worker.state.playlist_load.is_none());
     assert!(events.try_iter().any(|event| matches!(event, super::super::Event::Error(message) if message.contains("selected song is kept") && !message.contains("queue is unchanged"))));
+}
+
+#[tokio::test]
+async fn unparsed_rows_are_reported_but_never_saved_as_a_complete_playlist() {
+    let mut updates = Vec::new();
+    let failure = collect_with_progress(
+        &mut |_| {
+            std::future::ready(Ok(Part {
+                tracks: vec![track(1)],
+                next: None,
+                counts: PlaylistCounts {
+                    rows: 2,
+                    unparsed: 1,
+                    ..Default::default()
+                },
+            }))
+        },
+        Duration::ZERO,
+        "synthetic",
+        &mut |progress| updates.push(progress),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(failure.loaded, 1);
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].counts.as_ref().unwrap().unparsed, 1);
 }

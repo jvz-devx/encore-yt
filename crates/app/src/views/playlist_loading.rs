@@ -91,8 +91,8 @@ pub(super) fn banner(app: &MusicApp, cx: &mut Context<MusicApp>) -> Option<impl 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use encore_core::model::PlaylistCounts;
+    use super::summary;
+    use encore_core::model::{PlaylistCounts, PlaylistLoad};
 
     #[test]
     fn summaries_do_not_claim_older_caches_have_known_unavailable_counts() {

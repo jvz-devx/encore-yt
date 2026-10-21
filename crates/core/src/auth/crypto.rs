@@ -2,6 +2,7 @@
 
 use super::browser::Browser;
 use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
+#[cfg(not(target_os = "macos"))]
 use anyhow::Result;
 use sha2::Digest;
 use std::process::Command;

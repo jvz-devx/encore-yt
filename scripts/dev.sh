@@ -80,10 +80,17 @@ shaders() {
                 [ "${file##*/}" = scene_common.wgsl ] && continue
                 joined="$(mktemp -t scene.XXXXXX).wgsl"
                 cat "$(dirname "$file")/scene_common.wgsl" "$file" >"$joined"
-                naga "$joined" >/dev/null && echo "ok  $file"
+                if ! naga "$joined" >/dev/null; then
+                    rm -f "$joined"
+                    return 1
+                fi
+                echo "ok  $file"
                 rm -f "$joined"
                 ;;
-            *) naga "$file" >/dev/null && echo "ok  $file" ;;
+            *)
+                naga "$file" >/dev/null || return 1
+                echo "ok  $file"
+                ;;
         esac
     done < <(find crates -name '*.wgsl' -print0)
     [ "$found" = 1 ] || echo "no .wgsl files"

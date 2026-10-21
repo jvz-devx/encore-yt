@@ -228,10 +228,9 @@ impl MusicApp {
     pub fn activate_item(&mut self, item: &Item, shelf: &Shelf, cx: &mut Context<Self>) {
         if let Some(track) = &item.track {
             if let Some(target) = self.playlist_page_target(shelf) {
-                self.send(Command::PlayPlaylist {
+                self.send(Command::PlayPlaylistSong {
                     target,
-                    start: Some(track.video_id.clone()),
-                    shuffle: false,
+                    track: track.clone(),
                 });
                 return;
             }

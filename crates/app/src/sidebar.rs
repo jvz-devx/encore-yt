@@ -59,7 +59,7 @@ impl MusicApp {
                 }
             }
             Command::PlayTracks { .. } => self.sidebar.playing_from = None,
-            Command::PlayPlaylist { target, .. } => {
+            Command::PlayPlaylist { target, .. } | Command::PlayPlaylistSong { target, .. } => {
                 if let Target::Browse { id, .. } = target {
                     self.sidebar.playing_from = id.strip_prefix("VL").map(str::to_owned);
                     self.sidebar_played_page(&target.key());

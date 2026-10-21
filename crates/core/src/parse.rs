@@ -6,6 +6,7 @@
 //! albums, artists, playlists and search share one path.
 
 mod items;
+pub(crate) mod playlist;
 mod value;
 
 pub use items::{endpoint, thumbnail};

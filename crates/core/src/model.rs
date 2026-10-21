@@ -318,6 +318,9 @@ pub struct Playback {
     pub playing: bool,
     /// Resolving or buffering.
     pub loading: bool,
+    /// Collection metadata loading is separate from audio buffering, so
+    /// existing playback and its pause/seek controls remain usable.
+    pub playlist_load: Option<PlaylistLoad>,
     pub position: f64,
     pub duration: f64,
     pub volume: f64,
@@ -341,6 +344,26 @@ pub struct Playback {
     pub audition: Option<Audition>,
     /// Smooth mixes: radios and mixes crossfade between songs.
     pub mixes: Mixes,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaylistCounts {
+    pub rows: usize,
+    pub unavailable: usize,
+    pub unparsed: usize,
+    pub overlapping_entries: usize,
+    pub expected: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PlaylistLoad {
+    pub key: String,
+    pub entries: usize,
+    pub unique_tracks: usize,
+    /// Older complete cache files have no raw-row diagnostics.
+    pub counts: Option<PlaylistCounts>,
+    pub complete: bool,
+    pub cached: bool,
 }
 
 /// A song held under the pointer and previewed (Audition).

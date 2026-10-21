@@ -56,6 +56,37 @@ impl Queue {
         self.context = self.entries.iter().map(|e| e.id).collect();
     }
 
+    /// Complete a one-song provisional queue while retaining the playing
+    /// entry's identity. No player reload is needed. Reject a changed queue.
+    pub fn complete_playlist(
+        &mut self,
+        current_id: u64,
+        tracks: Vec<Track>,
+        selected: usize,
+        shuffled: bool,
+    ) -> Option<usize> {
+        if self.entries.len() != 1 || self.id(0) != Some(current_id) || selected >= tracks.len() {
+            return None;
+        }
+        let mut current = self.entries.pop()?;
+        let mut entries = Vec::with_capacity(tracks.len());
+        for (index, track) in tracks.into_iter().enumerate() {
+            if index == selected {
+                current.track = track;
+                entries.push(current.clone());
+            } else {
+                entries.push(self.entry(track, false));
+            }
+        }
+        self.entries = entries;
+        self.context = self.entries.iter().map(|entry| entry.id).collect();
+        Some(if shuffled {
+            self.shuffle(selected)
+        } else {
+            selected
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -333,5 +364,36 @@ mod tests {
         }
         queue.unshuffle(0);
         assert_eq!(queue.tracks(), tracks());
+    }
+
+    #[test]
+    fn completing_a_selected_song_preserves_identity_and_original_list_order() {
+        for shuffled in [false, true] {
+            let all = tracks();
+            let mut queue = Queue::default();
+            queue.replace(vec![all[500].clone()]);
+            let selected = queue.id(0).unwrap();
+            let at = queue
+                .complete_playlist(selected, all.clone(), 500, shuffled)
+                .unwrap();
+            assert_eq!(queue.id(at), Some(selected));
+            assert_eq!(queue.track(at).unwrap().video_id, "500");
+            assert_eq!(queue.len(), 1200);
+            let restored = queue.unshuffle(at);
+            assert_eq!(restored, 500);
+            assert_eq!(queue.tracks(), all);
+        }
+    }
+
+    #[test]
+    fn completing_a_changed_provisional_queue_does_not_overwrite_edits() {
+        let all = tracks();
+        let mut queue = Queue::default();
+        queue.replace(vec![all[500].clone()]);
+        let selected = queue.id(0).unwrap();
+        queue.play_next(Some(0), vec![all[900].clone()]);
+        let before = queue.tracks();
+        assert_eq!(queue.complete_playlist(selected, all, 500, true), None);
+        assert_eq!(queue.tracks(), before);
     }
 }

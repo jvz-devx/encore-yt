@@ -187,6 +187,11 @@ enum Internal {
         scope: String,
         result: Result<playlist::Loaded, playlist::Failure>,
     },
+    PlaylistProgress {
+        epoch: u64,
+        scope: String,
+        progress: crate::model::PlaylistLoad,
+    },
     /// More queue: a long playlist's next page, or the autoplay radio.
     Extended {
         epoch: u64,
@@ -564,6 +569,10 @@ impl Worker {
             } => {
                 self.play_playlist(target, start, shuffle);
             }
+            Command::PlayPlaylistSong { target, track } => {
+                self.play_playlist_song(target, track).await
+            }
+            Command::CancelPlaylistLoad => self.cancel_playlist(),
             Command::RefreshPlaylists => {
                 self.cancel_playlist();
                 let library = self.playlists.clone();
@@ -730,6 +739,7 @@ impl Worker {
             Command::AddToQueue(tracks) => self.add(tracks, false).await,
             Command::RemoveFromQueue(at) => {
                 if self.pos != Some(at) {
+                    self.cancel_optimistic_playlist();
                     self.edit_queue(|queue, _, _| {
                         queue.remove(at);
                     })
@@ -737,6 +747,7 @@ impl Worker {
                 }
             }
             Command::MoveInQueue { from, to } => {
+                self.cancel_optimistic_playlist();
                 self.edit_queue(|queue, pos, shuffled| queue.move_entry(from, to, pos, shuffled))
                     .await;
             }

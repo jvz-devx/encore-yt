@@ -12,10 +12,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::innertube::{ApiError, Client};
-use crate::model::{Page, Target, Track};
-use crate::{parse, paths};
+use crate::model::{PlaylistCounts, PlaylistLoad, Target, Track};
+use crate::parse::playlist::{Part, first, more};
+use crate::paths;
 
-use super::Internal;
+use super::{Event, Internal};
 
 const FRESH_FOR: u64 = 24 * 60 * 60;
 const PAGE_PAUSE: Duration = Duration::from_millis(500);
@@ -35,18 +36,16 @@ struct Snapshot {
     version: u32,
     saved: u64,
     tracks: Vec<Track>,
+    #[serde(default)]
+    counts: Option<PlaylistCounts>,
 }
 
 #[derive(Debug)]
 pub(super) struct Loaded {
     pub tracks: Vec<Track>,
     pub warning: Option<String>,
-}
-
-#[derive(Debug)]
-pub(super) struct Part {
-    tracks: Vec<Track>,
-    next: Option<String>,
+    pub counts: Option<PlaylistCounts>,
+    pub cached: bool,
 }
 
 #[derive(Debug)]
@@ -59,16 +58,17 @@ pub(super) struct Pending {
     target: Target,
     start: Option<String>,
     shuffle: bool,
-}
-
-impl Pending {
-    pub fn selection(self) -> (Option<String>, bool) {
-        (self.start, self.shuffle)
-    }
+    optimistic_entry: Option<u64>,
+    advance_when_ready: bool,
 }
 
 impl Failure {
+    #[cfg(test)]
     pub fn message(&self) -> String {
+        self.message_for(false)
+    }
+
+    fn message_for(&self, optimistic: bool) -> String {
         let reason = match self.error {
             ApiError::Auth => "YouTube Music didn't accept the sign-in. Reconnect and try again.",
             ApiError::Http(429) => "YouTube Music is limiting requests. Try again later.",
@@ -78,10 +78,12 @@ impl Failure {
             ApiError::Http(_) => "YouTube Music couldn't load the playlist. Try again later.",
             ApiError::Invalid(_) => "The playlist couldn't be loaded completely. Try again.",
         };
-        format!(
-            "{reason} Loaded {} songs. Your queue is unchanged.",
-            self.loaded
-        )
+        let kept = if optimistic {
+            "The selected song is kept; the rest wasn't added."
+        } else {
+            "Your queue is unchanged."
+        };
+        format!("{reason} Loaded {} songs. {kept}", self.loaded)
     }
 }
 
@@ -111,46 +113,203 @@ fn identity_scope(cookie: impl Fn(&str) -> Option<String>, channel: Option<Strin
     paths::hash(&identity)
 }
 
-pub(super) fn first(page: Page) -> Result<Part, ApiError> {
-    let shelf = crate::account::entries(&page)
-        .ok_or_else(|| ApiError::Invalid("playlist song list missing".into()))?;
-    Ok(Part {
-        tracks: shelf.items.iter().filter_map(|i| i.track.clone()).collect(),
-        next: shelf.continuation.clone().or(page.continuation),
-    })
-}
-
-pub(super) fn more(value: &serde_json::Value) -> Result<Part, ApiError> {
-    let known = ["musicShelfContinuation", "musicPlaylistShelfContinuation"]
-        .iter()
-        .any(|key| {
-            value
-                .get("continuationContents")
-                .and_then(|cc| cc.get(key))
-                .is_some()
-        })
-        || parse::find(value, "continuationItems").is_some();
-    if !known {
-        return Err(ApiError::Invalid("playlist continuation missing".into()));
-    }
-    match parse::more(value) {
-        parse::More::Items { items, next } => {
-            let tracks: Vec<_> = items.into_iter().filter_map(|i| i.track).collect();
-            Ok(Part { tracks, next })
-        }
-        parse::More::Shelves { .. } => {
-            Err(ApiError::Invalid("unexpected playlist continuation".into()))
-        }
-    }
-}
-
 impl super::Worker {
+    pub(super) fn provisional_playlist(&self) -> bool {
+        self.playlist_request
+            .as_ref()
+            .is_some_and(|pending| pending.optimistic_entry.is_some())
+    }
+
+    pub(super) fn cancel_optimistic_playlist(&mut self) {
+        if self.provisional_playlist() {
+            self.cancel_playlist();
+        }
+    }
+
+    pub(super) fn wait_for_playlist(&mut self, pos: usize) -> bool {
+        if pos + 1 != self.queue.len() {
+            return false;
+        }
+        let Some(pending) = &mut self.playlist_request else {
+            return false;
+        };
+        if pending.optimistic_entry.is_none() {
+            return false;
+        }
+        pending.advance_when_ready = true;
+        true
+    }
+
+    pub(super) async fn play_playlist_song(&mut self, target: Target, track: Track) {
+        if !matches!(&target, Target::Browse { id, .. } if id.starts_with("VL")) {
+            return;
+        }
+        let reuse = self
+            .playlist_request
+            .as_ref()
+            .is_some_and(|pending| pending.target == target);
+        if !reuse {
+            self.new_epoch();
+        }
+        self.decks.radio = false;
+        self.decks.autoplay.clear();
+        let video = track.video_id.clone();
+        self.set_queue(vec![track], 0);
+        self.start(0).await;
+        if reuse {
+            if let Some(pending) = &mut self.playlist_request {
+                pending.start = Some(video);
+                pending.shuffle = false;
+            }
+        } else {
+            self.play_playlist(target, Some(video), false);
+        }
+        if let Some(pending) = &mut self.playlist_request {
+            pending.optimistic_entry = self.queue.id(0);
+            pending.advance_when_ready = false;
+        }
+    }
+
+    pub(super) fn playlist_progress(&mut self, epoch: u64, account: &str, progress: PlaylistLoad) {
+        if epoch != self.epoch || self.playlist_request.is_none() || account != scope(&self.client)
+        {
+            return;
+        }
+        self.state.playlist_load = Some(progress);
+        self.emit(true);
+    }
+
+    pub(super) async fn playlist_result(
+        &mut self,
+        epoch: u64,
+        account: String,
+        result: Result<Loaded, Failure>,
+    ) {
+        if epoch != self.epoch {
+            return;
+        }
+        if account != scope(&self.client) {
+            self.cancel_playlist();
+            self.sink.send(Event::Error(
+                "The sign-in changed while loading the playlist. Try again.".into(),
+            ));
+            return;
+        }
+        let Some(pending) = self.playlist_request.take() else {
+            return;
+        };
+        self.playlist_task = None;
+        self.state.playlist_load = None;
+        let optimistic = pending.optimistic_entry.is_some();
+        let loaded = match result {
+            Ok(loaded) if !loaded.tracks.is_empty() => loaded,
+            Ok(_) => {
+                self.emit(true);
+                self.sink.send(Event::Error(
+                    if optimistic {
+                        "There are no other songs to add. The selected song is kept."
+                    } else {
+                        "There are no songs to play here. Your queue is unchanged."
+                    }
+                    .into(),
+                ));
+                return;
+            }
+            Err(failure) => {
+                self.emit(true);
+                self.sink
+                    .send(Event::Error(failure.message_for(optimistic)));
+                return;
+            }
+        };
+        let selected_entry = pending
+            .optimistic_entry
+            .and_then(|id| self.queue.position(id))
+            .and_then(|pos| self.queue.track(pos));
+        let selected = selected_entry
+            .and_then(|track| track.set_video_id.as_ref())
+            .and_then(|entry| {
+                loaded
+                    .tracks
+                    .iter()
+                    .position(|track| track.set_video_id.as_ref() == Some(entry))
+            })
+            .or_else(|| {
+                pending
+                    .start
+                    .as_ref()
+                    .and_then(|id| loaded.tracks.iter().position(|track| &track.video_id == id))
+            });
+        if pending.start.is_some() && selected.is_none() {
+            self.emit(true);
+            self.sink.send(Event::Error("That song isn't in the saved playlist. Refresh the playlist and try again. The current queue is kept.".into()));
+            return;
+        }
+        let progress = PlaylistLoad {
+            key: pending.target.key(),
+            entries: loaded.tracks.len(),
+            unique_tracks: loaded
+                .tracks
+                .iter()
+                .map(|track| &track.video_id)
+                .collect::<HashSet<_>>()
+                .len(),
+            counts: loaded.counts,
+            complete: true,
+            cached: loaded.cached,
+        };
+        if let Some(warning) = loaded.warning {
+            self.sink.send(Event::Error(warning));
+        }
+        if let Some(id) = pending.optimistic_entry {
+            let at = self.queue.complete_playlist(
+                id,
+                loaded.tracks,
+                selected.unwrap_or(0),
+                self.state.shuffle,
+            );
+            if let Some(at) = at {
+                self.pos = Some(at);
+                self.state.index = self.pos;
+                self.state.playlist_load = Some(progress);
+                self.send_queue();
+                self.prefetch();
+                self.emit(true);
+                if pending.advance_when_ready {
+                    self.next(false).await;
+                }
+            } else {
+                self.emit(true);
+                self.sink.send(Event::Error(
+                    "The queue changed while the playlist loaded, so it was kept.".into(),
+                ));
+            }
+        } else {
+            if pending.shuffle {
+                self.state.shuffle = true;
+            }
+            let at = selected.unwrap_or_else(|| {
+                if pending.shuffle {
+                    fastrand::usize(..loaded.tracks.len())
+                } else {
+                    0
+                }
+            });
+            self.new_epoch();
+            self.state.playlist_load = Some(progress);
+            self.set_queue(loaded.tracks, at);
+            if let Some(pos) = self.pos {
+                self.start(pos).await;
+            }
+        }
+    }
+
     pub(super) fn cancel_playlist(&mut self) {
         self.playlist_request = None;
+        self.state.playlist_load = None;
         if let Some(task) = self.playlist_task.take() {
             task.abort();
             self.epoch += 1;
-            self.state.loading = false;
             self.emit(true);
         }
     }
@@ -169,6 +328,8 @@ impl super::Worker {
         {
             pending.start = start;
             pending.shuffle = shuffle;
+            pending.optimistic_entry = None;
+            pending.advance_when_ready = false;
             return;
         }
         self.cancel_playlist();
@@ -180,8 +341,13 @@ impl super::Worker {
             target: target.clone(),
             start,
             shuffle,
+            optimistic_entry: None,
+            advance_when_ready: false,
         });
-        self.state.loading = true;
+        self.state.playlist_load = Some(PlaylistLoad {
+            key: target.key(),
+            ..Default::default()
+        });
         self.emit(true);
         let client = self.client.clone();
         let library = self.playlists.clone();
@@ -190,28 +356,40 @@ impl super::Worker {
         let account = scope(&client);
         self.playlist_task = Some(tokio::spawn(async move {
             let result = library
-                .load(&directory, &account, &target, |token| {
-                    let client = client.clone();
-                    let target = target.clone();
-                    let account = account.clone();
-                    async move {
-                        if scope(&client) != account {
-                            return Err(ApiError::Auth);
-                        }
-                        let part = if let Some(token) = token {
-                            more(&client.continuation(&token).await?)
-                        } else {
-                            let Target::Browse { id, params } = target else {
-                                unreachable!()
+                .load_with_progress(
+                    &directory,
+                    &account,
+                    &target,
+                    |token| {
+                        let client = client.clone();
+                        let target = target.clone();
+                        let account = account.clone();
+                        async move {
+                            if scope(&client) != account {
+                                return Err(ApiError::Auth);
+                            }
+                            let part = if let Some(token) = token {
+                                more(&client.continuation(&token).await?)
+                            } else {
+                                let Target::Browse { id, params } = target else {
+                                    unreachable!()
+                                };
+                                first(&client.browse(&id, params.as_deref()).await?)
                             };
-                            first(parse::page(&client.browse(&id, params.as_deref()).await?))
-                        };
-                        if scope(&client) != account {
-                            return Err(ApiError::Auth);
+                            if scope(&client) != account {
+                                return Err(ApiError::Auth);
+                            }
+                            part
                         }
-                        part
-                    }
-                })
+                    },
+                    |progress| {
+                        let _ = tx.send(Internal::PlaylistProgress {
+                            epoch,
+                            scope: account.clone(),
+                            progress,
+                        });
+                    },
+                )
                 .await;
             let _ = tx.send(Internal::Playlist {
                 epoch,
@@ -225,12 +403,29 @@ impl super::Worker {
 impl Library {
     /// Only whole lists are cached or returned. An old whole list is usable
     /// on a transient failure, with an explicit warning, never after sign-out.
+    #[cfg(test)]
     pub async fn load<F, Fut>(
         &self,
         directory: &Path,
         scope: &str,
         target: &Target,
+        fetch: F,
+    ) -> Result<Loaded, Failure>
+    where
+        F: FnMut(Option<String>) -> Fut,
+        Fut: Future<Output = Result<Part, ApiError>>,
+    {
+        self.load_with_progress(directory, scope, target, fetch, |_| {})
+            .await
+    }
+
+    pub async fn load_with_progress<F, Fut>(
+        &self,
+        directory: &Path,
+        scope: &str,
+        target: &Target,
         mut fetch: F,
+        mut progress: impl FnMut(PlaylistLoad),
     ) -> Result<Loaded, Failure>
     where
         F: FnMut(Option<String>) -> Fut,
@@ -250,6 +445,8 @@ impl Library {
             return Ok(Loaded {
                 tracks: snapshot.tracks.clone(),
                 warning: None,
+                counts: snapshot.counts.clone(),
+                cached: true,
             });
         }
         let result = if cooldown.is_some_and(|until| until > Instant::now()) {
@@ -258,23 +455,24 @@ impl Library {
                 error: ApiError::Http(429),
             })
         } else {
-            collect(&mut fetch, PAGE_PAUSE).await
+            collect_with_progress(&mut fetch, PAGE_PAUSE, &target.key(), &mut progress).await
         };
         let disk = self.disk.clone().lock_owned().await;
         if self.revision.load(Ordering::Acquire) != revision {
             return Err(Failure {
                 loaded: result
                     .as_ref()
-                    .map_or_else(|failure| failure.loaded, Vec::len),
+                    .map_or_else(|failure| failure.loaded, |(tracks, _)| tracks.len()),
                 error: ApiError::Invalid("playlist changed during loading".into()),
             });
         }
         match result {
-            Ok(tracks) => {
+            Ok((tracks, counts)) => {
                 let snapshot = Snapshot {
-                    version: 1,
+                    version: 2,
                     saved: now(),
                     tracks,
+                    counts: Some(counts),
                 };
                 let loaded = snapshot.tracks.len();
                 // A cancelled async caller cannot release the scan lock while
@@ -298,6 +496,8 @@ impl Library {
                 Ok(Loaded {
                     tracks: snapshot.tracks,
                     warning,
+                    counts: snapshot.counts,
+                    cached: false,
                 })
             }
             Err(failure) => {
@@ -310,6 +510,8 @@ impl Library {
                     let count = snapshot.tracks.len();
                     return Ok(Loaded {
                         tracks: snapshot.tracks,
+                        counts: snapshot.counts,
+                        cached: true,
                         warning: Some(format!(
                             "Couldn't refresh the complete playlist. Using the saved copy of {count} songs; recent changes may be missing. Try again later."
                         )),
@@ -344,7 +546,23 @@ impl Library {
     }
 }
 
+#[cfg(test)]
 async fn collect<F, Fut>(fetch: &mut F, pause: Duration) -> Result<Vec<Track>, Failure>
+where
+    F: FnMut(Option<String>) -> Fut,
+    Fut: Future<Output = Result<Part, ApiError>>,
+{
+    collect_with_progress(fetch, pause, "synthetic", &mut |_| {})
+        .await
+        .map(|(tracks, _)| tracks)
+}
+
+async fn collect_with_progress<F, Fut>(
+    fetch: &mut F,
+    pause: Duration,
+    key: &str,
+    progress: &mut impl FnMut(PlaylistLoad),
+) -> Result<(Vec<Track>, PlaylistCounts), Failure>
 where
     F: FnMut(Option<String>) -> Fut,
     Fut: Future<Output = Result<Part, ApiError>>,
@@ -352,6 +570,9 @@ where
     let mut tracks = Vec::new();
     let mut token = None;
     let mut tokens = HashSet::new();
+    let mut entries = HashSet::new();
+    let mut videos = HashSet::new();
+    let mut counts = PlaylistCounts::default();
     loop {
         let part = request(fetch, token.clone(), pause)
             .await
@@ -359,10 +580,30 @@ where
                 loaded: tracks.len(),
                 error,
             })?;
-        tracks.extend(part.tracks);
+        counts.rows += part.counts.rows;
+        counts.unavailable += part.counts.unavailable;
+        counts.unparsed += part.counts.unparsed;
+        counts.expected = counts.expected.or(part.counts.expected);
+        for track in part.tracks {
+            if let Some(id) = &track.set_video_id
+                && !entries.insert(id.clone())
+            {
+                counts.overlapping_entries += 1;
+                continue;
+            }
+            videos.insert(track.video_id.clone());
+            tracks.push(track);
+        }
+        progress(PlaylistLoad {
+            key: key.into(),
+            entries: tracks.len(),
+            unique_tracks: videos.len(),
+            counts: Some(counts.clone()),
+            ..Default::default()
+        });
         log::debug!("playlist scan: {} songs loaded", tracks.len());
         let Some(next) = part.next else {
-            return Ok(tracks);
+            return Ok((tracks, counts));
         };
         if !tokens.insert(next.clone()) {
             return Err(Failure {
@@ -434,7 +675,7 @@ async fn read(file: &Path) -> Option<Snapshot> {
     }
     let bytes = tokio::fs::read(file).await.ok()?;
     let snapshot: Snapshot = serde_json::from_slice(&bytes).ok()?;
-    (snapshot.version == 1 && snapshot.saved <= now()).then_some(snapshot)
+    ((1..=2).contains(&snapshot.version) && snapshot.saved <= now()).then_some(snapshot)
 }
 
 fn save_snapshot(file: &Path, snapshot: &Snapshot) -> anyhow::Result<()> {

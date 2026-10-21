@@ -20,6 +20,7 @@ mod now_playing;
 mod overlays;
 mod page;
 mod player;
+mod playlist_loading;
 mod queue;
 mod settings;
 mod sidebar;
@@ -75,6 +76,7 @@ pub fn root(app: &mut MusicApp, window: &mut Window, cx: &mut Context<MusicApp>)
         .overflow_hidden()
         .child(top_bar::top_bar(app, window, cx))
         .children(error_strip(app, cx))
+        .children(playlist_loading::banner(app, cx))
         .child(main);
     let root = v_flex()
         .key_context("Music")

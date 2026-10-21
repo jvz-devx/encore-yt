@@ -50,6 +50,13 @@ pub enum Command {
         start: Option<String>,
         shuffle: bool,
     },
+    /// Start the explicitly chosen song immediately, then complete its queue
+    /// without restarting its audio when the metadata scan finishes.
+    PlayPlaylistSong {
+        target: Target,
+        track: Track,
+    },
+    CancelPlaylistLoad,
     /// Explicit refresh: don't reuse the complete playlist snapshots.
     RefreshPlaylists,
     /// Play a song radio, playlist, album or mix through watch-next.

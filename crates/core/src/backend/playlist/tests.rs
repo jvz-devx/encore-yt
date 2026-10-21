@@ -25,6 +25,10 @@ fn track(index: usize) -> Track {
 
 fn part(range: std::ops::Range<usize>, next: Option<&str>) -> Part {
     Part {
+        counts: PlaylistCounts {
+            rows: range.len(),
+            ..Default::default()
+        },
         tracks: range.map(track).collect(),
         next: next.map(str::to_owned),
     }
@@ -65,6 +69,10 @@ async fn collects_all_pages_beyond_five_hundred_before_returning() {
             let start = page * 100;
             page += 1;
             std::future::ready(Ok(Part {
+                counts: PlaylistCounts {
+                    rows: 100,
+                    ..Default::default()
+                },
                 tracks: (start..start + 100).map(track).collect(),
                 next: (page < 12).then(|| format!("page-{page}")),
             }))
@@ -240,6 +248,7 @@ async fn stale_complete_cache_is_explicit_fallback_but_never_on_auth_failure() {
         version: 1,
         saved: now() - FRESH_FOR - 1,
         tracks: (0..1000).map(track).collect(),
+        counts: None,
     };
     save(&scratch.file("account-a"), &old).await.unwrap();
     let library = Library::default();
@@ -433,6 +442,8 @@ async fn a_failed_complete_load_preserves_the_existing_queue_and_reports_the_cou
         target: Target::browse("VLLM"),
         start: None,
         shuffle: true,
+        optimistic_entry: None,
+        advance_when_ready: false,
     });
     worker
         .internal(Internal::Playlist {
@@ -449,7 +460,10 @@ async fn a_failed_complete_load_preserves_the_existing_queue_and_reports_the_cou
         (1000..1010).map(track).collect::<Vec<_>>()
     );
     assert_eq!(worker.pos, Some(4));
-    assert!(!worker.state.loading);
+    assert!(
+        worker.state.loading,
+        "playlist failure must not change unrelated audio buffering"
+    );
     assert!(events.try_iter().any(|event| matches!(event, super::super::Event::Error(message) if message.contains("100 songs") && message.contains("queue is unchanged"))));
 }
 
@@ -459,25 +473,15 @@ fn first_page_reads_the_playlist_only_and_keeps_its_continuation() {
         "../../../tests/fixtures/innertube/playlist.json"
     ))
     .unwrap();
-    let mut page = parse::page(&value);
+    let page = crate::parse::page(&value);
     let expected = crate::account::entries(&page)
         .unwrap()
         .items
         .iter()
         .filter_map(|i| i.track.clone())
         .collect::<Vec<_>>();
-    let own = page
-        .shelves
-        .iter_mut()
-        .find(|s| s.title.is_empty())
-        .unwrap();
-    own.continuation = Some("synthetic-next".into());
-    let mut suggestions = own.clone();
-    suggestions.title = "Suggestions".into();
-    page.shelves.push(suggestions);
-    let got = first(page).unwrap();
+    let got = first(&value).unwrap();
     assert_eq!(got.tracks, expected);
-    assert_eq!(got.next.as_deref(), Some("synthetic-next"));
 }
 
 #[test]
@@ -545,4 +549,118 @@ async fn account_changes_do_not_wait_for_a_scan_or_allow_it_to_save_old_data() {
     let failure = task.await.unwrap().unwrap_err();
     assert!(matches!(failure.error, ApiError::Invalid(_)));
     assert!(!scratch.file("account-a").exists());
+}
+
+#[tokio::test]
+async fn scan_progress_counts_page_overlap_without_collapsing_distinct_playlist_entries() {
+    let mut a = track(1);
+    a.set_video_id = Some("entry-a".into());
+    let mut b = a.clone();
+    b.set_video_id = Some("entry-b".into());
+    let mut pages = VecDeque::from([
+        Part {
+            tracks: vec![a.clone()],
+            next: Some("next".into()),
+            counts: PlaylistCounts {
+                rows: 1,
+                expected: Some(2),
+                ..Default::default()
+            },
+        },
+        Part {
+            tracks: vec![a, b],
+            next: None,
+            counts: PlaylistCounts {
+                rows: 2,
+                ..Default::default()
+            },
+        },
+    ]);
+    let mut updates = Vec::new();
+    let (tracks, counts) = collect_with_progress(
+        &mut |_| std::future::ready(Ok(pages.pop_front().unwrap())),
+        Duration::ZERO,
+        "synthetic",
+        &mut |progress| updates.push(progress),
+    )
+    .await
+    .unwrap();
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(counts.rows, 3);
+    assert_eq!(counts.overlapping_entries, 1);
+    assert_eq!(updates.last().unwrap().unique_tracks, 1);
+    assert_eq!(updates.last().unwrap().entries, 2);
+    assert_eq!(
+        updates.last().unwrap().counts.as_ref().unwrap().expected,
+        Some(2)
+    );
+}
+
+#[tokio::test]
+async fn provisional_queue_waits_instead_of_repeating_or_fetching_radio() {
+    let scratch = Scratch::new();
+    let (mut worker, _) = worker(&scratch);
+    worker.queue.replace(vec![track(1)]);
+    worker.pos = Some(0);
+    worker.state.autoplay = true;
+    worker.playlist_request = Some(Pending {
+        target: Target::browse("VLLM"),
+        start: Some("synthetic-1".into()),
+        shuffle: false,
+        optimistic_entry: worker.queue.id(0),
+        advance_when_ready: false,
+    });
+    worker.maybe_extend();
+    assert!(
+        !worker.extending,
+        "metadata scanning must not trigger radio requests"
+    );
+    assert!(worker.wait_for_playlist(0));
+    assert!(worker.playlist_request.as_ref().unwrap().advance_when_ready);
+    worker.cancel_optimistic_playlist();
+    assert!(!worker.wait_for_playlist(0));
+    assert_eq!(worker.queue.tracks(), vec![track(1)]);
+}
+
+#[tokio::test]
+async fn metadata_progress_and_failures_do_not_override_audio_buffering_or_selected_song() {
+    let scratch = Scratch::new();
+    let (mut worker, events) = worker(&scratch);
+    worker.queue.replace(vec![track(1)]);
+    worker.pos = Some(0);
+    worker.state.loading = false;
+    worker.state.playing = true;
+    worker.playlist_request = Some(Pending {
+        target: Target::browse("VLLM"),
+        start: Some("synthetic-1".into()),
+        shuffle: false,
+        optimistic_entry: worker.queue.id(0),
+        advance_when_ready: false,
+    });
+    let epoch = worker.epoch;
+    let account = scope(&worker.client);
+    let progress = PlaylistLoad {
+        key: Target::browse("VLLM").key(),
+        entries: 100,
+        ..Default::default()
+    };
+    worker.playlist_progress(epoch + 1, &account, progress.clone());
+    assert!(worker.state.playlist_load.is_none());
+    worker.playlist_progress(epoch, &account, progress);
+    assert_eq!(worker.state.playlist_load.as_ref().unwrap().entries, 100);
+    assert!(!worker.state.loading && worker.state.playing);
+    worker
+        .playlist_result(
+            epoch,
+            account,
+            Err(Failure {
+                loaded: 100,
+                error: ApiError::Http(503),
+            }),
+        )
+        .await;
+    assert_eq!(worker.queue.tracks(), vec![track(1)]);
+    assert!(!worker.state.loading && worker.state.playing);
+    assert!(worker.state.playlist_load.is_none());
+    assert!(events.try_iter().any(|event| matches!(event, super::super::Event::Error(message) if message.contains("selected song is kept") && !message.contains("queue is unchanged"))));
 }

@@ -440,6 +440,7 @@ fn same_but_position(a: &Playback, b: &Playback) -> bool {
         index,
         playing,
         loading,
+        playlist_load,
         position: _,
         duration,
         volume,
@@ -460,6 +461,7 @@ fn same_but_position(a: &Playback, b: &Playback) -> bool {
     *index == b.index
         && *playing == b.playing
         && *loading == b.loading
+        && *playlist_load == b.playlist_load
         && *duration == b.duration
         && *volume == b.volume
         && *shuffle == b.shuffle

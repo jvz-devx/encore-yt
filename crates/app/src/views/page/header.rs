@@ -182,7 +182,23 @@ pub fn header(
                         .clone()
                         .map(|d| description(d, app.pages.expanded.contains(&ctx.key), ctx, cx)),
                 )
-                .child(actions),
+                .child(actions)
+                .children(
+                    app.player
+                        .playback
+                        .playlist_load
+                        .as_ref()
+                        .filter(|load| load.complete && load.key == ctx.key)
+                        .map(|load| {
+                            div()
+                                .mt(space::SM)
+                                .type_small()
+                                .tabular()
+                                .text_color(c.text_muted)
+                                .debug_selector(|| "playlist-summary".into())
+                                .child(crate::views::playlist_loading::summary(load))
+                        }),
+                ),
         )
         .into_any_element()
 }

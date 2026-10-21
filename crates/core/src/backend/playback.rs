@@ -76,6 +76,7 @@ impl super::Worker {
         if tracks.is_empty() {
             return;
         }
+        self.cancel_optimistic_playlist();
         if self.pos.is_none() {
             self.new_epoch();
             self.set_queue(tracks, 0);
@@ -284,6 +285,17 @@ impl super::Worker {
 
     pub(super) async fn next(&mut self, automatic: bool) {
         let Some(pos) = self.pos else { return };
+        if self.wait_for_playlist(pos) {
+            if self.casting() {
+                self.cast_control(super::casting::Request::Pause(true));
+            } else if let Some(player) = &self.main {
+                player.set_pause(true);
+            }
+            self.state.playing = false;
+            self.state.loading = false;
+            self.emit(true);
+            return;
+        }
         if self.decks.blending() {
             if !automatic {
                 // A manual Next during a blend completes it at once.
@@ -367,6 +379,9 @@ impl super::Worker {
     /// Autoplay: when the last track in the queue is playing, fetch a radio
     /// to follow it.
     pub(super) fn maybe_extend(&mut self) {
+        if self.provisional_playlist() {
+            return;
+        }
         let Some(pos) = self.pos else { return };
         if self.state.autoplay && !self.extending && pos + 1 >= self.queue.len() {
             self.extend(false);
@@ -562,62 +577,13 @@ impl super::Worker {
                 scope,
                 result,
             } => {
-                if epoch != self.epoch {
-                    return;
-                }
-                if scope != playlist::scope(&self.client) {
-                    self.cancel_playlist();
-                    return;
-                }
-                let Some(pending) = self.playlist_request.take() else {
-                    return;
-                };
-                let (start, shuffle) = pending.selection();
-                self.playlist_task = None;
-                match result {
-                    Ok(loaded) if !loaded.tracks.is_empty() => {
-                        let selected = start
-                            .as_ref()
-                            .and_then(|id| loaded.tracks.iter().position(|t| &t.video_id == id));
-                        if start.is_some() && selected.is_none() {
-                            self.state.loading = false;
-                            self.emit(true);
-                            self.sink.send(Event::Error("That song is no longer in the saved playlist. Refresh the playlist and try again. Your queue is unchanged.".into()));
-                            return;
-                        }
-                        if shuffle {
-                            self.state.shuffle = true;
-                        }
-                        let at = selected.unwrap_or_else(|| {
-                            if shuffle {
-                                fastrand::usize(..loaded.tracks.len())
-                            } else {
-                                0
-                            }
-                        });
-                        self.new_epoch();
-                        self.set_queue(loaded.tracks, at);
-                        if let Some(warning) = loaded.warning {
-                            self.sink.send(Event::Error(warning));
-                        }
-                        if let Some(pos) = self.pos {
-                            self.start(pos).await;
-                        }
-                    }
-                    Ok(_) => {
-                        self.state.loading = false;
-                        self.emit(true);
-                        self.sink.send(Event::Error(
-                            "There are no songs to play here. Your queue is unchanged.".into(),
-                        ));
-                    }
-                    Err(failure) => {
-                        self.state.loading = false;
-                        self.emit(true);
-                        self.sink.send(Event::Error(failure.message()));
-                    }
-                }
+                self.playlist_result(epoch, scope, result).await;
             }
+            Internal::PlaylistProgress {
+                epoch,
+                scope,
+                progress,
+            } => self.playlist_progress(epoch, &scope, progress),
             Internal::Extended {
                 epoch,
                 tracks,

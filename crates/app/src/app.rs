@@ -172,6 +172,12 @@ impl MusicApp {
     }
 
     pub fn send(&mut self, command: Command) {
+        if matches!(
+            &command,
+            Command::PlayPlaylist { .. } | Command::PlayPlaylistSong { .. }
+        ) {
+            self.error = None;
+        }
         self.sidebar_sent(&command);
         self.backend.send(command);
     }

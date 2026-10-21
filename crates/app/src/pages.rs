@@ -227,6 +227,14 @@ impl MusicApp {
     /// or open (or play) its target.
     pub fn activate_item(&mut self, item: &Item, shelf: &Shelf, cx: &mut Context<Self>) {
         if let Some(track) = &item.track {
+            if let Some(target) = self.playlist_page_target(shelf) {
+                self.send(Command::PlayPlaylist {
+                    target,
+                    start: Some(track.video_id.clone()),
+                    shuffle: false,
+                });
+                return;
+            }
             let tracks: Vec<Track> = shelf.items.iter().filter_map(|i| i.track.clone()).collect();
             let start = tracks
                 .iter()
@@ -254,6 +262,16 @@ impl MusicApp {
         let Some(page) = self.pages.states.get(key).and_then(|s| s.page.as_ref()) else {
             return;
         };
+        if let Some(target) = self.pages.states.get(key).map(|s| s.target.clone())
+            && matches!(&target, Target::Browse { id, .. } if id.starts_with("VL"))
+        {
+            self.send(Command::PlayPlaylist {
+                target,
+                start: None,
+                shuffle: false,
+            });
+            return;
+        }
         if let Some(play) = page.header.as_ref().and_then(|h| h.play.clone()) {
             self.activate(play, cx);
             return;
@@ -270,8 +288,25 @@ impl MusicApp {
         }
     }
 
+    /// Only the playlist's own song list, never Suggestions or Home shelves.
+    fn playlist_page_target(&self, shelf: &Shelf) -> Option<Target> {
+        let state = self.pages.states.get(&self.pages.view.target().key())?;
+        let Target::Browse { id, .. } = &state.target else {
+            return None;
+        };
+        if !id.starts_with("VL") {
+            return None;
+        }
+        let own = encore_core::account::entries(state.page.as_ref()?)?;
+        // Callers can hold a cloned shelf while handling an input event.
+        (own == shelf).then(|| state.target.clone())
+    }
+
     /// Asks for a page unless a fresh copy is loaded or loading.
     pub fn ensure_page(&mut self, target: Target, force: bool) {
+        if force && matches!(&target, Target::Browse { id, .. } if id.starts_with("VL")) {
+            self.backend.send(Command::RefreshPlaylists);
+        }
         let key = target.key();
         let needed = match self.pages.states.get(&key) {
             None => true,

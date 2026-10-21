@@ -18,6 +18,7 @@ mod casting;
 mod deck;
 mod pages;
 mod playback;
+mod playlist;
 mod protocol;
 mod queue;
 mod resume;
@@ -181,6 +182,11 @@ enum Internal {
         epoch: u64,
         result: Result<WatchNext, String>,
     },
+    Playlist {
+        epoch: u64,
+        scope: String,
+        result: Result<playlist::Loaded, playlist::Failure>,
+    },
     /// More queue: a long playlist's next page, or the autoplay radio.
     Extended {
         epoch: u64,
@@ -252,6 +258,9 @@ struct Worker {
     generation: u64,
     /// Bumped whenever a play request replaces the queue.
     epoch: u64,
+    playlists: Arc<playlist::Library>,
+    playlist_task: Option<tokio::task::JoinHandle<()>>,
+    playlist_request: Option<playlist::Pending>,
     retried: bool,
     /// Songs that failed one after the other; at three
     /// playback stops instead of skipping on through the queue.
@@ -319,6 +328,9 @@ impl Worker {
             current_entry: None,
             generation: 0,
             epoch: 0,
+            playlists: Arc::default(),
+            playlist_task: None,
+            playlist_request: None,
             retried: false,
             failed_in_row: 0,
             reported: false,
@@ -383,6 +395,7 @@ impl Worker {
                 }
             }
         }
+        self.cancel_playlist();
         self.save_session(true);
         if let Some(remote) = self.cast.remote.take() {
             remote.shutdown().await;
@@ -485,6 +498,18 @@ impl Worker {
                 }
             }
             Command::PlayTarget(target) => {
+                // Saved Liked music cards have a watch target, even though
+                // the page has no Play endpoint of its own.
+                if let Target::Watch {
+                    playlist_id: Some(id),
+                    video_id,
+                    ..
+                } = &target
+                    && !id.starts_with("RD")
+                {
+                    self.play_playlist(Target::browse(format!("VL{id}")), video_id.clone(), false);
+                    return;
+                }
                 let epoch = self.new_epoch();
                 self.decks.radio = deck::is_radio(&target);
                 self.state.loading = true;
@@ -531,6 +556,26 @@ impl Worker {
                         }
                     }
                 });
+            }
+            Command::PlayPlaylist {
+                target,
+                start,
+                shuffle,
+            } => {
+                self.play_playlist(target, start, shuffle);
+            }
+            Command::RefreshPlaylists => {
+                self.cancel_playlist();
+                let library = self.playlists.clone();
+                let directory = self.paths.cache.join("playlists");
+                let scope = playlist::scope(&self.client);
+                let sink = self.sink.clone();
+                if let Err(error) = library.invalidate(&directory, &scope).await {
+                    log::warn!("refreshing complete playlist cache: {error}");
+                    sink.send(Event::Error(
+                        "Couldn't refresh the saved playlists. Try again.".into(),
+                    ));
+                }
             }
             Command::TogglePause => {
                 if self.casting() {
@@ -697,6 +742,7 @@ impl Worker {
             }
             Command::ClearUpcoming => {
                 if self.pos.is_some() {
+                    self.cancel_playlist();
                     // Pages of the list and radio still on their way don't refill it.
                     self.epoch += 1;
                     self.extending = false;

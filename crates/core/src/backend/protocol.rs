@@ -43,6 +43,15 @@ pub enum Command {
         tracks: Vec<Track>,
         start: usize,
     },
+    /// Load every song of a playlist, using its complete disk snapshot when
+    /// fresh. A selected song starts first; explicit shuffle picks one randomly.
+    PlayPlaylist {
+        target: Target,
+        start: Option<String>,
+        shuffle: bool,
+    },
+    /// Explicit refresh: don't reuse the complete playlist snapshots.
+    RefreshPlaylists,
     /// Play a song radio, playlist, album or mix through watch-next.
     PlayTarget(Target),
     TogglePause,

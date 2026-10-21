@@ -178,6 +178,16 @@ impl MusicApp {
     /// Plays, queues, shuffles or starts the radio of a page's music,
     /// loading the page (and the rest of a long playlist) first.
     pub fn play_from_page(&mut self, page: Target, how: FromPage, cx: &mut Context<Self>) {
+        if matches!(&page, Target::Browse { id, .. } if id.starts_with("VL"))
+            && matches!(how, FromPage::Play | FromPage::Shuffle)
+        {
+            self.send(Command::PlayPlaylist {
+                target: page,
+                start: None,
+                shuffle: how == FromPage::Shuffle,
+            });
+            return;
+        }
         self.ensure_page(page.clone(), false);
         let pending = Pending {
             page,

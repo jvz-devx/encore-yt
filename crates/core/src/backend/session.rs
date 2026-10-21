@@ -2,6 +2,7 @@ use super::*;
 
 impl super::Worker {
     pub(super) fn connect(&mut self) {
+        self.cancel_playlist();
         // Stand-in checks must never inspect browser credentials or sign in,
         // including Firefox profiles stored outside XDG_CONFIG_HOME.
         let check = encore_cast::discovery::Policy::from_env();

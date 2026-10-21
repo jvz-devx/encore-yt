@@ -2,6 +2,7 @@
 //! title, linked subtitle, second subtitle, a description that opens up in
 //! full, and Play, Shuffle, Radio and the account's actions.
 
+use encore_core::backend::Command;
 use encore_core::model::{Header, Target};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, v_flex};
@@ -29,7 +30,16 @@ pub fn header(
     cx: &mut Context<MusicApp>,
 ) -> AnyElement {
     let c = &ctx.c;
-    let plain = header.thumbnail.is_none() && header.play.is_none() && header.subtitle.is_empty();
+    let playlist = app
+        .pages
+        .states
+        .get(&ctx.key)
+        .map(|s| s.target.clone())
+        .filter(|t| matches!(t, Target::Browse { id, .. } if id.starts_with("VL")));
+    let plain = playlist.is_none()
+        && header.thumbnail.is_none()
+        && header.play.is_none()
+        && header.subtitle.is_empty();
     let title = div()
         .type_display()
         .line_clamp(2)
@@ -72,6 +82,7 @@ pub fn header(
             Pill::Primary,
             c,
         )
+        .debug_selector(|| "header-play".into())
         .on_click(cx.listener(move |this, _, _, cx| this.play_page(&key, cx)))
         .map(|el| match first_song {
             Some(want) => super::intent::report(el, want, cx),
@@ -86,11 +97,35 @@ pub fn header(
             Pill::Secondary,
             c,
         )
-        .on_click(cx.listener(move |this, _, _, cx| this.activate(target.clone(), cx)))
+        .debug_selector(move || id.into())
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if id == "header-shuffle"
+                && matches!(&target, Target::Browse { id, .. } if id.starts_with("VL"))
+            {
+                this.send(Command::PlayPlaylist {
+                    target: target.clone(),
+                    start: None,
+                    shuffle: true,
+                });
+            } else {
+                this.activate(target.clone(), cx);
+            }
+        }))
     };
-    let shuffle = header
-        .shuffle
-        .clone()
+    let refresh = playlist.as_ref().map(|_| {
+        let key = ctx.key.clone();
+        widgets::pill_button(
+            "header-refresh",
+            "Refresh",
+            Some(widgets::icon(IconName::RefreshCw, size::ICON_SM, c.text)),
+            Pill::Secondary,
+            c,
+        )
+        .debug_selector(|| "header-refresh".into())
+        .on_click(cx.listener(move |this, _, _, cx| this.retry_page(&key, cx)))
+    });
+    let shuffle = playlist
+        .or_else(|| header.shuffle.clone())
         .map(|t| secondary("header-shuffle", "Shuffle", IconName::Shuffle, t));
     let radio = header
         .radio
@@ -98,10 +133,12 @@ pub fn header(
         .map(|t| secondary("header-radio", "Radio", IconName::Radio, t));
     let actions = h_flex()
         .mt(space::LG)
+        .flex_wrap()
         .gap(space::SM)
         .children(play)
         .children(shuffle)
         .children(radio)
+        .children(refresh)
         .children(crate::views::account::header_actions(app, header, cx));
     h_flex()
         .w_full()

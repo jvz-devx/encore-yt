@@ -32,6 +32,8 @@ impl super::Worker {
                 self.client.clone(),
                 self.sink.clone(),
                 self.internal_tx.clone(),
+                self.playlists.clone(),
+                self.paths.cache.join("playlists"),
                 rx,
             ));
             tx
@@ -63,9 +65,12 @@ async fn writer(
     client: Arc<Client>,
     sink: Sink,
     internal: mpsc::UnboundedSender<Internal>,
+    playlists: Arc<super::playlist::Library>,
+    directory: std::path::PathBuf,
     mut writes: mpsc::Receiver<Write>,
 ) {
     while let Some(Write { op, edit, refresh }) = writes.recv().await {
+        let scope = super::playlist::scope(&client);
         let started = Instant::now();
         let what = format!("{edit:?}");
         let result = match run(&client, edit).await {
@@ -90,6 +95,10 @@ async fn writer(
             started.elapsed().as_secs_f64()
         );
         let ok = result.is_ok();
+        if ok && let Err(error) = playlists.invalidate(&directory, &scope).await {
+            log::warn!("invalidating complete playlist cache: {error}");
+            sink.send(Event::Error("The change was saved, but the playlist cache couldn't be refreshed. Refresh the playlist before playing it again.".into()));
+        }
         sink.send(Event::AccountEdited { op, result });
         // The refetch waits for YouTube Music to list the change; the next
         // write doesn't wait for it.

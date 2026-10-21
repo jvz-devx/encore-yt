@@ -16,6 +16,7 @@ mod keys;
 mod menu;
 mod motion;
 mod player;
+mod playlist;
 mod prefetch;
 mod search;
 mod settings;

@@ -6,6 +6,7 @@ pub(super) const FAILURES_TO_STOP: u32 = 3;
 impl super::Worker {
     /// A play request replaces the queue: results of earlier ones no longer apply.
     pub(super) fn new_epoch(&mut self) -> u64 {
+        self.cancel_playlist();
         self.epoch += 1;
         self.extending = false;
         self.advance_pending = false;
@@ -312,6 +313,10 @@ impl super::Worker {
             }
             self.start(pos + 1).await;
         } else if self.state.repeat == Repeat::All && !self.queue.is_empty() {
+            if self.state.shuffle {
+                self.queue.shuffle_cycle(pos);
+                self.send_queue();
+            }
             self.start(0).await;
         } else if self.state.autoplay {
             // Continue with radio for the last track; play it as soon as it arrives.
@@ -549,6 +554,67 @@ impl super::Worker {
                         self.emit(true);
                         self.sink
                             .send(Event::Error(format!("Couldn't start playback: {error}")));
+                    }
+                }
+            }
+            Internal::Playlist {
+                epoch,
+                scope,
+                result,
+            } => {
+                if epoch != self.epoch {
+                    return;
+                }
+                if scope != playlist::scope(&self.client) {
+                    self.cancel_playlist();
+                    return;
+                }
+                let Some(pending) = self.playlist_request.take() else {
+                    return;
+                };
+                let (start, shuffle) = pending.selection();
+                self.playlist_task = None;
+                match result {
+                    Ok(loaded) if !loaded.tracks.is_empty() => {
+                        let selected = start
+                            .as_ref()
+                            .and_then(|id| loaded.tracks.iter().position(|t| &t.video_id == id));
+                        if start.is_some() && selected.is_none() {
+                            self.state.loading = false;
+                            self.emit(true);
+                            self.sink.send(Event::Error("That song is no longer in the saved playlist. Refresh the playlist and try again. Your queue is unchanged.".into()));
+                            return;
+                        }
+                        if shuffle {
+                            self.state.shuffle = true;
+                        }
+                        let at = selected.unwrap_or_else(|| {
+                            if shuffle {
+                                fastrand::usize(..loaded.tracks.len())
+                            } else {
+                                0
+                            }
+                        });
+                        self.new_epoch();
+                        self.set_queue(loaded.tracks, at);
+                        if let Some(warning) = loaded.warning {
+                            self.sink.send(Event::Error(warning));
+                        }
+                        if let Some(pos) = self.pos {
+                            self.start(pos).await;
+                        }
+                    }
+                    Ok(_) => {
+                        self.state.loading = false;
+                        self.emit(true);
+                        self.sink.send(Event::Error(
+                            "There are no songs to play here. Your queue is unchanged.".into(),
+                        ));
+                    }
+                    Err(failure) => {
+                        self.state.loading = false;
+                        self.emit(true);
+                        self.sink.send(Event::Error(failure.message()));
                     }
                 }
             }

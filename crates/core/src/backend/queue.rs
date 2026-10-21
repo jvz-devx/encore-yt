@@ -222,6 +222,16 @@ impl Queue {
         0
     }
 
+    /// A fresh repeat-all cycle, without immediately repeating the last song.
+    pub fn shuffle_cycle(&mut self, previous: usize) {
+        let previous = self.id(previous);
+        fastrand::shuffle(&mut self.entries);
+        if self.entries.len() > 1 && self.id(0) == previous {
+            let other = fastrand::usize(1..self.entries.len());
+            self.entries.swap(0, other);
+        }
+    }
+
     /// Back to list order; returns the new position of `current`.
     pub fn unshuffle(&mut self, current: usize) -> usize {
         let current_id = self.id(current);
@@ -281,5 +291,47 @@ impl Queue {
             .map(|&i| queue.entries[i].id)
             .collect();
         Some(queue)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "synthetic queue assertions")]
+mod tests {
+    use super::*;
+
+    fn tracks() -> Vec<Track> {
+        (0..1200)
+            .map(|i| Track {
+                video_id: i.to_string(),
+                title: String::new(),
+                artists: Vec::new(),
+                album: None,
+                thumbnail: None,
+                duration: None,
+                like: None,
+                set_video_id: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shuffle_and_repeat_cycles_keep_the_whole_playlist_once_per_cycle() {
+        let mut queue = Queue::default();
+        queue.replace(tracks());
+        queue.shuffle(0);
+        for _ in 0..30 {
+            let last = queue.track(queue.len() - 1).unwrap().video_id.clone();
+            queue.shuffle_cycle(queue.len() - 1);
+            assert_ne!(queue.track(0).unwrap().video_id, last);
+            let mut ids: Vec<_> = queue
+                .tracks()
+                .iter()
+                .map(|t| t.video_id.parse::<usize>().unwrap())
+                .collect();
+            ids.sort_unstable();
+            assert_eq!(ids, (0..1200).collect::<Vec<_>>());
+        }
+        queue.unshuffle(0);
+        assert_eq!(queue.tracks(), tracks());
     }
 }
